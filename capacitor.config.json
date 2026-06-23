@@ -1,0 +1,11 @@
+{
+  "appId": "com.servankrall.yuzgunormanda",
+  "appName": "100 Gun Ormanda",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#05080a"
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

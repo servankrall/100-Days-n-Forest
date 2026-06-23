@@ -1,5 +1,11 @@
 node_modules/
 dist/
+www/
+android/
+.gradle/
+*.apk
+*.aab
+*.keystore
 *.log
 .DS_Store
 npm-debug.log*

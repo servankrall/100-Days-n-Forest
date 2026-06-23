@@ -3,30 +3,29 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>100 GÜN ORMANDA — 3B Hayatta Kalma</title>
-<link rel="stylesheet" href="app.css">
-<script type="importmap">
-{
-  "imports": {
-    "three": "./node_modules/three/build/three.module.js"
-  }
-}
-</script>
+<meta name="theme-color" content="#05080a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>100 GÜN ORMANDA — Hayatta Kal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Creepster&family=Special+Elite&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="game-root">
-  <canvas id="three"></canvas>
-  <canvas id="fx"></canvas> <!-- jumpscare / 2B efekt katmanı -->
 
-  <!-- nişangah -->
-  <div id="crosshair" class="hidden">+</div>
+<div id="game-root">
+  <canvas id="game"></canvas>
 
   <!-- ======================= HUD ======================= -->
   <div id="hud" class="hidden">
     <div id="topbar">
       <div id="dayCounter">GÜN <span id="dayNum">1</span> / 100</div>
-      <div id="clock"><span id="phaseIcon">☀️</span> <span id="phaseText">Şafak</span></div>
+      <div id="clock">
+        <span id="phaseIcon">☀️</span>
+        <span id="phaseText">Şafak</span>
+      </div>
     </div>
+
     <div id="stats">
       <div class="stat"><span class="stat-ico">❤️</span><div class="bar"><div id="bar-health" class="fill health"></div></div></div>
       <div class="stat"><span class="stat-ico">🍖</span><div class="bar"><div id="bar-hunger" class="fill hunger"></div></div></div>
@@ -34,12 +33,16 @@
       <div class="stat"><span class="stat-ico">🧠</span><div class="bar"><div id="bar-sanity" class="fill sanity"></div></div></div>
       <div class="stat"><span class="stat-ico">⚡</span><div class="bar"><div id="bar-stamina" class="fill stamina"></div></div></div>
     </div>
+
     <div id="inventory">
       <div class="inv"><span>🪵</span><b id="inv-wood">0</b></div>
       <div class="inv"><span>🥩</span><b id="inv-raw">0</b></div>
       <div class="inv"><span>🍗</span><b id="inv-cooked">0</b></div>
+      <div class="inv"><span>🫐</span><b id="inv-berry">0</b></div>
     </div>
-    <div id="compass" class="hidden">🔥 <span id="compassDist"></span></div>
+
+    <div id="compass" class="hidden">🔥 <span id="compassArrow">↑</span> <span id="compassDist"></span></div>
+
     <div id="toasts"></div>
     <div id="prompt" class="hidden"></div>
     <div id="whisper" class="hidden"></div>
@@ -47,8 +50,9 @@
 
   <!-- ======================= MOBILE CONTROLS ======================= -->
   <div id="mobile" class="hidden">
-    <div id="joy-zone"><div id="joy-base"><div id="joy-stick"></div></div></div>
-    <div id="look-zone"></div>
+    <div id="joy-zone">
+      <div id="joy-base"><div id="joy-stick"></div></div>
+    </div>
     <div id="btns">
       <button class="mbtn big" id="btn-action">VUR</button>
       <button class="mbtn" id="btn-fire">🔥</button>
@@ -57,41 +61,48 @@
     </div>
   </div>
 
-  <!-- ======================= START ======================= -->
+  <!-- ======================= START SCREEN ======================= -->
   <div id="start" class="overlay">
     <div class="panel">
       <h1 class="title-creep">100 GÜN ORMANDA</h1>
-      <p class="subtitle">Amazon'un derinliklerinde 3B hayatta kal... eğer <i>o</i> izin verirse.</p>
-      <div class="warn">⚠️ JUMP SCARE ve ani yüksek sesler içerir. Kulaklık + ses açık önerilir.</div>
+      <p class="subtitle">Amazon'un derinliklerinde hayatta kal... eğer <i>o</i> izin verirse.</p>
+      <div class="warn">⚠️ Bu oyun JUMP SCARE ve ani yüksek sesler içerir. Sesi açmanız önerilir.</div>
+
       <div class="howto">
         <div class="howcol">
           <h3>🖥️ PC</h3>
           <ul>
-            <li><b>Tıkla</b> — fareyi kilitle / etrafa bak</li>
-            <li><b>WASD</b> — hareket, <b>Shift</b> — koş</li>
-            <li><b>Sol tık / E</b> — vur (odun, av)</li>
-            <li><b>F</b> — ateş yak / odun ekle</li>
-            <li><b>G</b> — ye, <b>Esc</b> — fareyi bırak</li>
+            <li><b>WASD / Oklar</b> — Hareket</li>
+            <li><b>Shift</b> — Koş</li>
+            <li><b>E / Boşluk</b> — Vur (odun kes / avlan)</li>
+            <li><b>F</b> — Ateş yak / odun ekle</li>
+            <li><b>G</b> — Ye</li>
+            <li><b>Fareyle baktığın yön</b> — Etrafı izle</li>
           </ul>
         </div>
         <div class="howcol">
           <h3>📱 Mobil</h3>
           <ul>
-            <li><b>Sol joystick</b> — hareket</li>
-            <li><b>Sağ ekranı sürükle</b> — bakış</li>
-            <li><b>VUR</b> — odun kes / avlan</li>
-            <li><b>🔥</b> ateş · <b>🍗</b> ye · <b>KOŞ</b></li>
+            <li><b>Sol joystick</b> — Hareket & bakış</li>
+            <li><b>VUR</b> — Odun kes / avlan</li>
+            <li><b>🔥</b> — Ateş yak / odun ekle</li>
+            <li><b>🍗</b> — Ye</li>
+            <li><b>KOŞ</b> — Hızlan</li>
           </ul>
         </div>
       </div>
-      <div class="goal">🎯 <b>100 gün</b> hayatta kal. Odun kes, ateş yak, et pişir, akıl sağlığını koru.
-        Geceleri ağaçların arasında seni izleyen <b>uzun, kanlı bir şey</b> belirir — <b>ona bakarsan kaybolur.</b></div>
+
+      <div class="goal">
+        🎯 Hedef: <b>100 gün</b> hayatta kal. Açlığını doyur, ateşini söndürme, geceleri sıcak ve <b>akıl sağlığını</b> koru.
+        Karanlıkta yalnız değilsin... ağaçların arasında seni izleyen <b>uzun, kanlı bir şey</b> var. Ona bakarsan kaybolur.
+      </div>
+
       <button id="startBtn" class="bigbtn">🌙 BAŞLA</button>
       <button id="audioToggleStart" class="minibtn">🔊 Ses: AÇIK</button>
-      <div id="loadNote" class="loadnote"></div>
     </div>
   </div>
 
+  <!-- ======================= GAME OVER ======================= -->
   <div id="gameover" class="overlay hidden">
     <div class="panel dead">
       <h1 class="title-creep red">ÖLDÜN</h1>
@@ -101,6 +112,7 @@
     </div>
   </div>
 
+  <!-- ======================= WIN ======================= -->
   <div id="win" class="overlay hidden">
     <div class="panel win">
       <h1 class="title-creep gold">100 GÜN!</h1>
@@ -109,13 +121,10 @@
     </div>
   </div>
 
+  <!-- Pause hint -->
   <button id="pauseBtn" class="hidden">⏸</button>
 </div>
 
-<script type="module" src="./src/game3d.js"></script>
-<script nomodule>
-  document.getElementById("loadNote").textContent =
-    "Tarayıcın ES modüllerini desteklemiyor. Lütfen güncel bir sürüm kullan ya da uygulamayı 'npm start' ile çalıştır.";
-</script>
+<script src="game.js"></script>
 </body>
 </html>

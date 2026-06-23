@@ -1,0 +1,39 @@
+{
+  "name": "100-gun-ormanda",
+  "productName": "100 Gün Ormanda",
+  "version": "1.0.0",
+  "description": "Amazon ormanında 3B hayatta kalma-korku oyunu — masaüstü uygulaması (Three.js + Electron, Unity yok).",
+  "main": "main.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux",
+    "dist:mac": "electron-builder --mac"
+  },
+  "author": "servankrall",
+  "license": "MIT",
+  "dependencies": {
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.servankrall.yuzgunormanda",
+    "productName": "100 Gun Ormanda",
+    "files": [
+      "main.js",
+      "index.html",
+      "app.css",
+      "src/**/*",
+      "assets/**/*",
+      "node_modules/three/build/three.module.js"
+    ],
+    "win": { "target": "nsis", "artifactName": "100GunOrmanda-Setup-${version}.${ext}" },
+    "linux": { "target": "AppImage", "category": "Game" },
+    "mac": { "target": "dmg", "category": "public.app-category.games" }
+  }
+}

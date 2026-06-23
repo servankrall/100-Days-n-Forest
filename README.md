@@ -1,27 +1,38 @@
-# 🌴 100 GÜN ORMANDA — Amazon Survival Horror
+# 🌴🔪 100 GÜN ORMANDA — 3B Survival Horror (Masaüstü Uygulaması)
 
-Amazon ormanının derinliklerinde **100 gün** hayatta kalmaya çalıştığın, atmosferik ve
-**korkutucu** bir hayatta kalma–macera oyunu. Tarayıcıda çalışır — **kurulum yok**, hem
-**PC** hem **mobil** (telefon/tablet) destekler.
+Amazon ormanının derinliklerinde **100 gün** hayatta kalmaya çalıştığın, **gerçek 3B**,
+ilk-şahıs, atmosferik ve **korkutucu** bir hayatta kalma-macera oyunu.
 
-> ⚠️ **UYARI:** Bu oyun bilinçli olarak **jump scare** ve ani yüksek sesler içerir.
-> Korku öğeleri tasarımın merkezindedir. Sesi açık oynaman önerilir.
+> Bu bir **website değil** — gerçek bir **uygulama**. Three.js (WebGL 3B) ile yapılıp
+> **Electron** ile native masaüstü uygulamasına paketlenir (Discord / VS Code gibi).
+> **Unity kullanılmadı.** Çift tıklayıp açılan bir `.exe` / `.AppImage` / `.dmg` üretir.
+
+> ⚠️ **UYARI:** Oyun bilinçli **jump scare** ve ani yüksek sesler içerir. Korku öğeleri
+> tasarımın merkezindedir. Kulaklık + ses açık önerilir.
 
 ---
 
-## ▶️ Nasıl Oynanır
+## ▶️ Çalıştırma (Masaüstü Uygulaması)
 
-Hiçbir şey kurmana gerek yok. Sadece dosyayı tarayıcıda aç:
+Gereken tek şey [Node.js](https://nodejs.org) (18+).
 
 ```bash
-# Proje klasöründe basit bir sunucu başlat (önerilir):
-python3 -m http.server 8000
-# sonra tarayıcıda aç:  http://localhost:8000
+npm install      # Three.js + Electron'u indirir
+npm start        # oyunu native bir pencerede açar
 ```
 
-Ya da doğrudan `index.html` dosyasını çift tıklayarak tarayıcıda açabilirsin.
-Telefonda oynamak için: aynı ağdaki bilgisayarın IP'sini kullan (`http://<pc-ip>:8000`)
-veya dosyaları bir statik hosting'e (GitHub Pages, Netlify vb.) koy.
+İlk açılışta **BAŞLA**'ya bas; fare ekrana kilitlenir (Esc ile bırakılır).
+
+### Kurulabilir dosya (.exe / .AppImage / .dmg) üretmek
+
+```bash
+npm run dist          # bulunduğun işletim sistemi için
+npm run dist:win      # Windows kurulum sihirbazı (.exe)
+npm run dist:linux    # Linux (.AppImage)
+npm run dist:mac      # macOS (.dmg)
+```
+
+Çıktılar `dist/` klasöründe oluşur.
 
 ---
 
@@ -29,90 +40,94 @@ veya dosyaları bir statik hosting'e (GitHub Pages, Netlify vb.) koy.
 
 | Aksiyon | 🖥️ PC | 📱 Mobil |
 |---|---|---|
-| Hareket | `W A S D` / Ok tuşları | Sol **joystick** |
-| Bakış yönü | **Fare** (etrafına bak) | Joystick yönü |
+| Etrafa bak | **Tıkla** (fareyi kilitle) + fareyi oynat | Sağ ekranı **sürükle** |
+| Hareket | `W A S D` | Sol **joystick** |
 | Koş | `Shift` | **KOŞ** butonu |
-| Vur (odun kes / avlan) | `E` veya `Boşluk` / Sol tık | **VUR** butonu |
+| Vur (odun kes / avlan) | **Sol tık** veya `E` | **VUR** butonu |
 | Ateş yak / odun ekle | `F` | **🔥** butonu |
 | Ye | `G` | **🍗** butonu |
-| Duraklat | `Esc` | ⏸ butonu |
+| Fareyi bırak / Duraklat | `Esc` / ⏸ | ⏸ butonu |
+| Tam ekran / Konsol | `F11` / `F12` | — |
 
-> 👁️ **İPUCU:** Ağaçların arasında seni izleyen **uzun, kanlı adama** doğru **bak** — o
-> zaman kaybolur. Ona sırtını dönersen akıl sağlığını emer.
+> 👁️ **İPUCU:** Geceleri ağaçların arasında seni izleyen **uzun, kanlı adama** doğru
+> nişan al / **bak** — o zaman kaybolur. Bakmazsan akıl sağlığını emer ve üstüne atlar.
 
 ---
 
-## 🎯 Amaç ve Mekanikler
+## 🎯 Amaç & Mekanikler
 
-- **100 gün hayatta kal.** Her gün-gece döngüsü geçtikçe sayaç artar; 100. günü
-  tamamlarsan kazanırsın.
-- **5 hayatta kalma çubuğu** dengede tutulmalı:
-  - ❤️ **Sağlık** — sıfırlanırsa ölürsün.
-  - 🍖 **Açlık** — düşerse sağlığın erir. Et ve yaban mersini ye.
-  - 🔥 **Sıcaklık** — geceleri düşer, ateş başında yükselir. Donma öldürür.
-  - 🧠 **Akıl Sağlığı** — karanlık, yalnızlık ve **İzleyen** düşürür; ateş başında
-    iyileşir. Sıfırlanırsa kâbus başlar ve sağlığın erir.
-  - ⚡ **Enerji** — koşunca tükenir.
-- **Odun kes** 🪓 → ağaçlara vur, odun topla.
-- **Ateş yak** 🔥 → 5 odunla kamp ateşi kur. Ateş ışık + sıcaklık + akıl sağlığı verir,
+- **100 gün hayatta kal.** Gerçek 3B gündüz-gece döngüsü; 100. günü tamamla = kazandın.
+- **5 hayatta kalma çubuğu:** ❤️ Sağlık · 🍖 Açlık · 🔥 Sıcaklık · 🧠 Akıl Sağlığı · ⚡ Enerji.
+- **Odun kes** → ağaca bak ve VUR. **Ateş yak** (5 odun) → ışık, sıcaklık, akıl sağlığı,
   jaguarları korkutur ve **çiğ eti pişirir** (ateşin yanında dur).
-- **Avlan** ⚔️ → kapibara, geyik, tapir avla; yaban domuzu sana saldırır; geceleri
-  **jaguar** seni avlamaya gelir (gerçek tehlike!).
-- **Ye** 🍗 → pişmiş et en iyisi; çiğ et seni hasta edebilir.
-
----
+- **Avlan:** kapibara, geyik, tapir; yaban domuzu saldırır; geceleri **jaguar** seni avlar.
+- **Ye:** pişmiş et en iyisi; çiğ et seni hasta edebilir.
 
 ## 👁️ Korku Sistemi
 
-- **İzleyen (uzun, kanlı adam):** Bazı günler — özellikle **geceleri** — ağaçların
-  arasında, hareketsiz, sana bakarak belirir. **Ona baktığın an kaybolur.** Bakmazsan
-  yaklaşır, akıl sağlığını emer ve yeterince yaklaşırsa üzerine **atlar (jumpscare)**.
-  Akıl sağlığın düştükçe daha sık gelir.
-- **Gece jump scare'leri:** Karanlıkta, akıl sağlığın düşükken aniden ekranı kaplayan
-  korkunç bir yüz + çığlık sesi + ekran sarsıntısı. İlk gece garantili bir korkutma seni
-  bekliyor.
-- **Atmosfer:** Dar görüş çemberi, dinamik karanlık, kalp atışı (tehlike yaklaşınca
-  hızlanır), fısıltılar, akıl sağlığı düşünce ekran bozulması, prosedürel ses motoru
-  (ortam uğultusu, rüzgar, ateş çıtırtısı, hırıltı).
+- **İzleyen (uzun, kanlı adam):** Geceleri ağaçların arasında, hareketsiz, sana bakarak
+  belirir — **3B'de doğrudan ona baktığında kaybolur.** Bakmazsan yaklaşır, akıl sağlığını
+  emer ve yeterince yaklaşınca **üstüne atlar (jumpscare).**
+- **Gece jump scare'leri:** Ekranı kaplayan kanlı yüz + çığlık + ekran sarsıntısı.
+  İlk gece **garantili** bir korkutma seni bekliyor.
+- **Atmosfer:** Yoğun gece sisi, kafa lambası ışığıyla dar görüş, kalp atışı (tehlike
+  yaklaşınca hızlanır), fısıltılar, akıl sağlığı düşünce ekran bozulması, tamamen
+  **prosedürel** ses motoru (uğultu, rüzgar, ateş çıtırtısı, hırıltı, çığlık).
 
 ---
 
-## 🛠️ Teknik
-
-- **Saf JavaScript + HTML5 Canvas 2D.** Çerçeve/derleme gerektirmez, bağımlılık yok.
-- **Web Audio API** ile tüm sesler **prosedürel** üretilir (ses dosyası yok → hızlı yüklenir).
-- Tek dosya motor: `game.js`. Arayüz: `index.html` + `style.css`.
-- Mobil + masaüstü duyarlı; dokunmatik ve klavye/fare otomatik algılanır.
+## 🗂️ Proje Yapısı
 
 ```
 .
-├── index.html   # arayüz, HUD, menüler, mobil kontroller
-├── style.css    # karanlık korku teması, mobil uyumlu
-└── game.js      # oyun motoru: hayatta kalma + korku + ses
+├── package.json     # bağımlılıklar + electron-builder ayarları
+├── main.js          # Electron ana süreç (native pencere)
+├── index.html       # uygulama arayüzü (importmap → yerel Three.js)
+├── app.css          # karanlık korku teması, mobil uyumlu
+├── src/
+│   └── game3d.js    # 3B oyun motoru: orman + hayatta kalma + korku + ses
+├── assets/          # (ikon vb. — isteğe bağlı)
+└── web-2d/          # hafif 2B tarayıcı sürümü (yedek/hızlı oyna)
 ```
 
+- **Bağımlılık:** sadece `three` (çalışma) + `electron`, `electron-builder` (geliştirme).
+- 3B render: Three.js / WebGL. Sesler Web Audio API ile prosedürel (ses dosyası yok).
+- `index.html` `three`'yi **import map** ile yerel `node_modules`'tan yükler — paketleyici (bundler) gerekmez.
+
 ---
 
-## 🌐 "Crossplay / Multiplayer" Hakkında (Dürüst Not)
+## 📱 Mobil Uygulama (Android APK) — Sıradaki Adım
 
-Şu an oyun **tek cihazda** oynanır ama **her platformda** çalışır: aynı oyun PC
-tarayıcısında da, telefon tarayıcısında da açılır (gerçek **cross-platform** budur —
-kurulum yok). Arkadaşlarınla aynı dünyada **gerçek zamanlı 5 kişilik ağ üzerinden co-op**
-ise bir **sunucu/eşler-arası bağlantı** gerektirir; bunu sağlam yapmadan eklemek istemedim.
+Aynı 3B kod **dokunmatik** kontrolleri (joystick + sürükleyerek bakış) zaten içeriyor.
+Android `.apk` üretmek için (Android Studio / SDK gerektirir):
 
-**Sıradaki adım (isteğe bağlı):** WebRTC (PeerJS) ile **5 kişiye kadar P2P co-op** — bir
-kişi "oda" kurar, diğerleri linkle katılır; oyuncular, can/açlık paylaşımı ve İzleyen'i
-herkesin aynı anda görmesi senkronize edilir. İstersen bunu bir sonraki sürümde ekleyeyim.
+```bash
+npm i -D @capacitor/core @capacitor/cli @capacitor/android vite
+# (web varlıklarını Vite ile paketle, sonra:)
+npx cap init "100 Gun Ormanda" com.servankrall.yuzgunormanda
+npx cap add android
+npx cap open android        # Android Studio'da derle → APK
+```
+
+> Not: APK derlemesi Android SDK + Gradle gerektirdiği için bu bulut ortamında
+> üretilemedi; yukarıdaki adımlar yerel makinede çalışır. İstersen Capacitor + Vite
+> kurulumunu sizin için tamamen hazırlayıp tek komuta indirebilirim.
+
+---
 
 ## 🗺️ Yol Haritası
-- [ ] WebRTC ile 5 kişilik gerçek zamanlı co-op
-- [ ] Kalıcı kayıt (localStorage) — kaldığın günden devam
-- [ ] Daha fazla eşya: barınak/çadır, mızrak, tuzak, meşale
-- [ ] Yağmur, sis ve fırtına gibi hava olayları
-- [ ] Daha fazla korku senaryosu ve "İzleyen" varyasyonları
+- [ ] **Çok oyunculu co-op (5 kişiye kadar)** — WebRTC ile; biri oda kurar, diğerleri katılır,
+      İzleyen'i herkes aynı anda görür.
+- [ ] Android APK paketlemesini tamamla (Capacitor + Vite).
+- [ ] Kalıcı kayıt (kaldığın günden devam).
+- [ ] Barınak/çadır, mızrak, tuzak, meşale; yağmur/sis/fırtına; daha fazla korku senaryosu.
 
 ---
 
-🤖 Geliştirici notu: Hızlı, kurulumsuz ve gerçekten korkutucu olması için 2D atmosferik
-yaklaşım seçildi. "Aşırı gerçekçi" 3B/AAA görünüm ayrı bir motor (Unity/Unreal) işidir;
-istenirse o yöne de bir prototip planı çıkarılabilir.
+## 🧪 Doğrulama notu
+
+3B render gerçek bir GPU/tarayıcı gerektirdiğinden ve bu ortam GUI/derleme aracı içermediğinden,
+geliştirme sırasında: modül söz dizimi, **kullanılan tüm Three.js API'lerinin gerçekten var olduğu**
+(r160) ve oyun **mantığı** (hareket+çarpışma, istatistikler, İzleyen, hayvanlar, gün döngüsü)
+binlerce kare boyunca istisna/NaN olmadan otomatik test edildi. Görsel render'ı kendi makinende
+`npm start` ile göreceksin.

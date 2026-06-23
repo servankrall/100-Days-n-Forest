@@ -1,4 +1,6 @@
-# 🌴🔪 100 GÜN ORMANDA — 3B Survival Horror (Masaüstü Uygulaması)
+<p align="center"><img src="assets/cover.png" alt="100 Gün Ormanda" width="100%"></p>
+
+# 🌴🔪 100 GÜN ORMANDA — 3B Survival Horror (Masaüstü + Android)
 
 Amazon ormanının derinliklerinde **100 gün** hayatta kalmaya çalıştığın, **gerçek 3B**,
 ilk-şahıs, atmosferik ve **korkutucu** bir hayatta kalma-macera oyunu.
@@ -15,12 +17,18 @@ ilk-şahıs, atmosferik ve **korkutucu** bir hayatta kalma-macera oyunu.
 ## ⚡ EN KOLAY BAŞLATMA (kurulum derdi yok)
 
 ### Seçenek 1 — Hazır dosyayı indir, bas-oyna (sıfır kurulum) ⭐
-Arkadaşların hiçbir şey kurmaz. GitHub'da **Actions** sekmesi → **"Uygulamaları Derle"**
-→ **Run workflow**. Bittiğinde derlenmiş dosyaları indir:
-- **Windows:** `.exe` kurulum · **macOS:** `.dmg` · **Linux:** `.AppImage` · **Android:** `.apk`
 
-İndir → çift tık → kurulum kendiliğinden olur → oyun açılır. (Bu derlemeler `v1.0.0` gibi
-bir etiket itince de otomatik üretilir.)
+👉 **İNDİRME LİNKİ:** **https://github.com/servankrall/100-days-n-forest/releases/latest**
+
+Oradan cihazına uygun dosyayı indir → çift tık → kurulum **kendiliğinden** olur → oyna:
+- 🪟 **Windows:** `100GunOrmanda-Setup-*.exe`
+- 🍎 **macOS:** `*.dmg`
+- 🐧 **Linux:** `*.AppImage`
+- 🤖 **Android:** `*.apk`  (telefonda "bilinmeyen kaynaklara izin ver")
+
+> Linkte henüz dosya yoksa derlemenin bir kez çalışması gerekir: `v1.0.0` gibi bir **etiket it**
+> (`git tag v1.0.0 && git push origin v1.0.0`) — bu, dosyaları otomatik derleyip bu Release'i
+> doldurur. Alternatif: **Actions → "Uygulamaları Derle" → Run workflow**.
 
 ### Seçenek 2 — Tek tık başlatıcı (otomatik kurulum)
 Depoyu indir, sonra:

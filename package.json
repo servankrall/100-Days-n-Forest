@@ -35,6 +35,7 @@
   "build": {
     "appId": "com.servankrall.yuzgunormanda",
     "productName": "100 Gun Ormanda",
+    "icon": "assets/icon.png",
     "files": [
       "main.js",
       "index.html",

@@ -1,0 +1,102 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0c2018"/>
+      <stop offset="0.5" stop-color="#07130d"/>
+      <stop offset="1" stop-color="#020604"/>
+    </linearGradient>
+    <radialGradient id="moon" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#eef3e6"/>
+      <stop offset="0.45" stop-color="#d3dfca"/>
+      <stop offset="1" stop-color="#d3dfca" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="fog" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9fb7a0" stop-opacity="0"/>
+      <stop offset="1" stop-color="#9fb7a0" stop-opacity="0.16"/>
+    </linearGradient>
+    <radialGradient id="vig" cx="0.5" cy="0.42" r="0.78">
+      <stop offset="0.5" stop-color="#000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0.9"/>
+    </radialGradient>
+    <radialGradient id="eyeglow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ff6a6a"/>
+      <stop offset="0.4" stop-color="#d60000"/>
+      <stop offset="1" stop-color="#d60000" stop-opacity="0"/>
+    </radialGradient>
+    <symbol id="tree" viewBox="0 0 100 200">
+      <rect x="44" y="118" width="12" height="82"/>
+      <polygon points="50,42 95,142 5,142"/>
+      <polygon points="50,16 82,98 18,98"/>
+      <polygon points="50,0 70,62 30,62"/>
+    </symbol>
+  </defs>
+
+  <!-- gökyüzü + ay -->
+  <rect width="1280" height="720" fill="url(#sky)"/>
+  <circle cx="1015" cy="135" r="135" fill="url(#moon)" opacity="0.85"/>
+  <circle cx="1015" cy="135" r="60" fill="#eef3e6"/>
+  <circle cx="985" cy="120" r="10" fill="#cdd9c4" opacity="0.6"/>
+  <circle cx="1045" cy="150" r="7" fill="#cdd9c4" opacity="0.5"/>
+
+  <!-- uzak ağaç sırası -->
+  <g fill="#0b1c12" opacity="0.95">
+    <use href="#tree" x="60"  y="300" width="150" height="300"/>
+    <use href="#tree" x="250" y="330" width="130" height="260"/>
+    <use href="#tree" x="600" y="320" width="150" height="300"/>
+    <use href="#tree" x="800" y="340" width="120" height="240"/>
+    <use href="#tree" x="1080" y="310" width="150" height="300"/>
+  </g>
+
+  <!-- sis bandı -->
+  <rect x="0" y="360" width="1280" height="260" fill="url(#fog)"/>
+
+  <!-- İZLEYEN — ağacın yanından bakar -->
+  <g transform="translate(95,15)">
+    <!-- gövde -->
+    <path d="M455 300 q18 -10 36 0 l10 250 q-28 14 -56 0 z" fill="#040504"/>
+    <!-- uzun kollar -->
+    <path d="M462 330 q-30 90 -22 170" stroke="#050605" stroke-width="11" fill="none" stroke-linecap="round"/>
+    <path d="M484 330 q30 90 22 170" stroke="#050605" stroke-width="11" fill="none" stroke-linecap="round"/>
+    <!-- bacaklar -->
+    <rect x="462" y="540" width="12" height="120" fill="#040504"/>
+    <rect x="478" y="540" width="12" height="120" fill="#040504"/>
+    <!-- baş (solgun, kansız) -->
+    <ellipse cx="473" cy="278" rx="26" ry="34" fill="#d6d0c4"/>
+    <ellipse cx="464" cy="272" rx="9" ry="13" fill="#0a0a0a"/>
+    <ellipse cx="483" cy="272" rx="9" ry="13" fill="#0a0a0a"/>
+    <!-- kırmızı gözler + parıltı -->
+    <circle cx="464" cy="273" r="20" fill="url(#eyeglow)" opacity="0.9"/>
+    <circle cx="483" cy="273" r="20" fill="url(#eyeglow)" opacity="0.9"/>
+    <circle cx="464" cy="273" r="4.5" fill="#ff2a2a"/>
+    <circle cx="483" cy="273" r="4.5" fill="#ff2a2a"/>
+    <!-- kan akıntıları -->
+    <path d="M464 286 l-2 26" stroke="#8a0000" stroke-width="3" stroke-linecap="round"/>
+    <path d="M483 286 l3 32" stroke="#8a0000" stroke-width="3" stroke-linecap="round"/>
+    <path d="M473 300 l1 22" stroke="#8a0000" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+
+  <!-- yanındaki ağaç (İzleyen'i kısmen gizler) -->
+  <use href="#tree" x="585" y="150" width="210" height="430" fill="#020705"/>
+
+  <!-- çerçeveleyen ön plan ağaçları -->
+  <use href="#tree" x="-70" y="60"  width="360" height="720" fill="#010402"/>
+  <use href="#tree" x="980" y="90"  width="380" height="720" fill="#010402"/>
+
+  <!-- zemin -->
+  <rect x="0" y="600" width="1280" height="120" fill="#020503"/>
+
+  <!-- başlık için karartma -->
+  <rect x="0" y="498" width="1280" height="222" fill="#000" opacity="0.5"/>
+  <rect width="1280" height="720" fill="url(#vig)"/>
+
+  <!-- BAŞLIK -->
+  <text x="640" y="540" text-anchor="middle" font-family="'DejaVu Sans',sans-serif" font-weight="700" font-size="22" letter-spacing="10" fill="#9fb39c">AMAZON · 3B HAYATTA KALMA KORKU</text>
+  <text x="642" y="642" text-anchor="middle" font-family="'Big Shoulders','DejaVu Sans',sans-serif" font-weight="700" font-size="92" letter-spacing="4" fill="#d11414" stroke="#350303" stroke-width="2">100 GÜN ORMANDA</text>
+  <!-- kan damlaları -->
+  <g fill="#b00d0d">
+    <path d="M430 648 q5 18 0 30 q-5 -12 0 -30"/>
+    <path d="M735 650 q5 22 0 36 q-5 -14 0 -36"/>
+    <path d="M905 648 q5 16 0 28 q-5 -12 0 -28"/>
+  </g>
+  <text x="640" y="688" text-anchor="middle" font-family="'Crimson Pro','DejaVu Serif',serif" font-style="italic" font-size="26" fill="#c9b6b6">ona bakarsan kaybolur... bakmazsan seni bulur.</text>
+</svg>

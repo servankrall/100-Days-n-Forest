@@ -13,7 +13,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const map = (v, a, b, c, d) => c + (clamp(v, a, b) - a) / (b - a) * (d - c);
 const choice = (arr) => arr[(Math.random() * arr.length) | 0];
 
-const CFG = { WORLD: 110, DAY_LENGTH: 165, WIN_DAY: 100, TREES: 280, BUSHES: 130, ROCKS: 46, EYE: 1.7 };
+const CFG = { WORLD: 110, DAY_LENGTH: 165, WIN_DAY: 100, TREES: 280, BUSHES: 130, ROCKS: 46, GRASS: 420, EYE: 1.7 };
 
 /* ----------------------- DOM ----------------------- */
 const $ = (id) => document.getElementById(id);
@@ -78,7 +78,8 @@ const Sound = {
 };
 
 /* ----------------------- THREE setup ----------------------- */
-let renderer, scene, camera, sun, hemi, amb, headlamp;
+let renderer, scene, camera, sun, hemi, amb, headlamp, moon, fireflies;
+let shadowsOn = false;
 const clock = new THREE.Clock();
 let built = false;
 
@@ -86,18 +87,30 @@ function buildScene() {
   renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, antialias: true, powerPreference: "high-performance" });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;   // sinematik renk
+  renderer.toneMappingExposure = 1.12;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  // gölgeler ağır olduğundan yalnızca dokunmatik olmayan (masaüstü) cihazlarda
+  shadowsOn = !("ontouchstart" in window) && !(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+  if (shadowsOn) { renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; }
 
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x9fb7a0);
   scene.fog = new THREE.FogExp2(0x9fb7a0, 0.014);
 
-  camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 600);
+  camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 600);
   camera.rotation.order = "YXZ";
 
-  hemi = new THREE.HemisphereLight(0xbfd8c0, 0x20301c, 0.9); scene.add(hemi);
-  amb = new THREE.AmbientLight(0x405040, 0.5); scene.add(amb);
-  sun = new THREE.DirectionalLight(0xfff0d0, 1.2); sun.position.set(40, 80, 20); scene.add(sun);
-  headlamp = new THREE.PointLight(0xffe6c0, 0.0, 12, 1.6); scene.add(headlamp);
+  hemi = new THREE.HemisphereLight(0xbfd8c0, 0x1a2814, 0.9); scene.add(hemi);
+  amb = new THREE.AmbientLight(0x405040, 0.45); scene.add(amb);
+  sun = new THREE.DirectionalLight(0xffe8c4, 1.2); sun.position.set(40, 80, 20); scene.add(sun); scene.add(sun.target);
+  moon = new THREE.DirectionalLight(0x8ea6d8, 0.0); moon.position.set(-30, 60, -20); scene.add(moon); // gece silüetleri için soluk ay ışığı
+  headlamp = new THREE.PointLight(0xffe6c0, 0.0, 13, 1.6); scene.add(headlamp);
+  if (shadowsOn) {
+    sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+    const sc = sun.shadow.camera; sc.near = 1; sc.far = 160; sc.left = -45; sc.right = 45; sc.top = 45; sc.bottom = -45;
+    sun.shadow.bias = -0.0006;
+  }
 
   // zemin (prosedürel doku)
   const gtex = groundTexture();
@@ -105,10 +118,21 @@ function buildScene() {
     new THREE.PlaneGeometry(CFG.WORLD * 2 + 20, CFG.WORLD * 2 + 20),
     new THREE.MeshStandardMaterial({ map: gtex, roughness: 1, metalness: 0 })
   );
-  ground.rotation.x = -Math.PI / 2; scene.add(ground);
+  ground.rotation.x = -Math.PI / 2; if (shadowsOn) ground.receiveShadow = true; scene.add(ground);
 
   buildTrees();
   buildScatter();
+  buildFireflies();
+}
+
+/* ----- ateş böcekleri / gece parıltıları (Points) ----- */
+function buildFireflies() {
+  const N = 150, pos = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) { pos[i * 3] = rnd(-60, 60); pos[i * 3 + 1] = rnd(0.5, 6); pos[i * 3 + 2] = rnd(-60, 60); }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.PointsMaterial({ color: 0xbfff8a, size: 0.22, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+  fireflies = new THREE.Points(geo, mat); fireflies.frustumCulled = false; fireflies.userData.phase = new Float32Array(N).map(() => rnd(0, 6.28));
+  scene.add(fireflies);
 }
 
 function groundTexture() {
@@ -130,50 +154,69 @@ const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 
 function buildTrees() {
   const N = CFG.TREES;
-  const trunkGeo = new THREE.CylinderGeometry(0.16, 0.3, 5, 6);
-  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3420, roughness: 1 });
-  const folGeo = new THREE.ConeGeometry(2.3, 4.6, 7);
-  const folMatLow = new THREE.MeshStandardMaterial({ color: 0x1f5a2f, roughness: 1, flatShading: true });
-  const folMatTop = new THREE.MeshStandardMaterial({ color: 0x2a6e3a, roughness: 1, flatShading: true });
+  const trunkGeo = new THREE.CylinderGeometry(0.14, 0.34, 5.2, 7);
+  const trunkMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 });  // beyaz -> örnek rengi belirler
+  const folGeo = new THREE.ConeGeometry(2.7, 5.4, 8);
+  const folMatLow = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true });
+  const folMatTop = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true });
   trunkIM = new THREE.InstancedMesh(trunkGeo, trunkMat, N);
   folLowIM = new THREE.InstancedMesh(folGeo, folMatLow, N);
   folTopIM = new THREE.InstancedMesh(folGeo, folMatTop, N);
   trunkIM.frustumCulled = folLowIM.frustumCulled = folTopIM.frustumCulled = false; // örnekler tüm dünyaya yayıldığı için culling kapalı
+  if (shadowsOn) { trunkIM.castShadow = folLowIM.castShadow = folTopIM.castShadow = true; folLowIM.receiveShadow = folTopIM.receiveShadow = true; }
   scene.add(trunkIM, folLowIM, folTopIM);
 
+  const col = new THREE.Color();
   for (let i = 0; i < N; i++) {
     let x, z;
     do { x = rnd(-CFG.WORLD, CFG.WORLD); z = rnd(-CFG.WORLD, CFG.WORLD); } while (Math.hypot(x, z) < 9);
-    trees.push({ x, z, s: rnd(0.8, 1.5), rot: rnd(0, 6.28), r: 0, hp: 4, alive: true, regrow: 0 });
+    trees.push({ x, z, s: rnd(0.8, 1.6), rot: rnd(0, 6.28), r: 0, hp: 4, alive: true, regrow: 0 });
     trees[i].r = 0.9 * trees[i].s;
     writeTree(i);
+    // gövde rengi (kahve tonları)
+    col.setHSL(0.08, rnd(0.35, 0.5), rnd(0.14, 0.22)); trunkIM.setColorAt(i, col);
+    // yaprak rengi (orman yeşili çeşitliliği)
+    const h = rnd(0.27, 0.36);
+    col.setHSL(h, rnd(0.45, 0.65), rnd(0.18, 0.30)); folLowIM.setColorAt(i, col);
+    col.setHSL(h, rnd(0.45, 0.65), rnd(0.26, 0.40)); folTopIM.setColorAt(i, col);
   }
   trunkIM.instanceMatrix.needsUpdate = folLowIM.instanceMatrix.needsUpdate = folTopIM.instanceMatrix.needsUpdate = true;
+  trunkIM.instanceColor.needsUpdate = folLowIM.instanceColor.needsUpdate = folTopIM.instanceColor.needsUpdate = true;
 }
 function writeTree(i) {
   const t = trees[i];
   if (!t.alive) { trunkIM.setMatrixAt(i, ZERO); folLowIM.setMatrixAt(i, ZERO); folTopIM.setMatrixAt(i, ZERO); return; }
   const s = t.s;
-  _d.position.set(t.x, 2.5 * s, t.z); _d.rotation.set(0, t.rot, 0); _d.scale.set(s, s, s); _d.updateMatrix(); trunkIM.setMatrixAt(i, _d.matrix);
-  _d.position.set(t.x, 5.0 * s, t.z); _d.scale.set(s, s, s); _d.updateMatrix(); folLowIM.setMatrixAt(i, _d.matrix);
-  _d.position.set(t.x, 6.7 * s, t.z); _d.scale.set(s * 0.7, s * 0.95, s * 0.7); _d.updateMatrix(); folTopIM.setMatrixAt(i, _d.matrix);
+  _d.position.set(t.x, 2.6 * s, t.z); _d.rotation.set(0, t.rot, 0); _d.scale.set(s, s, s); _d.updateMatrix(); trunkIM.setMatrixAt(i, _d.matrix);
+  _d.position.set(t.x, 5.0 * s, t.z); _d.scale.set(s * 1.05, s, s * 1.05); _d.updateMatrix(); folLowIM.setMatrixAt(i, _d.matrix);
+  _d.position.set(t.x, 7.0 * s, t.z); _d.scale.set(s * 0.68, s * 0.95, s * 0.68); _d.updateMatrix(); folTopIM.setMatrixAt(i, _d.matrix);
 }
 function refreshTrees() { for (let i = 0; i < trees.length; i++) writeTree(i); trunkIM.instanceMatrix.needsUpdate = folLowIM.instanceMatrix.needsUpdate = folTopIM.instanceMatrix.needsUpdate = true; }
 
 /* ----- çalı + kaya ----- */
 function buildScatter() {
-  const bushGeo = new THREE.IcosahedronGeometry(0.9, 0);
-  const bushMat = new THREE.MeshStandardMaterial({ color: 0x1d4d2a, roughness: 1, flatShading: true });
+  const col = new THREE.Color();
+  // çalılar (renk çeşitliliğiyle)
+  const bushGeo = new THREE.IcosahedronGeometry(0.95, 0);
+  const bushMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true });
   const bushIM = new THREE.InstancedMesh(bushGeo, bushMat, CFG.BUSHES);
-  bushIM.frustumCulled = false;
-  for (let i = 0; i < CFG.BUSHES; i++) { _d.position.set(rnd(-CFG.WORLD, CFG.WORLD), 0.5, rnd(-CFG.WORLD, CFG.WORLD)); _d.rotation.set(0, rnd(0, 6.3), 0); _d.scale.setScalar(rnd(0.7, 1.6)); _d.updateMatrix(); bushIM.setMatrixAt(i, _d.matrix); }
-  scene.add(bushIM);
+  bushIM.frustumCulled = false; if (shadowsOn) { bushIM.castShadow = true; bushIM.receiveShadow = true; }
+  for (let i = 0; i < CFG.BUSHES; i++) { _d.position.set(rnd(-CFG.WORLD, CFG.WORLD), 0.5, rnd(-CFG.WORLD, CFG.WORLD)); _d.rotation.set(0, rnd(0, 6.3), 0); _d.scale.setScalar(rnd(0.7, 1.7)); _d.updateMatrix(); bushIM.setMatrixAt(i, _d.matrix); col.setHSL(rnd(0.26, 0.34), rnd(0.45, 0.65), rnd(0.16, 0.28)); bushIM.setColorAt(i, col); }
+  bushIM.instanceColor.needsUpdate = true; scene.add(bushIM);
+  // kayalar
   const rockGeo = new THREE.DodecahedronGeometry(0.7, 0);
   const rockMat = new THREE.MeshStandardMaterial({ color: 0x55595c, roughness: 1, flatShading: true });
   const rockIM = new THREE.InstancedMesh(rockGeo, rockMat, CFG.ROCKS);
-  rockIM.frustumCulled = false;
+  rockIM.frustumCulled = false; if (shadowsOn) { rockIM.castShadow = true; rockIM.receiveShadow = true; }
   for (let i = 0; i < CFG.ROCKS; i++) { _d.position.set(rnd(-CFG.WORLD, CFG.WORLD), 0.25, rnd(-CFG.WORLD, CFG.WORLD)); _d.rotation.set(rnd(0, 3), rnd(0, 6.3), rnd(0, 3)); _d.scale.setScalar(rnd(0.6, 1.8)); _d.updateMatrix(); rockIM.setMatrixAt(i, _d.matrix); }
   scene.add(rockIM);
+  // çimen/eğrelti otu tutamları (zemine canlılık)
+  const grassGeo = new THREE.ConeGeometry(0.16, 1.0, 4);
+  const grassMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true });
+  const grassIM = new THREE.InstancedMesh(grassGeo, grassMat, CFG.GRASS);
+  grassIM.frustumCulled = false;
+  for (let i = 0; i < CFG.GRASS; i++) { _d.position.set(rnd(-CFG.WORLD, CFG.WORLD), 0.45, rnd(-CFG.WORLD, CFG.WORLD)); _d.rotation.set(rnd(-0.15, 0.15), rnd(0, 6.3), rnd(-0.15, 0.15)); _d.scale.set(rnd(0.7, 1.5), rnd(0.8, 1.8), rnd(0.7, 1.5)); _d.updateMatrix(); grassIM.setMatrixAt(i, _d.matrix); col.setHSL(rnd(0.24, 0.33), rnd(0.5, 0.7), rnd(0.20, 0.32)); grassIM.setColorAt(i, col); }
+  grassIM.instanceColor.needsUpdate = true; scene.add(grassIM);
 }
 
 /* ----------------------- GAME STATE ----------------------- */
@@ -238,9 +281,16 @@ function makeFire(x, z) {
   const g = new THREE.Group(); g.position.set(x, 0, z);
   for (let i = 0; i < 5; i++) { const log = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1, 5), new THREE.MeshStandardMaterial({ color: 0x2a1c10 })); log.rotation.z = Math.PI / 2; log.rotation.y = i / 5 * Math.PI; log.position.y = 0.1; g.add(log); }
   const flame = new THREE.Mesh(new THREE.ConeGeometry(0.35, 1.1, 7), new THREE.MeshBasicMaterial({ color: 0xff7a1a, transparent: true, opacity: 0.92 })); flame.position.y = 0.7; g.add(flame);
+  const flame2 = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.7, 6), new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.95 })); flame2.position.y = 0.55; g.add(flame2);
   const light = new THREE.PointLight(0xff8a3c, 2.2, 16, 1.5); light.position.y = 1; g.add(light);
+  // kıvılcımlar
+  const EN = 26, ep = new Float32Array(EN * 3), ev = [];
+  for (let i = 0; i < EN; i++) { ep[i * 3] = rnd(-0.2, 0.2); ep[i * 3 + 1] = rnd(0.2, 1.5); ep[i * 3 + 2] = rnd(-0.2, 0.2); ev.push(rnd(0.6, 1.8)); }
+  const egeo = new THREE.BufferGeometry(); egeo.setAttribute("position", new THREE.BufferAttribute(ep, 3));
+  const emat = new THREE.PointsMaterial({ color: 0xffb24a, size: 0.12, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
+  const embers = new THREE.Points(egeo, emat); embers.frustumCulled = false; g.add(embers);
   scene.add(g);
-  const f = { group: g, light, flame, x, z, fuel: 70, max: 140 }; fires.push(f); return f;
+  const f = { group: g, light, flame, flame2, embers, ev, x, z, fuel: 70, max: 140 }; fires.push(f); return f;
 }
 
 /* ----- İzleyen modeli ----- */
@@ -466,6 +516,9 @@ function update(dt) {
     f.light.intensity = map(f.fuel, 0, f.max, 0.8, 2.6) * flick;
     f.light.distance = map(f.fuel, 0, f.max, 8, 17);
     f.flame.scale.set(flick, 0.8 + flick * 0.5, flick); f.flame.rotation.y += dt * 3;
+    if (f.flame2) { f.flame2.scale.set(flick * 0.9, 0.7 + flick * 0.6, flick * 0.9); f.flame2.rotation.y -= dt * 4; }
+    // kıvılcımları yükselt
+    if (f.embers) { const pa = f.embers.geometry.attributes.position, ar = pa.array; for (let k = 0; k < f.ev.length; k++) { ar[k * 3 + 1] += f.ev[k] * dt; if (ar[k * 3 + 1] > 2.6) { ar[k * 3] = rnd(-0.2, 0.2); ar[k * 3 + 1] = 0.3; ar[k * 3 + 2] = rnd(-0.2, 0.2); } } pa.needsUpdate = true; }
     const d = Math.hypot(f.x - camera.position.x, f.z - camera.position.z); if (d < 6) { nearFire = true; fireDist = Math.min(fireDist, d); }
   }
   if (nearFire) { S.fireCrackleT -= dt; if (S.fireCrackleT <= 0) { Sound.crackle(); S.fireCrackleT = rnd(0.08, 0.3); } }
@@ -508,15 +561,25 @@ function update(dt) {
   // ışık / atmosfer (gündüz-gece)
   const dk = darknessFor(S.time);
   const dayK = 1 - dk;
-  sun.intensity = dayK * 1.2;
   const sunAng = S.time * Math.PI * 2 - Math.PI / 2;
-  sun.position.set(Math.cos(sunAng) * 80, Math.max(5, Math.sin(sunAng) * 90), 30);
-  hemi.intensity = lerp(0.06, 0.9, dayK); amb.intensity = lerp(0.05, 0.5, dayK);
-  headlamp.intensity = lerp(0.0, 0.9, dk); headlamp.position.copy(camera.position);
+  const sdx = Math.cos(sunAng), sdy = Math.max(0.25, Math.sin(sunAng));
+  sun.intensity = dayK * 1.25;
+  sun.position.set(camera.position.x + sdx * 70, sdy * 90 + 18, camera.position.z + 40); // gölge kamerası oyuncuyu takip etsin
+  sun.target.position.copy(camera.position);
+  moon.intensity = dk * 0.4;                                  // gecede soluk ay silüetleri
+  hemi.intensity = lerp(0.05, 0.95, dayK); amb.intensity = lerp(0.05, 0.5, dayK);
+  headlamp.intensity = lerp(0.0, 0.85, dk); headlamp.position.copy(camera.position);
   const dayCol = new THREE.Color(0x9fb7a0), nightCol = new THREE.Color(0x05080f);
   const skyCol = nightCol.clone().lerp(dayCol, dayK);
+  const golden = Math.max(0, 1 - Math.abs(S.time - 0.16) / 0.10) + Math.max(0, 1 - Math.abs(S.time - 0.63) / 0.08);
+  if (golden > 0) skyCol.lerp(new THREE.Color(0xd98a4a), Math.min(golden, 1) * 0.5);  // şafak/akşam altın tonu
   scene.background = skyCol; scene.fog.color = skyCol;
-  scene.fog.density = lerp(0.014, 0.075, dk);
+  scene.fog.density = lerp(0.013, 0.08, dk);
+  // ateş böcekleri (gece görünür, hafif salınır)
+  if (fireflies) {
+    fireflies.material.opacity = dk * 0.9; fireflies.position.set(camera.position.x, 0, camera.position.z);
+    if (dk > 0.2) { const pa = fireflies.geometry.attributes.position, ar = pa.array, ph = fireflies.userData.phase, tt = performance.now() / 1000; for (let k = 0; k < ph.length; k++) ar[k * 3 + 1] = 2.6 + Math.sin(tt * 0.8 + ph[k]) * 1.8; pa.needsUpdate = true; }
+  }
 
   // kalp atışı
   let hl = (1 - S.sanity / 100) * 0.8;

@@ -12,9 +12,29 @@ ilk-şahıs, atmosferik ve **korkutucu** bir hayatta kalma-macera oyunu.
 
 ---
 
-## ▶️ Çalıştırma (Masaüstü Uygulaması)
+## ⚡ EN KOLAY BAŞLATMA (kurulum derdi yok)
 
-Gereken tek şey [Node.js](https://nodejs.org) (18+).
+### Seçenek 1 — Hazır dosyayı indir, bas-oyna (sıfır kurulum) ⭐
+Arkadaşların hiçbir şey kurmaz. GitHub'da **Actions** sekmesi → **"Uygulamaları Derle"**
+→ **Run workflow**. Bittiğinde derlenmiş dosyaları indir:
+- **Windows:** `.exe` kurulum · **macOS:** `.dmg` · **Linux:** `.AppImage` · **Android:** `.apk`
+
+İndir → çift tık → kurulum kendiliğinden olur → oyun açılır. (Bu derlemeler `v1.0.0` gibi
+bir etiket itince de otomatik üretilir.)
+
+### Seçenek 2 — Tek tık başlatıcı (otomatik kurulum)
+Depoyu indir, sonra:
+- **Windows:** `start.bat`'a **çift tıkla**
+- **macOS / Linux:** `./start.sh` çalıştır (veya çift tıkla)
+
+Eksik dosyalar **arka planda otomatik kurulur**, sonra oyun açılır. Tek ön koşul:
+[Node.js](https://nodejs.org). Elle `npm install` yapmana gerek yok.
+
+> Terminal sevenler için aynısı: `npm run play`
+
+---
+
+## ▶️ Geliştirici Çalıştırma / Kurulabilir Üretme
 
 ```bash
 npm install      # Three.js + Electron'u indirir
@@ -23,7 +43,7 @@ npm start        # oyunu native bir pencerede açar
 
 İlk açılışta **BAŞLA**'ya bas; fare ekrana kilitlenir (Esc ile bırakılır).
 
-### Kurulabilir dosya (.exe / .AppImage / .dmg) üretmek
+Kurulabilir dosya (.exe / .AppImage / .dmg) üretmek:
 
 ```bash
 npm run dist          # bulunduğun işletim sistemi için
@@ -76,16 +96,30 @@ npm run dist:mac      # macOS (.dmg)
 
 ---
 
+## ✨ Görsel & Atmosfer
+
+- **Sinematik renk** (ACES tone mapping) ve gün içinde değişen ışık; **şafak/akşam altın tonu**.
+- **Daha güzel orman:** her ağaç farklı yeşil/kahve tonunda, dolgun çift katmanlı yaprak;
+  yere serpiştirilmiş **çimen/eğrelti tutamları** ve renk çeşitliliğiyle çalılar.
+- **Gerçek gölgeler** (masaüstünde; güneş gölgesi oyuncuyu takip eder).
+- **Gece:** soluk **ay ışığı** silüetleri, uçuşan **ateş böcekleri**, yoğun sis ve dar görüş.
+- **Kamp ateşi:** çift alev + yükselen **kıvılcımlar** + titreşen sıcak ışık.
+
+> Not: Gölgeler/parçacıklar performans için telefonda otomatik sadeleştirilir.
+
 ## 🗂️ Proje Yapısı
 
 ```
 .
+├── start.bat / start.sh   # tek-tık başlatıcı (otomatik kurulum)
+├── launch.cjs             # başlatıcının çekirdeği (npm install gerekirse + başlat)
 ├── package.json           # bağımlılıklar + electron-builder + mobil scriptler
 ├── main.js                # Electron ana süreç (native masaüstü pencere)
 ├── index.html             # uygulama arayüzü (importmap → yerel Three.js)
 ├── app.css                # karanlık korku teması, mobil uyumlu
 ├── vite.config.mjs        # mobil için web paketleyici (www/ üretir)
 ├── capacitor.config.json  # Android sarmalayıcı ayarı (webDir: www)
+├── .github/workflows/     # otomatik derleme (exe/dmg/AppImage/apk)
 ├── src/
 │   └── game3d.js          # 3B oyun motoru: orman + hayatta kalma + korku + ses
 ├── web-2d/                # hafif 2B tarayıcı sürümü (yedek/hızlı oyna)

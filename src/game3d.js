@@ -376,7 +376,9 @@ const keys = {};
 let yaw = 0, pitch = 0, locked = false, isTouch = false;
 const inp = { jx: 0, jy: 0, joy: false, sprint: false, action: false, fire: false, eat: false };
 
+const typingInField = (e) => { const t = e.target; return t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable); };
 addEventListener("keydown", (e) => {
+  if (typingInField(e)) return;            // input/şifre/e-posta alanına yazarken oyun tuşlarını yok say
   const k = e.key.toLowerCase(); keys[k] = true;
   if (["w", "a", "s", "d", " ", "shift"].includes(k)) e.preventDefault();
   if (k === "e" || k === " ") inp.action = true;
@@ -384,7 +386,7 @@ addEventListener("keydown", (e) => {
   if (k === "g") inp.eat = true;
   if (k === "v") startTalk();           // bas-konuş (sesli sohbet)
 });
-addEventListener("keyup", (e) => { const k = e.key.toLowerCase(); keys[k] = false; if (k === "v") stopTalk(); });
+addEventListener("keyup", (e) => { if (typingInField(e)) return; const k = e.key.toLowerCase(); keys[k] = false; if (k === "v") stopTalk(); });
 
 threeCanvas.addEventListener("mousedown", (e) => {
   if (!S || !S.running) return;

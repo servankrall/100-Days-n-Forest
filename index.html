@@ -59,8 +59,36 @@
     <button id="btn-voice" class="mbtn voice">🎤</button>
   </div>
 
+  <!-- ======================= ACCOUNT SETUP ======================= -->
+  <div id="account" class="overlay">
+    <div class="panel account">
+      <h1 class="title-creep" style="font-size:clamp(28px,8vw,54px)">HESAP KURULUMU</h1>
+      <p class="subtitle">Co-op + sesli sohbet için hesabını oluştur. <i>(Yerel — cihazında saklanır.)</i></p>
+      <div class="acct-cols">
+        <div class="acct-col">
+          <h3>YENİ HESAP</h3>
+          <input id="ac-email" type="email" placeholder="E-posta adresi" autocomplete="off">
+          <input id="ac-user" type="text" placeholder="Kullanıcı adı" autocomplete="off">
+          <input id="ac-pass" type="password" placeholder="Şifre">
+          <input id="ac-pass2" type="password" placeholder="Şifre (tekrar)">
+          <button id="ac-create" class="bigbtn small">HESAP OLUŞTUR</button>
+        </div>
+        <div class="acct-col">
+          <h3>GİRİŞ YAP</h3>
+          <input id="ac-luser" type="text" placeholder="Kullanıcı adı / E-posta" autocomplete="off">
+          <input id="ac-lpass" type="password" placeholder="Şifre">
+          <button id="ac-login" class="bigbtn small">GİRİŞ</button>
+          <div id="ac-msg" class="acct-msg"></div>
+        </div>
+      </div>
+      <div id="ac-me" class="acct-me hidden">👤 <b id="ac-name"></b> · Friend ID: <b id="ac-id"></b>
+        <button id="ac-copy" class="minibtn" style="display:inline-block;margin:6px 0 0 8px;padding:2px 10px">ID kopyala</button></div>
+      <button id="ac-continue" class="bigbtn">OYUNA DEVAM ET ▶</button>
+    </div>
+  </div>
+
   <!-- ======================= START ======================= -->
-  <div id="start" class="overlay">
+  <div id="start" class="overlay hidden">
     <div class="panel">
       <h1 class="title-creep">100 GÜN ORMANDA</h1>
       <p class="subtitle">Amazon'un derinliklerinde 3B hayatta kal... eğer <i>o</i> izin verirse.</p>
@@ -108,6 +136,40 @@
       <h1 class="title-creep gold">100 GÜN!</h1>
       <p class="subtitle">Ormandan sağ çıktın. Ama <i>o</i> seni unutmadı...</p>
       <button id="winBtn" class="bigbtn">🌅 YENİDEN OYNA</button>
+    </div>
+  </div>
+
+  <!-- ======================= ESC: DURDU / SOSYAL MERKEZ ======================= -->
+  <div id="pause" class="overlay hidden">
+    <div class="panel social">
+      <h1 class="title-creep" style="font-size:clamp(24px,7vw,46px)">SOSYAL MERKEZ</h1>
+      <div id="pauseStatus" class="subtitle">Oyun duraklatıldı</div>
+      <div class="social-cols">
+        <div class="social-col">
+          <h3>CO-OP <span class="tag">5 kişiye kadar · beta</span></h3>
+          <div class="mp-mine">Senin Friend ID'n: <b id="mp-myid">—</b>
+            <button id="mp-copy" class="minibtn" style="display:inline-block;margin-left:6px;padding:2px 10px">kopyala</button></div>
+          <button id="mp-host" class="bigbtn small">🟢 ODA KUR (arkadaşların katılsın)</button>
+          <div class="or">— ya da bir odaya katıl —</div>
+          <input id="mp-joinid" type="text" placeholder="Arkadaşın Friend ID'si">
+          <button id="mp-join" class="bigbtn small">KATIL</button>
+          <button id="pz-voice" class="minibtn">🎤 Sesli sohbet: KAPALI (V ile bas-konuş)</button>
+          <div id="mp-msg" class="acct-msg"></div>
+        </div>
+        <div class="social-col">
+          <h3>ARKADAŞLAR <span id="partyStatus" class="tag">(0/5)</span></h3>
+          <div class="addfriend">
+            <input id="fr-name" type="text" placeholder="Arkadaşın adı (opsiyonel)">
+            <input id="fr-id" type="text" placeholder="Friend ID (örn. ORM-1234)">
+            <button id="fr-add" class="minibtn">+ EKLE</button>
+          </div>
+          <div id="friendList" class="friend-list"></div>
+        </div>
+      </div>
+      <div class="pause-btns">
+        <button id="pz-resume" class="bigbtn">▶ DEVAM ET</button>
+        <button id="pz-menu" class="minibtn">🏠 Ana Menü</button>
+      </div>
     </div>
   </div>
 

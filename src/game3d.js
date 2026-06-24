@@ -4,6 +4,7 @@
    Electron ile native uygulama olarak paketlenir (Unity yok).
    ============================================================ */
 import * as THREE from "three";
+import { net } from "./net.js";
 
 /* ----------------------- UTIL ----------------------- */
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -597,6 +598,14 @@ function update(dt) {
   if (S.heartLevel > 0.16) { S.heart -= dt; if (S.heart <= 0) { Sound.thump(); S.heart = lerp(1.1, 0.32, S.heartLevel); } }
 
   if (whisperT > 0) whisperT -= dt;
+
+  // co-op: kendi durumunu yayınla + uzak oyuncuları yumuşat
+  if (net.online) {
+    S.netT = (S.netT || 0) - dt;
+    if (S.netT <= 0) { S.netT = 0.1; net.broadcast({ t: "state", x: camera.position.x, z: camera.position.z, yaw: yaw, day: S.day, hp: Math.round(S.health) }); }
+  }
+  lerpRemotes(dt);
+
   updateHUD(night);
 }
 
@@ -720,15 +729,17 @@ function startTalk() {
   if (talking || !S || !S.running) return; talking = true;
   $("voice").classList.remove("hidden");
   const vb = $("btn-voice"); if (vb) vb.classList.add("on");
-  if (!micStream && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+  if (net.online) net.setMic(true);
+  else if (!micStream && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
     navigator.mediaDevices.getUserMedia({ audio: true }).then((s) => { micStream = s; }).catch(() => {});
   }
-  if (!voiceHinted) { voiceHinted = true; toast("🎤 Bas-konuş açık — co-op modunda arkadaşlara iletilir", "good"); }
+  if (!voiceHinted) { voiceHinted = true; toast(net.online ? "🎤 Konuşuyorsun (co-op)" : "🎤 Bas-konuş — co-op'ta arkadaşlara iletilir", "good"); }
 }
 function stopTalk() {
   if (!talking) return; talking = false;
   $("voice").classList.add("hidden");
   const vb = $("btn-voice"); if (vb) vb.classList.remove("on");
+  if (net.online) net.setMic(false);
 }
 
 /* ----------------------- BOOT / MENU ----------------------- */
@@ -760,8 +771,8 @@ $("winBtn").addEventListener("click", startGame);
 let audioOn = true;
 $("audioToggleStart").addEventListener("click", () => { audioOn = !audioOn; Sound.setOn(audioOn); $("audioToggleStart").textContent = audioOn ? "🔊 Ses: AÇIK" : "🔇 Ses: KAPALI"; });
 const pauseBtn = $("pauseBtn");
-pauseBtn.addEventListener("click", () => { if (!S) return; S.paused = !S.paused; pauseBtn.textContent = S.paused ? "▶" : "⏸"; });
-addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { /* fare kilidi tarayıcıca bırakılır */ } });
+pauseBtn.addEventListener("click", () => togglePause());
+addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); togglePause(); } });
 document.addEventListener("visibilitychange", () => { if (document.hidden && S && S.running) { S.paused = true; pauseBtn.textContent = "▶"; } });
 addEventListener("touchstart", () => { isTouch = true; }, { once: true, passive: true });
 const vBtn = $("btn-voice");
@@ -772,6 +783,117 @@ if (vBtn) {
   vBtn.addEventListener("mouseup", stopTalk);
   vBtn.addEventListener("mouseleave", stopTalk);
 }
+
+/* ===================== HESAP + ARKADAŞ + CO-OP (PeerJS) ===================== */
+const LS = window.localStorage;
+let account = null;
+const genFriendId = () => "ORM-" + Math.floor(1000 + Math.random() * 9000);
+function loadAccount() { try { const a = LS.getItem("orm_account"); if (a) account = JSON.parse(a); } catch (e) {} }
+function saveAccount() { try { LS.setItem("orm_account", JSON.stringify(account)); } catch (e) {} }
+function getFriends() { try { return JSON.parse(LS.getItem("orm_friends") || "[]"); } catch (e) { return []; } }
+function saveFriends(f) { try { LS.setItem("orm_friends", JSON.stringify(f)); } catch (e) {} }
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function acctMsg(t, ok) { const m = $("ac-msg"); m.textContent = t; m.className = "acct-msg" + (ok ? " ok" : ""); }
+function showMe() { if (!account) return; $("ac-me").classList.remove("hidden"); $("ac-name").textContent = account.user; $("ac-id").textContent = account.id; }
+
+loadAccount(); if (account) showMe();
+$("ac-create").addEventListener("click", () => {
+  const email = $("ac-email").value.trim(), user = $("ac-user").value.trim(), p = $("ac-pass").value, p2 = $("ac-pass2").value;
+  if (!email || !email.includes("@")) return acctMsg("Geçerli bir e-posta gir.");
+  if (user.length < 2) return acctMsg("Kullanıcı adı en az 2 karakter.");
+  if (p.length < 4) return acctMsg("Şifre en az 4 karakter.");
+  if (p !== p2) return acctMsg("Şifreler eşleşmiyor.");
+  account = { email, user, pass: p, id: genFriendId() }; saveAccount(); showMe(); acctMsg("Hesap oluşturuldu! ID: " + account.id, true);
+});
+$("ac-login").addEventListener("click", () => {
+  const u = $("ac-luser").value.trim(), p = $("ac-lpass").value;
+  if (account && (u === account.user || u === account.email) && p === account.pass) { showMe(); acctMsg("Giriş başarılı.", true); }
+  else acctMsg("Bu cihazda eşleşen hesap yok (yerel kayıt). Önce hesap oluştur.");
+});
+$("ac-copy").addEventListener("click", () => { if (account && navigator.clipboard) navigator.clipboard.writeText(account.id).then(() => acctMsg("ID kopyalandı.", true), () => {}); });
+$("ac-continue").addEventListener("click", () => {
+  if (!account) { account = { email: "", user: "Gezgin" + Math.floor(Math.random() * 900 + 100), pass: "", id: genFriendId() }; saveAccount(); }
+  $("account").classList.add("hidden"); $("start").classList.remove("hidden");
+});
+
+/* uzak oyuncu avatarları */
+const remotes = {}, remoteName = {};
+function makeRemoteAvatar() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 1.0, 4, 8), new THREE.MeshStandardMaterial({ color: 0x6fa3d6, roughness: 1 })); body.position.y = 1.0; g.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 12), new THREE.MeshStandardMaterial({ color: 0xd0c0a0, roughness: 1 })); head.position.y = 1.85; g.add(head);
+  g.add(new THREE.PointLight(0xffe6c0, 0.5, 8, 1.6));
+  if (scene) scene.add(g);
+  return g;
+}
+function updateRemote(id, d) { if (!scene) return; let r = remotes[id]; if (!r) r = remotes[id] = { g: makeRemoteAvatar() }; r.tx = d.x; r.tz = d.z; r.yaw = d.yaw; }
+function removeRemote(id) { const r = remotes[id]; if (r && scene) scene.remove(r.g); delete remotes[id]; }
+function lerpRemotes(dt) { for (const id in remotes) { const r = remotes[id]; if (r.tx == null) continue; r.g.position.x += (r.tx - r.g.position.x) * Math.min(1, dt * 8); r.g.position.z += (r.tz - r.g.position.z) * Math.min(1, dt * 8); if (r.yaw != null) r.g.rotation.y = r.yaw; } }
+
+/* sosyal / parti menüsü */
+function renderFriends() {
+  const list = $("friendList"), friends = getFriends(), connected = new Set(net.peerIds());
+  list.innerHTML = "";
+  if (!friends.length) list.innerHTML = '<div class="tag" style="padding:6px">Henüz arkadaş yok. Üstten ID ile ekle.</div>';
+  friends.forEach((f, i) => {
+    const row = document.createElement("div"); row.className = "friend-row"; const on = connected.has(f.id);
+    row.innerHTML = `<div class="fn">${escapeHtml(f.name || f.id)}<small>${escapeHtml(f.id)} ${on ? '<span class="on">● bağlı</span>' : '<span class="off">○ çevrimdışı</span>'}</small></div>`;
+    const join = document.createElement("button"); join.className = "minibtn"; join.style.padding = "4px 10px"; join.textContent = on ? "✓" : "KATIL"; join.disabled = on;
+    join.addEventListener("click", () => joinFriend(f.id));
+    const del = document.createElement("button"); del.className = "minibtn"; del.style.padding = "4px 8px"; del.textContent = "✕";
+    del.addEventListener("click", () => { const ff = getFriends(); ff.splice(i, 1); saveFriends(ff); renderFriends(); });
+    row.appendChild(join); row.appendChild(del); list.appendChild(row);
+  });
+  $("partyStatus").textContent = "(" + (1 + net.peerCount()) + "/5)";
+}
+$("fr-add").addEventListener("click", () => {
+  const name = $("fr-name").value.trim(), id = $("fr-id").value.trim(); if (!id) return;
+  const f = getFriends(); if (!f.some((x) => x.id === id)) f.push({ name, id }); saveFriends(f);
+  $("fr-name").value = ""; $("fr-id").value = ""; renderFriends();
+});
+const mpMsg = (t) => { $("mp-msg").textContent = t; };
+async function ensureMyPeer() {
+  if (net.online) return net.id;
+  mpMsg("Sinyal sunucusuna bağlanılıyor...");
+  try { const id = await net.start((account && account.id) || genFriendId()); $("mp-myid").textContent = id; mpMsg("Hazır ✓ ID: " + id); return id; }
+  catch (e) { mpMsg("Bağlanamadı: " + (e.message || e)); throw e; }
+}
+$("mp-host").addEventListener("click", async () => { try { await ensureMyPeer(); net.host = true; mpMsg("ODA AÇIK ✓ Arkadaşlarına bu ID'yi ver: " + net.id); try { await net.enableMic(); } catch (e) {} } catch (e) {} });
+$("mp-join").addEventListener("click", () => joinFriend($("mp-joinid").value.trim()));
+async function joinFriend(hostId) {
+  if (!hostId) return;
+  try { await ensureMyPeer(); net.joinHost(hostId, { name: account ? account.user : "Oyuncu" }); mpMsg("Katılınıyor: " + hostId + " ..."); try { await net.enableMic(); } catch (e) {} } catch (e) {}
+}
+$("mp-copy").addEventListener("click", () => { if (net.id && navigator.clipboard) navigator.clipboard.writeText(net.id); });
+$("pz-voice").addEventListener("click", async () => {
+  try { await net.enableMic(); $("pz-voice").classList.add("on"); $("pz-voice").textContent = "🎤 Sesli sohbet: AÇIK (V ile bas-konuş)"; mpMsg("Mikrofon hazır — konuşmak için V'ye basılı tut."); }
+  catch (e) { mpMsg("Mikrofon açılamadı (tarayıcı izni gerekli)."); }
+});
+$("pz-resume").addEventListener("click", () => closePause());
+$("pz-menu").addEventListener("click", () => location.reload());
+
+net.onStatus = (s) => mpMsg(s);
+net.onJoin = (id, meta) => { remoteName[id] = (meta && meta.name) || id; toast("🟢 Katıldı: " + remoteName[id], "good"); renderFriends(); };
+net.onLeave = (id) => { toast("🔴 Ayrıldı: " + (remoteName[id] || id), "bad"); removeRemote(id); renderFriends(); };
+net.onState = (id, d) => updateRemote(id, d);
+
+/* ESC: durdur / sosyal menü */
+let pauseOpen = false;
+function openPause() {
+  if (!S || !S.running || pauseOpen) return; pauseOpen = true;
+  const multi = net.online && net.peerCount() > 0;
+  if (!multi) S.paused = true;                       // tek oyunculu -> oyunu durdur
+  $("pauseStatus").textContent = multi ? "👥 Co-op sürüyor — oyun ARKA PLANDA devam ediyor" : "Oyun duraklatıldı";
+  $("mp-myid").textContent = net.id || (account && account.id) || "—";
+  renderFriends();
+  $("pause").classList.remove("hidden");
+  if (document.exitPointerLock) document.exitPointerLock();
+}
+function closePause() {
+  pauseOpen = false; if (S) S.paused = false; $("pause").classList.add("hidden");
+  if (!isTouch && S && S.running && threeCanvas.requestPointerLock) threeCanvas.requestPointerLock();
+}
+function togglePause() { if (pauseOpen) closePause(); else openPause(); }
 
 resize();
 // Render döngüsü: sahne kurulmadan da (menüde) FX katmanını temiz tutar; START ile sahne kurulur.

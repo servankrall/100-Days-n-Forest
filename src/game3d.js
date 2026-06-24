@@ -765,9 +765,18 @@ function loop() {
 }
 
 /* ----------------------- TAM EKRAN + SESLİ SOHBET ----------------------- */
+/* Native uygulama (Tauri/Electron) mı? Orada pencere zaten OS-fullscreen; tarayıcı
+   Fullscreen API'sini KULLANMAYIZ (yoksa ESC tam ekrandan çıkar, pause açılmaz). */
+const isNativeApp = () => !!(window.__TAURI__ || window.__TAURI_INTERNALS__ || window.isTauri ||
+  ((navigator.userAgent || "").indexOf("Electron") >= 0) || location.protocol === "tauri:" || location.protocol === "file:");
 function goFullscreen() {
+  if (isNativeApp()) return;   // native pencere zaten tam ekran; ESC'yi serbest bırak
   try { const el = document.documentElement; if (!document.fullscreenElement && el.requestFullscreen) el.requestFullscreen().catch(() => {}); } catch (e) {}
 }
+// Web'de ESC tarayıcı tam ekranından çıkar -> bunu yakalayıp durdurma menüsünü aç
+document.addEventListener("fullscreenchange", () => {
+  if (!isNativeApp() && !document.fullscreenElement && S && S.running && !pauseOpen) openPause();
+});
 let micStream = null, talking = false, voiceHinted = false;
 function startTalk() {
   if (talking || !S || !S.running) return; talking = true;

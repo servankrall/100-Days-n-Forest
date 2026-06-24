@@ -18,17 +18,17 @@ ilk-şahıs, atmosferik ve **korkutucu** bir hayatta kalma-macera oyunu.
 
 ### Seçenek 1 — Hazır dosyayı indir, bas-oyna (sıfır kurulum) ⭐
 
-👉 **İNDİRME LİNKİ:** **https://github.com/servankrall/100-days-n-forest/releases/latest**
+👉 **İNDİRME (canlı):** **https://github.com/servankrall/100-Days-n-Forest/releases/latest**
 
-Oradan cihazına uygun dosyayı indir → çift tık → kurulum **kendiliğinden** olur → oyna:
-- 🪟 **Windows:** `100GunOrmanda-Setup-*.exe`
-- 🍎 **macOS:** `*.dmg`
-- 🐧 **Linux:** `*.AppImage`
-- 🤖 **Android:** `*.apk`  (telefonda "bilinmeyen kaynaklara izin ver")
+Doğrudan indirme linkleri (v1.0.0):
+- 🪟 **Windows:** [100GunOrmanda-Setup-1.0.0.exe](https://github.com/servankrall/100-Days-n-Forest/releases/download/v1.0.0/100GunOrmanda-Setup-1.0.0.exe)
+- 🍎 **macOS (Apple Silicon):** [100.Gun.Ormanda-1.0.0-arm64.dmg](https://github.com/servankrall/100-Days-n-Forest/releases/download/v1.0.0/100.Gun.Ormanda-1.0.0-arm64.dmg)
+- 🐧 **Linux:** [100.Gun.Ormanda-1.0.0.AppImage](https://github.com/servankrall/100-Days-n-Forest/releases/download/v1.0.0/100.Gun.Ormanda-1.0.0.AppImage)
+- 🤖 **Android:** [app-debug.apk](https://github.com/servankrall/100-Days-n-Forest/releases/download/v1.0.0/app-debug.apk)  (telefonda "bilinmeyen kaynaklara izin ver")
 
-> Linkte henüz dosya yoksa derlemenin bir kez çalışması gerekir: `v1.0.0` gibi bir **etiket it**
-> (`git tag v1.0.0 && git push origin v1.0.0`) — bu, dosyaları otomatik derleyip bu Release'i
-> doldurur. Alternatif: **Actions → "Uygulamaları Derle" → Run workflow**.
+İndir → çift tık → kurulum **kendiliğinden** olur → oyna.
+
+> Yeni sürüm üretmek: `v1.1.0` gibi bir etiket it ya da **Actions → "Uygulamaları Derle" → Run workflow**.
 
 ### Seçenek 2 — Tek tık başlatıcı (otomatik kurulum)
 Depoyu indir, sonra:

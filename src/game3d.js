@@ -195,7 +195,7 @@ function buildTrees() {
   const N = CFG.TREES;
   const trunkGeo = new THREE.CylinderGeometry(0.14, 0.34, 5.2, 7);
   const trunkMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 });  // beyaz -> örnek rengi belirler
-  const folGeo = new THREE.ConeGeometry(2.7, 5.4, 8);
+  const folGeo = new THREE.IcosahedronGeometry(2.5, 1);   // yuvarlak geniş-yaprak kanopi (Amazon)
   const folMatLow = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true });
   const folMatTop = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true });
   trunkIM = new THREE.InstancedMesh(trunkGeo, trunkMat, N);
@@ -227,8 +227,8 @@ function writeTree(i) {
   if (!t.alive) { trunkIM.setMatrixAt(i, ZERO); folLowIM.setMatrixAt(i, ZERO); folTopIM.setMatrixAt(i, ZERO); return; }
   const s = t.s;
   _d.position.set(t.x, 2.6 * s, t.z); _d.rotation.set(0, t.rot, 0); _d.scale.set(s, s, s); _d.updateMatrix(); trunkIM.setMatrixAt(i, _d.matrix);
-  _d.position.set(t.x, 5.0 * s, t.z); _d.scale.set(s * 1.05, s, s * 1.05); _d.updateMatrix(); folLowIM.setMatrixAt(i, _d.matrix);
-  _d.position.set(t.x, 7.0 * s, t.z); _d.scale.set(s * 0.68, s * 0.95, s * 0.68); _d.updateMatrix(); folTopIM.setMatrixAt(i, _d.matrix);
+  _d.position.set(t.x, 5.4 * s, t.z); _d.scale.set(s * 1.25, s * 0.9, s * 1.25); _d.updateMatrix(); folLowIM.setMatrixAt(i, _d.matrix);
+  _d.position.set(t.x, 7.0 * s, t.z); _d.scale.set(s * 0.95, s * 0.95, s * 0.95); _d.updateMatrix(); folTopIM.setMatrixAt(i, _d.matrix);
 }
 function refreshTrees() { for (let i = 0; i < trees.length; i++) writeTree(i); trunkIM.instanceMatrix.needsUpdate = folLowIM.instanceMatrix.needsUpdate = folTopIM.instanceMatrix.needsUpdate = true; }
 
@@ -256,13 +256,6 @@ function buildScatter() {
   grassIM.frustumCulled = false;
   for (let i = 0; i < CFG.GRASS; i++) { _d.position.set(rnd(-CFG.WORLD, CFG.WORLD), 0.45, rnd(-CFG.WORLD, CFG.WORLD)); _d.rotation.set(rnd(-0.15, 0.15), rnd(0, 6.3), rnd(-0.15, 0.15)); _d.scale.set(rnd(0.7, 1.5), rnd(0.8, 1.8), rnd(0.7, 1.5)); _d.updateMatrix(); grassIM.setMatrixAt(i, _d.matrix); col.setHSL(rnd(0.24, 0.33), rnd(0.5, 0.7), rnd(0.20, 0.32)); grassIM.setColorAt(i, col); }
   grassIM.instanceColor.needsUpdate = true; scene.add(grassIM);
-  // asmalar / lianalar (kanopiden sarkan — Amazon hissi)
-  const vineGeo = new THREE.CylinderGeometry(0.05, 0.03, 5, 4);
-  const vineMat = new THREE.MeshStandardMaterial({ color: 0x2c3d1c, roughness: 1 });
-  const vineIM = new THREE.InstancedMesh(vineGeo, vineMat, CFG.VINES);
-  vineIM.frustumCulled = false; if (shadowsOn) vineIM.castShadow = true;
-  for (let i = 0; i < CFG.VINES; i++) { _d.position.set(rnd(-CFG.WORLD, CFG.WORLD), rnd(3.5, 6), rnd(-CFG.WORLD, CFG.WORLD)); _d.rotation.set(rnd(-0.25, 0.25), rnd(0, 6.3), rnd(-0.25, 0.25)); _d.scale.set(rnd(0.7, 1.4), rnd(0.8, 1.7), rnd(0.7, 1.4)); _d.updateMatrix(); vineIM.setMatrixAt(i, _d.matrix); }
-  scene.add(vineIM);
 }
 
 /* ----------------------- GAME STATE ----------------------- */

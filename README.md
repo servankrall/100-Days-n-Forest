@@ -21,12 +21,15 @@ ilk-şahıs, atmosferik ve **korkutucu** bir hayatta kalma-macera oyunu.
 👉 **İNDİRME (canlı):** **https://github.com/servankrall/100-Days-n-Forest/releases/latest**
 
 Doğrudan indirme linkleri (v1.0.0):
-- 🪟 **Windows:** [100GunOrmanda-Setup-1.0.0.exe](https://github.com/servankrall/100-Days-n-Forest/releases/download/v1.0.0/100GunOrmanda-Setup-1.0.0.exe)
+- 🪟 **Windows — ÖNERİLEN, ~1.4 MB (Tauri):** [100.Gun.Ormanda_1.0.0_x64-setup.exe](https://github.com/servankrall/100-Days-n-Forest/releases/download/v1.0.0/100.Gun.Ormanda_1.0.0_x64-setup.exe) ⚡ saniyeler içinde iner
+- 🤖 **Android:** [app-debug.apk](https://github.com/servankrall/100-Days-n-Forest/releases/download/v1.0.0/app-debug.apk) (~4 MB, telefonda "bilinmeyen kaynaklara izin ver")
 - 🍎 **macOS (Apple Silicon):** [100.Gun.Ormanda-1.0.0-arm64.dmg](https://github.com/servankrall/100-Days-n-Forest/releases/download/v1.0.0/100.Gun.Ormanda-1.0.0-arm64.dmg)
 - 🐧 **Linux:** [100.Gun.Ormanda-1.0.0.AppImage](https://github.com/servankrall/100-Days-n-Forest/releases/download/v1.0.0/100.Gun.Ormanda-1.0.0.AppImage)
-- 🤖 **Android:** [app-debug.apk](https://github.com/servankrall/100-Days-n-Forest/releases/download/v1.0.0/app-debug.apk)  (telefonda "bilinmeyen kaynaklara izin ver")
 
 İndir → çift tık → kurulum **kendiliğinden** olur → oyna.
+
+> 🪟 Windows'ta küçük Tauri kurulumu sistemin **WebView2**'sini kullanır (Win10/11'de zaten var).
+> Yoksa kurulum sırasında otomatik iner. Büyük 78 MB'lık Electron `.exe`'ye gerek yok.
 
 > Yeni sürüm üretmek: `v1.1.0` gibi bir etiket it ya da **Actions → "Uygulamaları Derle" → Run workflow**.
 

@@ -2,6 +2,8 @@ node_modules/
 dist/
 www/
 android/
+src-tauri/target/
+src-tauri/gen/
 .gradle/
 *.apk
 *.aab

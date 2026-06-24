@@ -10,6 +10,15 @@
    ============================================================ */
 let PeerCtor = null;
 
+// NAT/güvenlik duvarı aşımı: STUN + ücretsiz TURN (çoğu ağda bağlantıyı sağlar).
+const ICE_SERVERS = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:global.stun.twilio.com:3478" },
+  { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
+];
+
 export const net = {
   peer: null, id: null, conns: {}, calls: {}, localStream: null, micOn: false,
   online: false, host: false,
@@ -30,7 +39,7 @@ export const net = {
     if (this.peer) this.disconnect();
     return new Promise((resolve, reject) => {
       let done = false;
-      const p = new PeerCtor(myId, { debug: 1 });
+      const p = new PeerCtor(myId, { debug: 1, config: { iceServers: ICE_SERVERS } });
       this.peer = p;
       const to = setTimeout(() => { if (!done) { done = true; reject(new Error("Sinyal sunucusuna bağlanılamadı (zaman aşımı).")); } }, 12000);
       p.on("open", (id) => { if (done) return; done = true; clearTimeout(to); this.id = id; this.online = true; this._status("Bağlı: " + id); resolve(id); });

@@ -81,6 +81,7 @@ const Sound = {
 /* ----------------------- THREE setup ----------------------- */
 let renderer, scene, camera, sun, hemi, amb, headlamp, moon, fireflies;
 let shadowsOn = false;
+let composer = null, postOn = false, postTried = false, grainPass = null;
 const clock = new THREE.Clock();
 let built = false;
 
@@ -124,6 +125,43 @@ function buildScene() {
   buildTrees();
   buildScatter();
   buildFireflies();
+  if (shadowsOn) setupPostFX();   // sinematik post-fx (masaüstü)
+}
+
+/* ----- sinematik post-processing: AO + bloom + film grain + vignette ----- */
+async function setupPostFX() {
+  if (postTried) return; postTried = true;
+  try {
+    const [EC, RP, BLOOM, OUT, SP, GTAO] = await Promise.all([
+      import("three/addons/postprocessing/EffectComposer.js"),
+      import("three/addons/postprocessing/RenderPass.js"),
+      import("three/addons/postprocessing/UnrealBloomPass.js"),
+      import("three/addons/postprocessing/OutputPass.js"),
+      import("three/addons/postprocessing/ShaderPass.js"),
+      import("three/addons/postprocessing/GTAOPass.js"),
+    ]);
+    const w = window.innerWidth, h = window.innerHeight;
+    const comp = new EC.EffectComposer(renderer);
+    comp.addPass(new RP.RenderPass(scene, camera));
+    try { const g = new GTAO.GTAOPass(scene, camera, w, h); g.blendIntensity = 0.9; comp.addPass(g); } catch (e) {}
+    const bloom = new BLOOM.UnrealBloomPass(new THREE.Vector2(w, h), 0.55, 0.5, 0.82); comp.addPass(bloom);
+    // film grain + vignette
+    grainPass = new SP.ShaderPass({
+      uniforms: { tDiffuse: { value: null }, t: { value: 0 }, vig: { value: 1.05 }, grain: { value: 0.07 } },
+      vertexShader: "varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }",
+      fragmentShader:
+        "uniform sampler2D tDiffuse; uniform float t, vig, grain; varying vec2 vUv;" +
+        "float rand(vec2 c){return fract(sin(dot(c,vec2(12.9898,78.233)))*43758.5453);}" +
+        "void main(){ vec4 col=texture2D(tDiffuse,vUv);" +
+        " vec2 q=vUv-0.5; float v=smoothstep(0.9,0.25,length(q)*vig); col.rgb*=mix(0.55,1.0,v);" +  // vignette
+        " float g=(rand(vUv*vec2(t*60.0+1.0, t*37.0+1.0))-0.5)*grain; col.rgb+=g;" +                 // grain
+        " gl_FragColor=col; }",
+    });
+    comp.addPass(grainPass);
+    comp.addPass(new OUT.OutputPass());
+    comp.setSize(w, h); comp.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    composer = comp; postOn = true;
+  } catch (e) { console.warn("[postfx] yüklenemedi, düz render:", e); postOn = false; }
 }
 
 /* ----- ateş böcekleri / gece parıltıları (Points) ----- */
@@ -698,6 +736,7 @@ function updateHUD(night) {
 function resize() {
   const w = window.innerWidth, h = window.innerHeight, dpr = Math.min(window.devicePixelRatio || 1, 2);
   if (renderer) { renderer.setPixelRatio(dpr); renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+  if (composer) { composer.setPixelRatio(dpr); composer.setSize(w, h); }
   fx.width = w * dpr; fx.height = h * dpr; fxc.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 addEventListener("resize", resize);
@@ -706,7 +745,10 @@ addEventListener("resize", resize);
 function loop() {
   const dt = Math.min(clock.getDelta(), 0.05);
   if (S && S.running && !S.paused) update(dt);
-  if (renderer) renderer.render(scene, camera);
+  if (postOn && composer) {
+    if (grainPass) grainPass.uniforms.t.value = performance.now() / 1000;
+    try { composer.render(); } catch (e) { postOn = false; }   // hata olursa düz render'a düş
+  } else if (renderer) renderer.render(scene, camera);
 
   // FX katmanı (jumpscare + akıl bozulması + ekran kenarı)
   const w = window.innerWidth, h = window.innerHeight;

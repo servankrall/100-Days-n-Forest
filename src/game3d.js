@@ -68,13 +68,19 @@ const Sound = {
   growl() { if (!this.ctx) return; const c = this.ctx, t = c.currentTime, o = c.createOscillator(), g = c.createGain(), lfo = c.createOscillator(), lg = c.createGain(); o.type = "sawtooth"; o.frequency.value = 90; lfo.type = "sine"; lfo.frequency.value = 22; lg.gain.value = 30; lfo.connect(lg); lg.connect(o.frequency); const f = c.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 500; g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.3, t + 0.1); g.gain.linearRampToValueAtTime(0.0001, t + 0.7); o.connect(f); f.connect(g); g.connect(this.master); o.start(); lfo.start(); o.stop(t + 0.75); lfo.stop(t + 0.75); },
   screech() {
     if (!this.ctx) return; const c = this.ctx, t = c.currentTime;
-    this._burst(0.7, "highpass", 800, 0.9);
+    this._burst(0.8, "highpass", 700, 1.0);                       // sert gürültü
+    // inen çığlık (detune'lu testere)
     const o1 = c.createOscillator(), o2 = c.createOscillator(), og = c.createGain();
     o1.type = "sawtooth"; o2.type = "sawtooth";
-    o1.frequency.setValueAtTime(1400, t); o1.frequency.exponentialRampToValueAtTime(180, t + 0.55);
-    o2.frequency.setValueAtTime(1480, t); o2.frequency.exponentialRampToValueAtTime(150, t + 0.55);
-    og.gain.setValueAtTime(0.0001, t); og.gain.exponentialRampToValueAtTime(0.5, t + 0.03); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
-    o1.connect(og); o2.connect(og); og.connect(this.master); o1.start(); o2.start(); o1.stop(t + 0.62); o2.stop(t + 0.62);
+    o1.frequency.setValueAtTime(1500, t); o1.frequency.exponentialRampToValueAtTime(160, t + 0.6);
+    o2.frequency.setValueAtTime(1590, t); o2.frequency.exponentialRampToValueAtTime(130, t + 0.6);
+    og.gain.setValueAtTime(0.0001, t); og.gain.exponentialRampToValueAtTime(0.6, t + 0.02); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.7);
+    o1.connect(og); o2.connect(og); og.connect(this.master); o1.start(); o2.start(); o1.stop(t + 0.72); o2.stop(t + 0.72);
+    // bas patlama (göğüste hissedilen "boom")
+    const b = c.createOscillator(), bg = c.createGain();
+    b.type = "sine"; b.frequency.setValueAtTime(120, t); b.frequency.exponentialRampToValueAtTime(34, t + 0.4);
+    bg.gain.setValueAtTime(0.0001, t); bg.gain.exponentialRampToValueAtTime(0.9, t + 0.015); bg.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+    b.connect(bg); bg.connect(this.master); b.start(); b.stop(t + 0.52);
   },
 };
 
@@ -125,26 +131,58 @@ function buildScene() {
   buildTrees();
   buildScatter();
   buildFireflies();
+  setupBirds();                   // gerçek CC0 model kuşlar (animasyonlu)
   if (shadowsOn) setupPostFX();   // sinematik post-fx (masaüstü)
+}
+
+/* ----- gerçek 3B model kuşlar (CC0 GLTF, three.js örnekleri) ----- */
+const birds = [];
+async function setupBirds() {
+  try {
+    const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
+    const loader = new GLTFLoader();
+    for (const f of ["./Parrot.glb", "./Flamingo.glb", "./Stork.glb"]) {
+      loader.load(f, (gltf) => {
+        const clip = gltf.animations && gltf.animations[0];
+        const n = 2 + (Math.random() * 2 | 0);
+        for (let i = 0; i < n; i++) {
+          const root = gltf.scene.clone(true); root.scale.setScalar(0.06);
+          root.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; } });
+          scene.add(root);
+          const mixer = new THREE.AnimationMixer(root);
+          if (clip) mixer.clipAction(clip).play();
+          birds.push({ root, mixer, R: rnd(28, 75), a: rnd(0, 6.28), sp: rnd(0.08, 0.2) * (Math.random() < 0.5 ? 1 : -1), cy: rnd(16, 36), bob: rnd(0, 6.28) });
+        }
+      }, undefined, () => {});
+    }
+  } catch (e) { /* GLTFLoader yoksa (ör. importmap-only) kuşlar atlanır */ }
+}
+function updateBirds(dt) {
+  if (!birds.length) return;
+  const cx = camera.position.x, cz = camera.position.z, tt = performance.now() / 1000;
+  for (const b of birds) {
+    b.a += b.sp * dt;
+    b.root.position.set(cx + Math.cos(b.a) * b.R, b.cy + Math.sin(tt + b.bob) * 2.2, cz + Math.sin(b.a) * b.R);
+    b.root.rotation.y = -b.a + (b.sp > 0 ? Math.PI : 0);
+    b.mixer.update(dt);
+  }
 }
 
 /* ----- sinematik post-processing: AO + bloom + film grain + vignette ----- */
 async function setupPostFX() {
   if (postTried) return; postTried = true;
   try {
-    const [EC, RP, BLOOM, OUT, SP, GTAO] = await Promise.all([
+    const [EC, RP, BLOOM, OUT, SP] = await Promise.all([
       import("three/addons/postprocessing/EffectComposer.js"),
       import("three/addons/postprocessing/RenderPass.js"),
       import("three/addons/postprocessing/UnrealBloomPass.js"),
       import("three/addons/postprocessing/OutputPass.js"),
       import("three/addons/postprocessing/ShaderPass.js"),
-      import("three/addons/postprocessing/GTAOPass.js"),
     ]);
     const w = window.innerWidth, h = window.innerHeight;
     const comp = new EC.EffectComposer(renderer);
     comp.addPass(new RP.RenderPass(scene, camera));
-    try { const g = new GTAO.GTAOPass(scene, camera, w, h); g.blendIntensity = 0.9; comp.addPass(g); } catch (e) {}
-    const bloom = new BLOOM.UnrealBloomPass(new THREE.Vector2(w, h), 0.55, 0.5, 0.82); comp.addPass(bloom);
+    const bloom = new BLOOM.UnrealBloomPass(new THREE.Vector2(w, h), 0.7, 0.55, 0.8); comp.addPass(bloom); // ateş/gözler/ay parlar
     // film grain + vignette
     grainPass = new SP.ShaderPass({
       uniforms: { tDiffuse: { value: null }, t: { value: 0 }, vig: { value: 1.05 }, grain: { value: 0.07 } },
@@ -335,15 +373,28 @@ function makeFire(x, z) {
 /* ----- İzleyen modeli ----- */
 function makeWatcher() {
   const g = new THREE.Group();
-  const black = new THREE.MeshBasicMaterial({ color: 0x040404 });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 3.0, 0.32), black); body.position.y = 1.9; g.add(body);
-  for (const sx of [-1, 1]) { const arm = new THREE.Mesh(new THREE.BoxGeometry(0.16, 2.0, 0.16), black); arm.position.set(sx * 0.34, 2.2, 0); arm.rotation.z = sx * 0.12; g.add(arm); const leg = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.6, 0.18), black); leg.position.set(sx * 0.15, 0.8, 0); g.add(leg); }
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.34, 12, 12), new THREE.MeshStandardMaterial({ color: 0xd8d2c8, emissive: 0x554c44, emissiveIntensity: 0.5, roughness: 1 })); head.position.y = 3.7; g.add(head);
-  const eyeMat = new THREE.MeshStandardMaterial({ color: 0xff1111, emissive: 0xcc0000, emissiveIntensity: 2.2 });
-  for (const sx of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), eyeMat); e.position.set(sx * 0.12, 3.74, 0.3); g.add(e); }
-  // kan akıntıları (ince kırmızı kutular)
-  const blood = new THREE.MeshBasicMaterial({ color: 0x8a0000 });
-  for (let i = 0; i < 3; i++) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.04, rnd(0.3, 0.7), 0.04), blood); b.position.set(rnd(-0.18, 0.18), 3.4, 0.3); g.add(b); }
+  const skin = new THREE.MeshStandardMaterial({ color: 0x090909, roughness: 0.95 });           // kapkara, uzun
+  const pale = new THREE.MeshStandardMaterial({ color: 0xcfc7b8, emissive: 0x2c241c, emissiveIntensity: 0.35, roughness: 1 });
+  const blood = new THREE.MeshStandardMaterial({ color: 0x5e0000, emissive: 0x300000, emissiveIntensity: 0.4, roughness: 0.6 });
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0xff2a2a, emissive: 0xff0000, emissiveIntensity: 3.2 });
+  // gövde — ince, uzun, hafif öne eğik
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 1.7, 4, 10), skin); torso.position.y = 2.55; torso.rotation.x = 0.12; g.add(torso);
+  const pelvis = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.5, 4, 8), skin); pelvis.position.y = 1.62; g.add(pelvis);
+  for (const sx of [-1, 1]) {
+    const upper = new THREE.Mesh(new THREE.CapsuleGeometry(0.1, 1.2, 3, 6), skin); upper.position.set(sx * 0.42, 2.55, 0.05); upper.rotation.z = sx * 0.2; g.add(upper);
+    const fore = new THREE.Mesh(new THREE.CapsuleGeometry(0.085, 1.3, 3, 6), skin); fore.position.set(sx * 0.6, 1.45, 0.08); g.add(fore);
+    for (let f = 0; f < 3; f++) { const cl = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.26, 4), skin); cl.position.set(sx * 0.6 + (f - 1) * 0.06, 0.74, 0.12); cl.rotation.x = Math.PI; g.add(cl); }
+    const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 1.55, 4, 8), skin); leg.position.set(sx * 0.16, 0.8, 0); g.add(leg);
+  }
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 0.5, 6), skin); neck.position.y = 3.55; neck.rotation.x = 0.28; g.add(neck);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 16), pale); head.position.set(0, 3.85, 0.07); head.scale.set(0.85, 1.18, 0.92); g.add(head);
+  for (const sx of [-1, 1]) {
+    const socket = new THREE.Mesh(new THREE.SphereGeometry(0.095, 8, 8), new THREE.MeshBasicMaterial({ color: 0x000000 })); socket.position.set(sx * 0.12, 3.9, 0.27); g.add(socket);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), eyeMat); eye.position.set(sx * 0.12, 3.9, 0.31); g.add(eye);
+  }
+  const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.13, 0.05), new THREE.MeshBasicMaterial({ color: 0x070000 })); mouth.position.set(0, 3.72, 0.29); g.add(mouth);
+  for (let i = 0; i < 7; i++) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.03, rnd(0.3, 0.95), 0.02), blood); b.position.set(rnd(-0.26, 0.26), rnd(2.5, 3.85), 0.3); g.add(b); }
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   scene.add(g); g.visible = false; return g;
 }
 let watcherGroup = null, watcherHead = null;
@@ -357,7 +408,7 @@ function spawnWatcher(near) {
   for (const t of trees) { if (!t.alive) continue; const dd = (t.x - x) ** 2 + (t.z - z) ** 2; if (dd < bd) { bd = dd; bt = t; } }
   if (bt && bd < 100) { x = bt.x + rnd(-0.8, 0.8); z = bt.z + rnd(-0.3, 0.8); }
   x = clamp(x, -CFG.WORLD, CFG.WORLD); z = clamp(z, -CFG.WORLD, CFG.WORLD);
-  watcherGroup.position.set(x, 0, z); watcherGroup.visible = true;
+  watcherGroup.position.set(x, 0, z); watcherGroup.scale.setScalar(1); watcherGroup.visible = true;
   watcher = { group: watcherGroup, x, z, seen: 0, life: rnd(7, 14), alpha: 0 };
   Sound.whisper();
   if (Math.random() < 0.5) whisperText(choice(["arkanda...", "seni görüyor", "kaçma", "100 gün... olmayacak"]));
@@ -478,23 +529,34 @@ function doEat() {
 /* ----------------------- JUMPSCARE ----------------------- */
 let jumpT = 0, jumpFace = 0;
 function jumpscare(face, san, hp) {
-  jumpT = 0.85; jumpFace = face != null ? face : rndi(0, 2);
-  S.shake = Math.max(S.shake, 0.5);
+  jumpT = 1.0; jumpFace = face != null ? face : rndi(0, 2);
+  S.shake = Math.max(S.shake, 0.9);
   S.sanity = clamp(S.sanity - (san || 12), 0, 100);
-  if (hp) { S.health = clamp(S.health - hp, 0, 100); S.hurt = 0.4; if (S.health <= 0) die("kalp krizi"); }
+  if (hp) { S.health = clamp(S.health - hp, 0, 100); S.hurt = 0.6; if (S.health <= 0) die("kalp krizi"); }
   Sound.screech();
 }
-function drawScaryFace(w, h, kind) {
-  fxc.save(); fxc.translate(w / 2 + rnd(-8, 8), h / 2 + rnd(-8, 8));
-  const sc = Math.min(w, h) / 360 * 1.1; fxc.scale(sc, sc);
-  fxc.fillStyle = "#e8e2d6"; fxc.beginPath(); fxc.ellipse(0, 0, 120, 160, 0, 0, 6.3); fxc.fill();
-  fxc.fillStyle = "rgba(40,20,20,0.5)"; fxc.beginPath(); fxc.ellipse(-55, -10, 35, 50, 0.4, 0, 6.3); fxc.fill(); fxc.beginPath(); fxc.ellipse(55, -10, 35, 50, -0.4, 0, 6.3); fxc.fill();
-  fxc.fillStyle = "#000"; fxc.beginPath(); fxc.ellipse(-45, -30, 28, 36, 0, 0, 6.3); fxc.fill(); fxc.beginPath(); fxc.ellipse(45, -30, 28, 36, 0, 0, 6.3); fxc.fill();
-  if (kind !== 2) { fxc.fillStyle = "#fff"; const j = () => rnd(-3, 3); fxc.beginPath(); fxc.arc(-45 + j(), -28 + j(), 5, 0, 6.3); fxc.arc(45 + j(), -28 + j(), 5, 0, 6.3); fxc.fill(); }
-  else { fxc.fillStyle = "#ff1a1a"; fxc.beginPath(); fxc.arc(-45, -28, 7, 0, 6.3); fxc.arc(45, -28, 7, 0, 6.3); fxc.fill(); }
-  fxc.strokeStyle = "#8a0000"; fxc.lineWidth = 5; fxc.beginPath(); fxc.moveTo(-45, 6); fxc.lineTo(-42, 120); fxc.stroke(); fxc.beginPath(); fxc.moveTo(45, 6); fxc.lineTo(50, 130); fxc.stroke();
-  fxc.fillStyle = "#100000"; fxc.beginPath(); fxc.ellipse(0, 80, 38, 58, 0, 0, 6.3); fxc.fill();
-  fxc.fillStyle = "#d8cfc0"; for (let i = -3; i <= 3; i++) { fxc.fillRect(i * 10 - 4, 32, 8, 14); fxc.fillRect(i * 10 - 4, 116, 8, 14); }
+function drawScaryFace(w, h) {
+  fxc.save();
+  fxc.translate(w / 2 + rnd(-10, 10), h / 2 + rnd(-10, 10));
+  fxc.scale(Math.min(w, h) / 320 * (1.05 + Math.random() * 0.07), Math.min(w, h) / 320 * (1.05 + Math.random() * 0.07));
+  fxc.fillStyle = "#d9d2c4"; fxc.beginPath(); fxc.ellipse(0, 0, 132, 176, 0, 0, 6.3); fxc.fill();             // kafa
+  fxc.fillStyle = "rgba(20,6,6,0.55)";                                                                        // çökük gölgeler
+  fxc.beginPath(); fxc.ellipse(-64, -6, 38, 60, 0.35, 0, 6.3); fxc.fill();
+  fxc.beginPath(); fxc.ellipse(64, -6, 38, 60, -0.35, 0, 6.3); fxc.fill();
+  fxc.beginPath(); fxc.ellipse(0, -126, 64, 30, 0, 0, 6.3); fxc.fill();
+  fxc.strokeStyle = "rgba(90,0,0,0.35)"; fxc.lineWidth = 2;                                                   // damarlar
+  for (let i = 0; i < 11; i++) { const ax = rnd(-112, 112), ay = rnd(-150, 70); fxc.beginPath(); fxc.moveTo(ax, ay); fxc.lineTo(ax + rnd(-26, 26), ay + rnd(22, 52)); fxc.stroke(); }
+  fxc.fillStyle = "#000"; fxc.beginPath(); fxc.ellipse(-50, -34, 33, 44, 0, 0, 6.3); fxc.fill(); fxc.beginPath(); fxc.ellipse(50, -34, 33, 44, 0, 0, 6.3); fxc.fill(); // göz çukuru
+  const gl = 0.65 + Math.random() * 0.35; fxc.fillStyle = "rgba(255,28,28," + gl + ")";                       // parlayan kırmızı göz
+  fxc.beginPath(); fxc.arc(-50, -32, 10, 0, 6.3); fxc.arc(50, -32, 10, 0, 6.3); fxc.fill();
+  fxc.fillStyle = "#fff"; fxc.beginPath(); fxc.arc(-50, -32, 3, 0, 6.3); fxc.arc(50, -32, 3, 0, 6.3); fxc.fill();
+  fxc.strokeStyle = "#7a0000"; fxc.lineWidth = 7;                                                             // gözden kan
+  fxc.beginPath(); fxc.moveTo(-50, 6); fxc.lineTo(-45, 155); fxc.stroke();
+  fxc.beginPath(); fxc.moveTo(50, 6); fxc.lineTo(56, 168); fxc.stroke();
+  fxc.fillStyle = "#0a0000"; fxc.beginPath(); fxc.ellipse(0, 96, 46, 70, 0, 0, 6.3); fxc.fill();              // çığlık ağzı
+  fxc.fillStyle = "#cfc6b4";                                                                                  // sivri dişler
+  for (let i = -4; i <= 4; i++) { fxc.beginPath(); fxc.moveTo(i * 10, 38); fxc.lineTo(i * 10 - 5, 64); fxc.lineTo(i * 10 + 5, 64); fxc.closePath(); fxc.fill(); fxc.beginPath(); fxc.moveTo(i * 10, 158); fxc.lineTo(i * 10 - 5, 132); fxc.lineTo(i * 10 + 5, 132); fxc.closePath(); fxc.fill(); }
+  fxc.strokeStyle = "#8a0000"; fxc.lineWidth = 9; fxc.beginPath(); fxc.moveTo(0, 158); fxc.lineTo(rnd(-12, 12), 205); fxc.stroke(); // ağızdan kan
   fxc.restore();
 }
 
@@ -638,6 +700,7 @@ function update(dt) {
     if (S.netT <= 0) { S.netT = 0.1; net.broadcast({ t: "state", x: camera.position.x, z: camera.position.z, yaw: yaw, day: S.day, hp: Math.round(S.health) }); }
   }
   lerpRemotes(dt);
+  updateBirds(dt);
 
   updateHUD(night);
 }
@@ -653,8 +716,21 @@ function updateWatcher(dt, night) {
     return;
   }
   const w = watcher; w.alpha = Math.min(w.alpha + dt * 1.5, 1);
-  // İzleyen kameraya bakar (dik dur)
+  // ÜSTÜNE KOŞMA: kameraya hızla yaklaşıp büyür, sonra jumpscare patlar
+  if (w.lunge != null) {
+    w.lunge -= dt;
+    w.x += (camera.position.x - w.x) * Math.min(1, dt * 6);
+    w.z += (camera.position.z - w.z) * Math.min(1, dt * 6);
+    w.group.position.set(w.x, Math.sin(performance.now() / 35) * 0.06, w.z);
+    w.group.rotation.y = Math.atan2(camera.position.x - w.x, camera.position.z - w.z);
+    w.group.scale.setScalar(1 + (0.5 - Math.max(0, w.lunge)) * 1.8);
+    S.shake = 0.6;
+    if (w.lunge <= 0) { jumpscare(0, 22, 11); w.group.scale.setScalar(1); vanishWatcher(true); wCd = rnd(20, 34); }
+    return;
+  }
+  // İzleyen kameraya bakar (dik dur) + hafif süzülme
   w.group.rotation.y = Math.atan2(camera.position.x - w.x, camera.position.z - w.z);
+  w.group.position.y = Math.sin(performance.now() / 700) * 0.05;
   const d = Math.hypot(w.x - camera.position.x, w.z - camera.position.z);
   // bakıyor mu? -> kafayı ekran düzlemine projekte et
   const v = new THREE.Vector3(w.x, 3.7, w.z).project(camera);
@@ -665,7 +741,7 @@ function updateWatcher(dt, night) {
   w.life -= dt;
   if (d > 70) { vanishWatcher(true); wCd = rnd(5, 10); return; }
   if (w.life <= 0) {
-    if (d < 6 && S.sanity < 45) { jumpscare(0, 18, 9); vanishWatcher(true); wCd = rnd(18, 30); }
+    if (d < 7 && S.sanity < 55) { w.lunge = 0.5; Sound.growl(); whisperText("KOŞ!"); }   // üstüne koşmaya başla
     else if (Math.random() < 0.55) { spawnWatcher(true); whisperText(choice(["daha yakın", "kıpırdama", "arkanda"])); }
     else vanishWatcher(true);
   }

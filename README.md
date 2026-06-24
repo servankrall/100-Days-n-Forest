@@ -182,6 +182,10 @@ Cihaza/emülatöre doğrudan kurup çalıştırmak için: `npm run mobile:run`.
 
 ---
 
+## 🙏 Krediler / Lisans
+- Uçan kuş modelleri (Parrot/Flamingo/Stork): three.js örnek varlıkları, **CC0** (kamuya açık).
+- Three.js (MIT), PeerJS (MIT). Oyun kodu: MIT.
+
 ## 🗺️ Yol Haritası
 - [x] Masaüstü uygulaması (Three.js + Electron).
 - [x] Android paketleme altyapısı (Capacitor + Vite) — `cap add android`'e kadar doğrulandı.

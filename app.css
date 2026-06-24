@@ -52,6 +52,10 @@ canvas#fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-eve
 .mbtn:active { background: rgba(120,30,30,.7); transform: scale(.94); }
 .mbtn.big { background: rgba(120,20,20,.55); }
 #btn-action { grid-area: action; } #btn-fire { grid-area: fire; } #btn-eat { grid-area: eat; } #btn-sprint { grid-area: sprint; }
+#btn-voice { position: absolute; left: 50%; transform: translateX(-50%); bottom: 26px; width: 64px; height: 64px; pointer-events: auto; }
+#btn-voice.on { background: rgba(200,30,30,.85); box-shadow: 0 0 16px rgba(220,0,0,.6); }
+#voice { position: absolute; right: 16px; bottom: 150px; background: rgba(150,20,20,.75); color: #fff; padding: 6px 14px; border-radius: 18px; font-size: 15px; border: 1px solid #f66; text-shadow: 0 0 6px #000; animation: pulseVoice 1s infinite; }
+@keyframes pulseVoice { 0%,100% { opacity: .65; } 50% { opacity: 1; } }
 
 /* ===== overlays ===== */
 .overlay { position: absolute; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, rgba(10,12,10,.88), rgba(0,0,0,.98)); padding: 16px; overflow-y: auto; }

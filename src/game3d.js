@@ -13,7 +13,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const map = (v, a, b, c, d) => c + (clamp(v, a, b) - a) / (b - a) * (d - c);
 const choice = (arr) => arr[(Math.random() * arr.length) | 0];
 
-const CFG = { WORLD: 110, DAY_LENGTH: 165, WIN_DAY: 100, TREES: 280, BUSHES: 130, ROCKS: 46, GRASS: 420, EYE: 1.7 };
+const CFG = { WORLD: 110, DAY_LENGTH: 165, WIN_DAY: 100, TREES: 540, BUSHES: 260, ROCKS: 56, GRASS: 820, VINES: 160, EYE: 1.7 };
 
 /* ----------------------- DOM ----------------------- */
 const $ = (id) => document.getElementById(id);
@@ -217,6 +217,13 @@ function buildScatter() {
   grassIM.frustumCulled = false;
   for (let i = 0; i < CFG.GRASS; i++) { _d.position.set(rnd(-CFG.WORLD, CFG.WORLD), 0.45, rnd(-CFG.WORLD, CFG.WORLD)); _d.rotation.set(rnd(-0.15, 0.15), rnd(0, 6.3), rnd(-0.15, 0.15)); _d.scale.set(rnd(0.7, 1.5), rnd(0.8, 1.8), rnd(0.7, 1.5)); _d.updateMatrix(); grassIM.setMatrixAt(i, _d.matrix); col.setHSL(rnd(0.24, 0.33), rnd(0.5, 0.7), rnd(0.20, 0.32)); grassIM.setColorAt(i, col); }
   grassIM.instanceColor.needsUpdate = true; scene.add(grassIM);
+  // asmalar / lianalar (kanopiden sarkan — Amazon hissi)
+  const vineGeo = new THREE.CylinderGeometry(0.05, 0.03, 5, 4);
+  const vineMat = new THREE.MeshStandardMaterial({ color: 0x2c3d1c, roughness: 1 });
+  const vineIM = new THREE.InstancedMesh(vineGeo, vineMat, CFG.VINES);
+  vineIM.frustumCulled = false; if (shadowsOn) vineIM.castShadow = true;
+  for (let i = 0; i < CFG.VINES; i++) { _d.position.set(rnd(-CFG.WORLD, CFG.WORLD), rnd(3.5, 6), rnd(-CFG.WORLD, CFG.WORLD)); _d.rotation.set(rnd(-0.25, 0.25), rnd(0, 6.3), rnd(-0.25, 0.25)); _d.scale.set(rnd(0.7, 1.4), rnd(0.8, 1.7), rnd(0.7, 1.4)); _d.updateMatrix(); vineIM.setMatrixAt(i, _d.matrix); }
+  scene.add(vineIM);
 }
 
 /* ----------------------- GAME STATE ----------------------- */
@@ -336,8 +343,9 @@ addEventListener("keydown", (e) => {
   if (k === "e" || k === " ") inp.action = true;
   if (k === "f") inp.fire = true;
   if (k === "g") inp.eat = true;
+  if (k === "v") startTalk();           // bas-konuş (sesli sohbet)
 });
-addEventListener("keyup", (e) => { keys[e.key.toLowerCase()] = false; });
+addEventListener("keyup", (e) => { const k = e.key.toLowerCase(); keys[k] = false; if (k === "v") stopTalk(); });
 
 threeCanvas.addEventListener("mousedown", (e) => {
   if (!S || !S.running) return;
@@ -566,15 +574,15 @@ function update(dt) {
   sun.intensity = dayK * 1.25;
   sun.position.set(camera.position.x + sdx * 70, sdy * 90 + 18, camera.position.z + 40); // gölge kamerası oyuncuyu takip etsin
   sun.target.position.copy(camera.position);
-  moon.intensity = dk * 0.4;                                  // gecede soluk ay silüetleri
-  hemi.intensity = lerp(0.05, 0.95, dayK); amb.intensity = lerp(0.05, 0.5, dayK);
-  headlamp.intensity = lerp(0.0, 0.85, dk); headlamp.position.copy(camera.position);
+  moon.intensity = dk * 0.16;                                 // gece neredeyse zifiri — sadece soluk silüet
+  hemi.intensity = lerp(0.012, 0.95, dayK); amb.intensity = lerp(0.012, 0.5, dayK);
+  headlamp.intensity = lerp(0.0, 1.0, dk); headlamp.position.copy(camera.position); // meşale/fenerin dar ışığı
   const dayCol = new THREE.Color(0x9fb7a0), nightCol = new THREE.Color(0x05080f);
   const skyCol = nightCol.clone().lerp(dayCol, dayK);
   const golden = Math.max(0, 1 - Math.abs(S.time - 0.16) / 0.10) + Math.max(0, 1 - Math.abs(S.time - 0.63) / 0.08);
   if (golden > 0) skyCol.lerp(new THREE.Color(0xd98a4a), Math.min(golden, 1) * 0.5);  // şafak/akşam altın tonu
   scene.background = skyCol; scene.fog.color = skyCol;
-  scene.fog.density = lerp(0.013, 0.08, dk);
+  scene.fog.density = lerp(0.013, 0.12, dk);   // gece yoğun sis → dar görüş, klostrofobi
   // ateş böcekleri (gece görünür, hafif salınır)
   if (fireflies) {
     fireflies.material.opacity = dk * 0.9; fireflies.position.set(camera.position.x, 0, camera.position.z);
@@ -703,6 +711,26 @@ function loop() {
   if (jumpT > 0) { fxc.fillStyle = Math.random() > 0.5 ? "#120000" : "#3a0000"; fxc.fillRect(0, 0, w, h); drawScaryFace(w, h, jumpFace); }
 }
 
+/* ----------------------- TAM EKRAN + SESLİ SOHBET ----------------------- */
+function goFullscreen() {
+  try { const el = document.documentElement; if (!document.fullscreenElement && el.requestFullscreen) el.requestFullscreen().catch(() => {}); } catch (e) {}
+}
+let micStream = null, talking = false, voiceHinted = false;
+function startTalk() {
+  if (talking || !S || !S.running) return; talking = true;
+  $("voice").classList.remove("hidden");
+  const vb = $("btn-voice"); if (vb) vb.classList.add("on");
+  if (!micStream && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    navigator.mediaDevices.getUserMedia({ audio: true }).then((s) => { micStream = s; }).catch(() => {});
+  }
+  if (!voiceHinted) { voiceHinted = true; toast("🎤 Bas-konuş açık — co-op modunda arkadaşlara iletilir", "good"); }
+}
+function stopTalk() {
+  if (!talking) return; talking = false;
+  $("voice").classList.add("hidden");
+  const vb = $("btn-voice"); if (vb) vb.classList.remove("on");
+}
+
 /* ----------------------- BOOT / MENU ----------------------- */
 function startGame() {
   if (!built) { try { buildScene(); built = true; } catch (e) { $("loadNote").textContent = "3B başlatılamadı: " + e.message + " — 'npm install' yaptın mı?"; throw e; } }
@@ -720,7 +748,9 @@ function startGame() {
   const wantMobile = isTouch || (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) || window.innerWidth < 820;
   if (wantMobile) $("mobile").classList.remove("hidden");
   else { $("mobile").classList.add("hidden"); threeCanvas.requestPointerLock && threeCanvas.requestPointerLock(); }
+  goFullscreen();                                  // BAŞLA ile tam ekran (F11)
   toast("🌴 Amazon'a hoş geldin. Geceye hazırlan...", "good");
+  setTimeout(() => toast("🎤 V'ye basılı tut: sesli sohbet (co-op)", "good"), 5000);
   setTimeout(() => toast("🪓 Ağaca bakıp VUR → odun · 🔥 ile ateş yak", "good"), 2600);
 }
 
@@ -734,6 +764,14 @@ pauseBtn.addEventListener("click", () => { if (!S) return; S.paused = !S.paused;
 addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { /* fare kilidi tarayıcıca bırakılır */ } });
 document.addEventListener("visibilitychange", () => { if (document.hidden && S && S.running) { S.paused = true; pauseBtn.textContent = "▶"; } });
 addEventListener("touchstart", () => { isTouch = true; }, { once: true, passive: true });
+const vBtn = $("btn-voice");
+if (vBtn) {
+  vBtn.addEventListener("touchstart", (e) => { isTouch = true; startTalk(); e.preventDefault(); }, { passive: false });
+  vBtn.addEventListener("touchend", (e) => { stopTalk(); e.preventDefault(); }, { passive: false });
+  vBtn.addEventListener("mousedown", startTalk);
+  vBtn.addEventListener("mouseup", stopTalk);
+  vBtn.addEventListener("mouseleave", stopTalk);
+}
 
 resize();
 // Render döngüsü: sahne kurulmadan da (menüde) FX katmanını temiz tutar; START ile sahne kurulur.

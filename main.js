@@ -10,6 +10,7 @@ function createWindow() {
     minHeight: 560,
     backgroundColor: "#05080a",
     title: "100 Gün Ormanda",
+    fullscreen: true,
     autoHideMenuBar: true,
     icon: path.join(__dirname, "assets", "icon.png"),
     webPreferences: {

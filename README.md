@@ -30,6 +30,11 @@ Doğrudan indirme linkleri (v1.0.0):
 
 > 🪟 Windows'ta küçük Tauri kurulumu sistemin **WebView2**'sini kullanır (Win10/11'de zaten var).
 > Yoksa kurulum sırasında otomatik iner. Büyük 78 MB'lık Electron `.exe`'ye gerek yok.
+>
+> 🛡️ **"Windows bilgisayarınızı korudu / Bilinmeyen yayıncı" (SmartScreen) uyarısı çıkarsa:**
+> Uygulama imzasız olduğu için normaldir, virüs değildir. **"Daha fazla bilgi" → "Yine de
+> çalıştır"** de, sonra UAC için **Evet**. (Alternatif: dosyaya sağ tık → Özellikler →
+> "Engellemeyi Kaldır".) İmzasız tüm bağımsız uygulamalarda bu adım vardır.
 
 > Yeni sürüm üretmek: `v1.1.0` gibi bir etiket it ya da **Actions → "Uygulamaları Derle" → Run workflow**.
 

@@ -706,16 +706,21 @@ function update(dt) {
 }
 
 function updateWatcher(dt, night) {
+  let safe = false;
+  for (const f of fires) { if (Math.hypot(f.x - camera.position.x, f.z - camera.position.z) < 11) { safe = true; break; } }
   if (!watcher) {
     wCd -= dt;
     if (wCd <= 0) {
-      let chance = night ? 0.9 : 0.1; chance *= 1 + (1 - S.sanity / 100);
-      if (!S.firstNightDone && night) chance = 1;
-      if (Math.random() < chance) { spawnWatcher(false); if (night) S.firstNightDone = true; } else wCd = rnd(4, 9);
+      if (!night) { wCd = rnd(3, 6); return; }            // SADECE GECE gelir (sabah/gündüz gelmez)
+      if (safe) { wCd = rnd(4, 8); return; }               // ATEŞİN yanındaysan gelmez (korunursun)
+      let chance = 0.9 * (1 + (1 - S.sanity / 100));
+      if (!S.firstNightDone) chance = 1;
+      if (Math.random() < chance) { spawnWatcher(false); S.firstNightDone = true; } else wCd = rnd(4, 9);
     }
     return;
   }
   const w = watcher; w.alpha = Math.min(w.alpha + dt * 1.5, 1);
+  if (safe) { vanishWatcher(true); wCd = rnd(6, 12); return; }   // ateşe ulaştın -> korundun, kaybolur
   // ÜSTÜNE KOŞMA: kameraya hızla yaklaşıp büyür, sonra jumpscare patlar
   if (w.lunge != null) {
     w.lunge -= dt;
@@ -728,16 +733,24 @@ function updateWatcher(dt, night) {
     if (w.lunge <= 0) { jumpscare(0, 22, 11); w.group.scale.setScalar(1); vanishWatcher(true); wCd = rnd(20, 34); }
     return;
   }
-  // İzleyen kameraya bakar (dik dur) + hafif süzülme
-  w.group.rotation.y = Math.atan2(camera.position.x - w.x, camera.position.z - w.z);
-  w.group.position.y = Math.sin(performance.now() / 700) * 0.05;
   const d = Math.hypot(w.x - camera.position.x, w.z - camera.position.z);
   // bakıyor mu? -> kafayı ekran düzlemine projekte et
   const v = new THREE.Vector3(w.x, 3.7, w.z).project(camera);
   const onScreen = v.z < 1 && Math.hypot(v.x, v.y) < 0.33;
   const looking = onScreen && d < 50;
-  if (looking) { w.seen += dt; if (w.seen > 0.32) { vanishWatcher(false); S.sanity = clamp(S.sanity - 6, 0, 100); wEnc++; return; } }
-  else { w.seen = Math.max(0, w.seen - dt * 0.6); S.sanity = clamp(S.sanity - map(d, 4, 30, 16, 1.5) * dt, 0, 100); }
+  if (looking) {
+    w.seen += dt;
+    if (w.seen > 0.32) { vanishWatcher(false); S.sanity = clamp(S.sanity - 6, 0, 100); wEnc++; return; }
+  } else {
+    w.seen = Math.max(0, w.seen - dt * 0.6);
+    S.sanity = clamp(S.sanity - map(d, 4, 30, 16, 1.5) * dt, 0, 100);
+    // BAKMIYORSAN ÜSTÜNE GELİR (sana doğru yürür)
+    if (d > 3.5) { const ang = Math.atan2(camera.position.z - w.z, camera.position.x - w.x); const sp = map(d, 5, 45, 0.8, 2.8); w.x += Math.cos(ang) * sp * dt; w.z += Math.sin(ang) * sp * dt; }
+  }
+  // konum + bakış + hafif süzülme
+  w.x = clamp(w.x, -CFG.WORLD, CFG.WORLD); w.z = clamp(w.z, -CFG.WORLD, CFG.WORLD);
+  w.group.position.set(w.x, Math.sin(performance.now() / 700) * 0.05, w.z);
+  w.group.rotation.y = Math.atan2(camera.position.x - w.x, camera.position.z - w.z);
   w.life -= dt;
   if (d > 70) { vanishWatcher(true); wCd = rnd(5, 10); return; }
   if (w.life <= 0) {
@@ -788,6 +801,21 @@ function phaseInfo(t) { if (t < 0.07) return ["🌑", "Gece"]; if (t < 0.20) ret
 /* ----------------------- HUD ----------------------- */
 const bars = { health: $("bar-health"), hunger: $("bar-hunger"), warmth: $("bar-warmth"), sanity: $("bar-sanity"), stamina: $("bar-stamina") };
 const invEl = { wood: $("inv-wood"), raw: $("inv-raw"), cooked: $("inv-cooked") };
+const mmCanvas = $("minimap"), mmctx = mmCanvas.getContext("2d");
+function drawMinimap() {
+  const W = mmCanvas.width, H = mmCanvas.height, cx = W / 2, cy = H / 2, R = 55, sc = (W / 2 - 6) / R;
+  mmctx.clearRect(0, 0, W, H);
+  const px = camera.position.x, pz = camera.position.z;
+  mmctx.fillStyle = "#2f6b3a";
+  for (const t of trees) { if (!t.alive) continue; const dx = t.x - px, dz = t.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillRect(cx + dx * sc - 1, cy + dz * sc - 1, 2, 2); }
+  for (const a of animals) { const dx = a.x - px, dz = a.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillStyle = a.hostile ? "#ff5a4d" : "#d8c060"; mmctx.fillRect(cx + dx * sc - 1.5, cy + dz * sc - 1.5, 3, 3); }
+  for (const f of fires) { const dx = f.x - px, dz = f.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillStyle = "#ff9a3c"; mmctx.beginPath(); mmctx.arc(cx + dx * sc, cy + dz * sc, 3, 0, 6.3); mmctx.fill(); }
+  for (const id in remotes) { const r = remotes[id]; if (!r.g) continue; const dx = r.g.position.x - px, dz = r.g.position.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillStyle = "#6fa3d6"; mmctx.beginPath(); mmctx.arc(cx + dx * sc, cy + dz * sc, 2.5, 0, 6.3); mmctx.fill(); }
+  if (watcher) { const dx = watcher.x - px, dz = watcher.z - pz; if (dx * dx + dz * dz <= R * R) { mmctx.fillStyle = "#ff1010"; mmctx.beginPath(); mmctx.arc(cx + dx * sc, cy + dz * sc, 3.6, 0, 6.3); mmctx.fill(); } }
+  camera.getWorldDirection(_fwd);
+  mmctx.save(); mmctx.translate(cx, cy); mmctx.rotate(Math.atan2(_fwd.z, _fwd.x) + Math.PI / 2);
+  mmctx.fillStyle = "#fff"; mmctx.beginPath(); mmctx.moveTo(0, -6); mmctx.lineTo(4.5, 5); mmctx.lineTo(-4.5, 5); mmctx.closePath(); mmctx.fill(); mmctx.restore();
+}
 function updateHUD(night) {
   $("dayNum").textContent = S.day;
   const [ic, tx] = phaseInfo(S.time); $("phaseIcon").textContent = ic; $("phaseText").textContent = tx;
@@ -801,6 +829,7 @@ function updateHUD(night) {
   const comp = $("compass");
   if (nf && Math.sqrt(nd) > 12) { $("compassDist").textContent = Math.round(Math.sqrt(nd)) + "m"; comp.classList.remove("hidden"); } else comp.classList.add("hidden");
   whisperEl.style.color = "rgba(180,20,20," + clamp(whisperT / 2.2, 0, 1) * 0.85 + ")";
+  drawMinimap();
 }
 
 /* ----------------------- RESIZE ----------------------- */

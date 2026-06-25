@@ -132,6 +132,7 @@ function buildScene() {
   buildScatter();
   buildFireflies();
   setupBirds();                   // gerçek CC0 model kuşlar (animasyonlu)
+  setupAnimalModels();            // gerçek CC0 geyik modeli
   if (shadowsOn) setupPostFX();   // sinematik post-fx (masaüstü)
 }
 
@@ -166,6 +167,22 @@ function updateBirds(dt) {
     b.root.rotation.y = -b.a + (b.sp > 0 ? Math.PI : 0);
     b.mixer.update(dt);
   }
+}
+
+/* ----- gerçek CC0 geyik modeli (Quaternius) ----- */
+let deerProto = null;
+async function setupAnimalModels() {
+  try {
+    const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
+    new GLTFLoader().load("./Deer.glb", (gltf) => {
+      const p = gltf.scene;
+      const box = new THREE.Box3().setFromObject(p), size = new THREE.Vector3(); box.getSize(size);
+      p.scale.setScalar(1.5 / (size.y || 1));
+      const box2 = new THREE.Box3().setFromObject(p); p.position.y -= box2.min.y;   // ayakları yere
+      p.traverse((o) => { if (o.isMesh && shadowsOn) o.castShadow = true; });
+      deerProto = p;
+    }, undefined, () => {});
+  } catch (e) { /* model yoksa kutu geyik kullanılır */ }
 }
 
 /* ----- sinematik post-processing: AO + bloom + film grain + vignette ----- */
@@ -306,7 +323,7 @@ function newState() {
     inv: { wood: 8, raw: 0, cooked: 2 },
     swingCd: 0, stepT: 0, sick: 0, hurt: 0, bob: 0,
     cookT: 0, fireCrackleT: 0, deathReason: "",
-    heart: 0, heartLevel: 0, jumpCd: 12, firstNightDone: false, scripted: false,
+    heart: 0, heartLevel: 0, jumpCd: 12, firstNightDone: false, scripted: false, bloodMoon: false, dreadT: null,
     shake: 0,
   };
 }
@@ -326,6 +343,7 @@ function clearDynamic() {
 /* ----- hayvan modeli ----- */
 function makeAnimal(type) {
   const g = new THREE.Group();
+  if (type === "deer" && deerProto) { g.add(deerProto.clone(true)); scene.add(g); return g; }   // gerçek CC0 geyik modeli
   const col = { capybara: 0x8a6a44, deer: 0x9a7a52, tapir: 0x5a4a44, boar: 0x4a3a30, jaguar: 0xc8902c }[type];
   const big = type === "jaguar" || type === "tapir";
   const body = new THREE.Mesh(new THREE.BoxGeometry(big ? 1.6 : 1.1, 0.7, 0.6), new THREE.MeshStandardMaterial({ color: col, roughness: 1, flatShading: true }));
@@ -373,7 +391,7 @@ function makeFire(x, z) {
 /* ----- İzleyen modeli ----- */
 function makeWatcher() {
   const g = new THREE.Group();
-  const skin = new THREE.MeshStandardMaterial({ color: 0x090909, roughness: 0.95 });           // kapkara, uzun
+  const skin = new THREE.MeshStandardMaterial({ color: 0xb9a892, roughness: 0.9 });             // solgun/hasta ten (kanlı insansı)
   const pale = new THREE.MeshStandardMaterial({ color: 0xcfc7b8, emissive: 0x2c241c, emissiveIntensity: 0.35, roughness: 1 });
   const blood = new THREE.MeshStandardMaterial({ color: 0x5e0000, emissive: 0x300000, emissiveIntensity: 0.4, roughness: 0.6 });
   const eyeMat = new THREE.MeshStandardMaterial({ color: 0xff2a2a, emissive: 0xff0000, emissiveIntensity: 3.2 });
@@ -393,7 +411,10 @@ function makeWatcher() {
     const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), eyeMat); eye.position.set(sx * 0.12, 3.9, 0.31); g.add(eye);
   }
   const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.13, 0.05), new THREE.MeshBasicMaterial({ color: 0x070000 })); mouth.position.set(0, 3.72, 0.29); g.add(mouth);
-  for (let i = 0; i < 7; i++) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.03, rnd(0.3, 0.95), 0.02), blood); b.position.set(rnd(-0.26, 0.26), rnd(2.5, 3.85), 0.3); g.add(b); }
+  // kan akıntıları (tüm gövdeye)
+  for (let i = 0; i < 16; i++) { const b = new THREE.Mesh(new THREE.BoxGeometry(rnd(0.02, 0.05), rnd(0.25, 1.0), 0.02), blood); b.position.set(rnd(-0.34, 0.34), rnd(0.9, 3.9), rnd(0.0, 0.34)); b.rotation.z = rnd(-0.25, 0.25); g.add(b); }
+  // kan lekeleri
+  for (let i = 0; i < 9; i++) { const s = new THREE.Mesh(new THREE.SphereGeometry(rnd(0.06, 0.15), 6, 6), blood); s.position.set(rnd(-0.32, 0.32), rnd(1.6, 3.6), 0.28); s.scale.z = 0.3; g.add(s); }
   if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   scene.add(g); g.visible = false; return g;
 }
@@ -572,8 +593,14 @@ function winGame() { S.won = true; S.running = false; document.exitPointerLock &
 function update(dt) {
   // zaman / gün
   S.time += dt / CFG.DAY_LENGTH;
-  if (S.time >= 1) { S.time -= 1; S.day++; S.firstNightDone = false; S.scripted = false; if (S.day > CFG.WIN_DAY) { winGame(); return; } toast("☀️ GÜN " + S.day + " başladı", "good"); if (Math.random() < 0.5) wCd = rnd(20, 80); }
+  if (S.time >= 1) {
+    S.time -= 1; S.day++; S.firstNightDone = false; S.scripted = false;
+    if (S.day > CFG.WIN_DAY) { winGame(); return; }
+    S.bloodMoon = S.day >= 6 && Math.random() < (0.12 + S.day / 100 * 0.4);   // ilerledikçe daha sık KANLI AY
+    toast("☀️ GÜN " + S.day + " başladı" + (S.bloodMoon ? " — bu gece KANLI AY 🔴" : ""), S.bloodMoon ? "bad" : "good");
+  }
   const night = isNight();
+  const dread = dreadLevel();
 
   // bakış (kamera) uygula
   camera.rotation.set(pitch, yaw, 0, "YXZ");
@@ -650,7 +677,22 @@ function update(dt) {
   updateWatcher(dt, night);
   // jumpscare zamanlayıcı
   S.jumpCd -= dt;
-  if (jumpT <= 0 && S.jumpCd <= 0 && night) { const p = 0.02 + (1 - S.sanity / 100) * 0.07; if (Math.random() < p) { jumpscare(null, 11, 0); S.jumpCd = rnd(16, 38); } }
+  if (jumpT <= 0 && S.jumpCd <= 0 && night) { const p = (0.02 + (1 - S.sanity / 100) * 0.07) * (1 + dread * 1.6); if (Math.random() < p) { jumpscare(null, 11, 0); S.jumpCd = rnd(16, 38) * (1 - dread * 0.45); } }
+  // gün geçtikçe artan ORTAM DEHŞETİ (fısıltı / hırıltı / kalp / titreme) — sadece jumpscare değil
+  if (night) {
+    S.dreadT = (S.dreadT == null ? rnd(6, 12) : S.dreadT) - dt;
+    if (S.dreadT <= 0) {
+      S.dreadT = rnd(7, 16) * (1 - dread * 0.5);
+      if (Math.random() < 0.35 + dread * 0.5) {
+        const ev = rndi(0, 3);
+        if (ev === 0) { whisperText(choice(["arkanda", "seni görüyorum", "kaç", "100 gün... hayır", "yaklaşıyor", "ışığı söndür"])); Sound.whisper(); }
+        else if (ev === 1) Sound.growl();
+        else if (ev === 2) { S.heartLevel = Math.max(S.heartLevel, 0.9); Sound.thump(); }
+        else { S.shake = Math.max(S.shake, 0.25); Sound.whoosh(); }
+        if (dread > 0.5 && Math.random() < dread - 0.4) S.sanity = clamp(S.sanity - 4, 0, 100);
+      }
+    }
+  }
   if (night && S.day === 1 && !S.scripted && S.time > 0.80) { S.scripted = true; setTimeout(() => { if (S.running) jumpscare(1, 10, 0); }, rndi(3000, 8000)); }
   if (jumpT > 0) jumpT -= dt;
 
@@ -677,6 +719,7 @@ function update(dt) {
   const skyCol = nightCol.clone().lerp(dayCol, dayK);
   const golden = Math.max(0, 1 - Math.abs(S.time - 0.16) / 0.10) + Math.max(0, 1 - Math.abs(S.time - 0.63) / 0.08);
   if (golden > 0) skyCol.lerp(new THREE.Color(0xd98a4a), Math.min(golden, 1) * 0.5);  // şafak/akşam altın tonu
+  if (S.bloodMoon && dk > 0.4) skyCol.lerp(new THREE.Color(0x3a0608), 0.6);   // KANLI AY -> kırmızı sis/gökyüzü
   scene.background = skyCol; scene.fog.color = skyCol;
   scene.fog.density = lerp(0.013, 0.12, dk);   // gece yoğun sis → dar görüş, klostrofobi
   // ateş böcekleri (gece görünür, hafif salınır)
@@ -706,6 +749,7 @@ function update(dt) {
 }
 
 function updateWatcher(dt, night) {
+  const dread = dreadLevel();
   let safe = false;
   for (const f of fires) { if (Math.hypot(f.x - camera.position.x, f.z - camera.position.z) < 11) { safe = true; break; } }
   if (!watcher) {
@@ -743,9 +787,9 @@ function updateWatcher(dt, night) {
     if (w.seen > 0.32) { vanishWatcher(false); S.sanity = clamp(S.sanity - 6, 0, 100); wEnc++; return; }
   } else {
     w.seen = Math.max(0, w.seen - dt * 0.6);
-    S.sanity = clamp(S.sanity - map(d, 4, 30, 16, 1.5) * dt, 0, 100);
-    // BAKMIYORSAN ÜSTÜNE GELİR (sana doğru yürür)
-    if (d > 3.5) { const ang = Math.atan2(camera.position.z - w.z, camera.position.x - w.x); const sp = map(d, 5, 45, 0.8, 2.8); w.x += Math.cos(ang) * sp * dt; w.z += Math.sin(ang) * sp * dt; }
+    S.sanity = clamp(S.sanity - map(d, 4, 30, 16, 1.5) * (1 + dread) * dt, 0, 100);
+    // BAKMIYORSAN ÜSTÜNE GELİR — gün geçtikçe daha hızlı
+    if (d > 3.5) { const ang = Math.atan2(camera.position.z - w.z, camera.position.x - w.x); const sp = map(d, 5, 45, 0.8, 2.8) * (1 + dread * 1.3); w.x += Math.cos(ang) * sp * dt; w.z += Math.sin(ang) * sp * dt; }
   }
   // konum + bakış + hafif süzülme
   w.x = clamp(w.x, -CFG.WORLD, CFG.WORLD); w.z = clamp(w.z, -CFG.WORLD, CFG.WORLD);
@@ -796,6 +840,7 @@ function darknessFor(t) {
   return 0.88;
 }
 function isNight() { return S.time >= 0.68 || S.time < 0.07; }
+function dreadLevel() { return clamp((S.day - 1) / 99, 0, 1) + (S.bloodMoon && isNight() ? 0.35 : 0); }  // gün geçtikçe + kanlı ayda artan korku
 function phaseInfo(t) { if (t < 0.07) return ["🌑", "Gece"]; if (t < 0.20) return ["🌅", "Şafak"]; if (t < 0.45) return ["☀️", "Gündüz"]; if (t < 0.54) return ["🌤️", "Öğle"]; if (t < 0.68) return ["🌆", "Akşam"]; return ["🌑", "Gece"]; }
 
 /* ----------------------- HUD ----------------------- */

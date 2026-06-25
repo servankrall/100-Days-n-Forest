@@ -62,6 +62,8 @@ const Sound = {
   thump() { if (!this.ctx) return; const c = this.ctx, o = c.createOscillator(), g = c.createGain(), t = c.currentTime; o.type = "sine"; o.frequency.setValueAtTime(70, t); o.frequency.exponentialRampToValueAtTime(38, t + 0.18); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35); o.connect(g); g.connect(this.master); o.start(); o.stop(t + 0.4); },
   step() { this._burst(0.08, "lowpass", 900, 0.1); },
   chop() { this._burst(0.12, "bandpass", 1600, 0.25); },
+  punch() { if (!this.ctx) return; const c = this.ctx, t = c.currentTime; this._burst(0.2, "lowpass", 320, 0.95); const o = c.createOscillator(), g = c.createGain(); o.type = "sine"; o.frequency.setValueAtTime(95, t); o.frequency.exponentialRampToValueAtTime(38, t + 0.16); g.gain.setValueAtTime(0.95, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2); o.connect(g); g.connect(this.master); o.start(); o.stop(t + 0.22); },
+  glitchNoise() { if (!this.ctx) return; this._burst(0.5, "highpass", 1200, 0.8); this._burst(0.5, "lowpass", 200, 0.6); },
   crackle() { this._burst(0.05, "highpass", 2200, 0.06); },
   whisper() { this._burst(1.1, "bandpass", 1700, 0.13); },
   whoosh() { if (!this.ctx) return; const c = this.ctx, t = c.currentTime, s = c.createBufferSource(); s.buffer = this._noise(0.6); const f = c.createBiquadFilter(); f.type = "lowpass"; f.frequency.setValueAtTime(1800, t); f.frequency.exponentialRampToValueAtTime(180, t + 0.55); const g = c.createGain(); g.gain.setValueAtTime(0.25, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.6); s.connect(f); f.connect(g); g.connect(this.master); s.start(); s.stop(t + 0.62); },
@@ -323,7 +325,7 @@ function newState() {
     inv: { wood: 8, raw: 0, cooked: 2 },
     swingCd: 0, stepT: 0, sick: 0, hurt: 0, bob: 0,
     cookT: 0, fireCrackleT: 0, deathReason: "",
-    heart: 0, heartLevel: 0, jumpCd: 12, firstNightDone: false, scripted: false, bloodMoon: false, dreadT: null,
+    heart: 0, heartLevel: 0, jumpCd: 12, firstNightDone: false, scripted: false, bloodMoon: false, dreadT: null, glitchCd: 35,
     shake: 0,
   };
 }
@@ -581,6 +583,76 @@ function drawScaryFace(w, h) {
   fxc.restore();
 }
 
+/* ---- ÖZEL DEHŞET: ekrana yumruk atan kanlı kadın + sahte "sistem bozuluyor" illüzyonu ---- */
+/*    GERÇEK bilgisayara HİÇBİR ŞEY yapmaz — tamamen oyun içi görsel efekttir. */
+let glitch = null;
+function triggerGlitchScare() {
+  if (glitch) return;
+  glitch = { t: 0, punchT: 0.25, cracks: [] };
+  S.shake = 1.0; S.sanity = clamp(S.sanity - 14, 0, 100); S.hurt = 0.5;
+  Sound.glitchNoise(); Sound.screech();
+}
+function drawCrack(x, y, r) {
+  const n = 7;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * 6.28 + Math.sin(x + i);
+    let px = x, py = y; fxc.beginPath(); fxc.moveTo(px, py);
+    const segs = 4;
+    for (let s = 1; s <= segs; s++) { const rr = r * (s / segs); px = x + Math.cos(a) * rr + rnd(-8, 8); py = y + Math.sin(a) * rr + rnd(-8, 8); fxc.lineTo(px, py); }
+    fxc.strokeStyle = "rgba(0,0,0,0.7)"; fxc.lineWidth = 3; fxc.stroke();
+    fxc.strokeStyle = "rgba(230,235,240,0.9)"; fxc.lineWidth = 1.2; fxc.stroke();
+  }
+  fxc.fillStyle = "rgba(220,225,230,0.85)"; fxc.beginPath(); fxc.arc(x, y, 4, 0, 6.3); fxc.fill();
+}
+function drawBloodyWoman(w, h, t) {
+  const grow = Math.min(1, (t - 0.25) / 1.6);
+  const jx = rnd(-12, 12), jy = rnd(-12, 12);
+  fxc.save(); fxc.translate(w / 2 + jx, h / 2 + jy);
+  const sc = (Math.min(w, h) / 360) * (0.7 + grow * 0.9); fxc.scale(sc, sc);
+  // uzun siyah saç
+  fxc.fillStyle = "#040404"; fxc.beginPath(); fxc.ellipse(0, -10, 150, 220, 0, 0, 6.3); fxc.fill();
+  // solgun yüz
+  fxc.fillStyle = "#c9c0b2"; fxc.beginPath(); fxc.ellipse(0, 0, 95, 135, 0, 0, 6.3); fxc.fill();
+  // simsiyah kan akıntıları
+  fxc.strokeStyle = "#050505"; fxc.lineWidth = 7;
+  for (let i = -3; i <= 3; i++) { fxc.beginPath(); fxc.moveTo(i * 22, -30); fxc.lineTo(i * 22 + rnd(-8, 8), 140); fxc.stroke(); }
+  // kara göz çukurları + kırmızı bakış
+  fxc.fillStyle = "#000"; fxc.beginPath(); fxc.ellipse(-38, -22, 26, 34, 0, 0, 6.3); fxc.ellipse(38, -22, 26, 34, 0, 0, 6.3); fxc.fill();
+  fxc.fillStyle = "rgba(255,30,30," + (0.6 + Math.random() * 0.4) + ")"; fxc.beginPath(); fxc.arc(-38, -20, 7, 0, 6.3); fxc.arc(38, -20, 7, 0, 6.3); fxc.fill();
+  // çığlık ağzı (siyah kanlı)
+  fxc.fillStyle = "#060000"; fxc.beginPath(); fxc.ellipse(0, 70, 34, 52, 0, 0, 6.3); fxc.fill();
+  fxc.strokeStyle = "#050505"; fxc.lineWidth = 10; fxc.beginPath(); fxc.moveTo(0, 120); fxc.lineTo(rnd(-12, 12), 200); fxc.stroke();
+  // yumruklar (alt köşelerden ekrana vuruyor)
+  fxc.fillStyle = "#bdb4a4"; const fp = Math.sin(t * 18) * 18;
+  fxc.beginPath(); fxc.arc(-120 + fp, 150, 40, 0, 6.3); fxc.fill();
+  fxc.beginPath(); fxc.arc(120 - fp, 150, 40, 0, 6.3); fxc.fill();
+  fxc.strokeStyle = "#050505"; fxc.lineWidth = 5;
+  for (const sx of [-120 + fp, 120 - fp]) { fxc.beginPath(); fxc.moveTo(sx - 20, 150); fxc.lineTo(sx + 20, 150); fxc.stroke(); }
+  fxc.restore();
+}
+function fakeDesktop(w, h) {
+  // SAHTE masaüstü — "arka planını değiştirdi" yanılsaması (gerçek sistem değişmez)
+  const g = fxc.createLinearGradient(0, 0, 0, h); g.addColorStop(0, "#2a3a52"); g.addColorStop(1, "#0e1622");
+  fxc.fillStyle = g; fxc.fillRect(0, 0, w, h);
+  fxc.fillStyle = "rgba(120,0,0,0.35)"; fxc.fillRect(0, 0, w, h);                    // kırmızı sis
+  fxc.fillStyle = "rgba(255,255,255,0.85)"; for (let i = 0; i < 4; i++) { fxc.fillRect(24, 24 + i * 70, 46, 46); }  // sahte ikonlar
+  fxc.fillStyle = "rgba(10,12,16,0.9)"; fxc.fillRect(0, h - 40, w, 40);              // sahte görev çubuğu
+  fxc.fillStyle = "#7a0000"; fxc.font = "bold 40px monospace"; fxc.textAlign = "center";
+  fxc.fillText("SENI GÖRÜYORUM", w / 2, h / 2);
+  fxc.textAlign = "start";
+}
+function drawGlitchScare(w, h, gl, dt) {
+  gl.t += dt; gl.punchT -= dt;
+  if (gl.punchT <= 0 && gl.t < 2.3) { gl.punchT = rnd(0.22, 0.42); gl.cracks.push({ x: rnd(w * 0.2, w * 0.8), y: rnd(h * 0.2, h * 0.8), r: 4 }); S.shake = 0.9; Sound.punch(); }
+  const fake = gl.t > 2.45 && gl.t < 2.95;
+  if (fake) fakeDesktop(w, h);
+  else { fxc.fillStyle = Math.random() > 0.4 ? "#180000" : "#400000"; fxc.fillRect(0, 0, w, h); }
+  for (const cr of gl.cracks) { cr.r = Math.min(cr.r + 760 * dt, Math.max(w, h)); drawCrack(cr.x, cr.y, cr.r); }
+  if (gl.t > 0.25 && gl.t < 2.5 && !fake) drawBloodyWoman(w, h, gl.t);
+  fxc.fillStyle = "rgba(0,0,0,0.16)"; for (let y = 0; y < h; y += 4) fxc.fillRect(0, y + (Math.random() < 0.5 ? 0 : 1), w, 1);
+  if (gl.t >= 3.15) glitch = null;
+}
+
 /* ----------------------- DEATH / WIN ----------------------- */
 function die(reason) {
   if (S.over) return; S.over = true; S.running = false; S.deathReason = reason; Sound.screech();
@@ -678,6 +750,9 @@ function update(dt) {
   // jumpscare zamanlayıcı
   S.jumpCd -= dt;
   if (jumpT <= 0 && S.jumpCd <= 0 && night) { const p = (0.02 + (1 - S.sanity / 100) * 0.07) * (1 + dread * 1.6); if (Math.random() < p) { jumpscare(null, 11, 0); S.jumpCd = rnd(16, 38) * (1 - dread * 0.45); } }
+  // ÖZEL DEHŞET: ekrana yumruk atan kanlı kadın + sahte sistem bozulması (nadir; gece + ilerleyen günlerde)
+  S.glitchCd -= dt;
+  if (night && glitch == null && S.glitchCd <= 0 && S.day >= 3 && Math.random() < (0.0008 + dread * 0.004)) { triggerGlitchScare(); S.glitchCd = rnd(120, 260); }
   // gün geçtikçe artan ORTAM DEHŞETİ (fısıltı / hırıltı / kalp / titreme) — sadece jumpscare değil
   if (night) {
     S.dreadT = (S.dreadT == null ? rnd(6, 12) : S.dreadT) - dt;
@@ -904,7 +979,8 @@ function loop() {
     if (sanFrac > 0.25) { const pulse = (Math.sin(performance.now() / 400) * 0.5 + 0.5) * sanFrac; fxc.fillStyle = "rgba(120,0,0," + pulse * 0.22 + ")"; fxc.fillRect(0, 0, w, h); }
     if (watcher) { const d = Math.hypot(watcher.x - camera.position.x, watcher.z - camera.position.z); const a = map(d, 4, 30, 0.45, 0); if (a > 0.02) { fxc.fillStyle = "rgba(40,0,0," + a + ")"; fxc.fillRect(0, 0, w, h); } }
   }
-  if (jumpT > 0) { fxc.fillStyle = Math.random() > 0.5 ? "#120000" : "#3a0000"; fxc.fillRect(0, 0, w, h); drawScaryFace(w, h, jumpFace); }
+  if (jumpT > 0 && !glitch) { fxc.fillStyle = Math.random() > 0.5 ? "#120000" : "#3a0000"; fxc.fillRect(0, 0, w, h); drawScaryFace(w, h, jumpFace); }
+  if (glitch) drawGlitchScare(w, h, glitch, dt);
 }
 
 /* ----------------------- TAM EKRAN + SESLİ SOHBET ----------------------- */
@@ -942,6 +1018,7 @@ function stopTalk() {
 function startGame() {
   if (!built) { try { buildScene(); built = true; } catch (e) { $("loadNote").textContent = "3B başlatılamadı: " + e.message + " — 'npm install' yaptın mı?"; throw e; } }
   S = newState();
+  glitch = null; jumpT = 0;
   // dünyayı sıfırla
   for (let i = 0; i < trees.length; i++) { trees[i].alive = true; trees[i].hp = 4; trees[i].regrow = 0; }
   refreshTrees();

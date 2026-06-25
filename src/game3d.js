@@ -131,10 +131,11 @@ function buildScene() {
   ground.rotation.x = -Math.PI / 2; if (shadowsOn) ground.receiveShadow = true; scene.add(ground);
 
   buildTrees();
+  setupTreeModel();               // gerçek GLB ağaç paketi (low-poly) — prosedürel ağaçların yerini alır
   buildScatter();
   buildFireflies();
   setupBirds();                   // gerçek CC0 model kuşlar (animasyonlu)
-  setupAnimalModels();            // gerçek CC0 geyik modeli
+  setupAnimalModels();            // gerçek CC0 geyik + jaguar modeli
   if (shadowsOn) setupPostFX();   // sinematik post-fx (masaüstü)
 }
 
@@ -171,20 +172,26 @@ function updateBirds(dt) {
   }
 }
 
-/* ----- gerçek CC0 geyik modeli (Quaternius) ----- */
-let deerProto = null;
+/* ----- gerçek CC0 geyik + jaguar modelleri ----- */
+let deerProto = null, jaguarProto = null, jaguarClip = null, SkeletonUtilsMod = null;
+function groundModel(p, targetH) {   // modeli ~targetH birime ölçekle + ayaklarını yere koy
+  const box = new THREE.Box3().setFromObject(p), size = new THREE.Vector3(); box.getSize(size);
+  p.scale.setScalar(targetH / (size.y || 1));
+  const box2 = new THREE.Box3().setFromObject(p); p.position.y -= box2.min.y;
+  p.traverse((o) => { if (o.isMesh && shadowsOn) o.castShadow = true; });
+  return p;
+}
 async function setupAnimalModels() {
   try {
     const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
-    new GLTFLoader().load("./Deer.glb", (gltf) => {
-      const p = gltf.scene;
-      const box = new THREE.Box3().setFromObject(p), size = new THREE.Vector3(); box.getSize(size);
-      p.scale.setScalar(1.5 / (size.y || 1));
-      const box2 = new THREE.Box3().setFromObject(p); p.position.y -= box2.min.y;   // ayakları yere
-      p.traverse((o) => { if (o.isMesh && shadowsOn) o.castShadow = true; });
-      deerProto = p;
+    try { SkeletonUtilsMod = await import("three/addons/utils/SkeletonUtils.js"); } catch (e) { SkeletonUtilsMod = null; }
+    const loader = new GLTFLoader();
+    loader.load("./Deer.glb", (gltf) => { deerProto = groundModel(gltf.scene, 1.5); }, undefined, () => {});
+    loader.load("./jaguar.glb", (gltf) => {
+      jaguarProto = groundModel(gltf.scene, 1.15);                 // ~av boyu (kutu jaguar yaklaşık 1.1 yüksek)
+      jaguarClip = (gltf.animations && gltf.animations[0]) || null; // tek birleşik "All Animations" klibi
     }, undefined, () => {});
-  } catch (e) { /* model yoksa kutu geyik kullanılır */ }
+  } catch (e) { /* model yoksa kutu hayvanlar kullanılır */ }
 }
 
 /* ----- sinematik post-processing: AO + bloom + film grain + vignette ----- */
@@ -243,10 +250,61 @@ function groundTexture() {
 }
 
 /* ----- ağaçlar (InstancedMesh) ----- */
-let trunkIM, folLowIM, folTopIM;
+let trunkIM, folLowIM, folTopIM;            // prosedürel yedek ağaçlar
+let modelTrunkIM = null, modelBranchIM = null, treeModelOn = false;  // gerçek GLB ağaç paketi
 const trees = [];
 const _d = new THREE.Object3D();
 const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+function treesNeedUpdate() {
+  trunkIM.instanceMatrix.needsUpdate = folLowIM.instanceMatrix.needsUpdate = folTopIM.instanceMatrix.needsUpdate = true;
+  if (modelTrunkIM) { modelTrunkIM.instanceMatrix.needsUpdate = true; modelBranchIM.instanceMatrix.needsUpdate = true; }
+}
+
+/* ----- gerçek GLB ağaç paketi (low-poly) — tüm ağaçlar 2 instanced draw call ----- */
+async function setupTreeModel() {
+  try {
+    const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
+    const gltf = await new Promise((res, rej) => new GLTFLoader().load("./trees.glb", res, undefined, rej));
+    gltf.scene.updateMatrixWorld(true);
+    // gövde + dal/yaprak meshlerini topla (arka-plan atlas / kaya hariç)
+    const trunks = [], branches = [];
+    gltf.scene.traverse((o) => {
+      if (!o.isMesh || !o.geometry) return;
+      const n = (o.name || "").toLowerCase();
+      if (n.includes("background") || n.includes("atlas") || n.includes("rock")) return;
+      if (n.includes("trunk")) trunks.push(o);
+      else if (n.includes("branch") || n.includes("leaf") || n.includes("leaves") || n.includes("foliage")) branches.push(o);
+    });
+    if (!trunks.length) { console.warn("[trees] GLB içinde gövde yok — prosedürel ağaçlar kalıyor"); return; }
+    const trunk = trunks[0];
+    // gövdeye dünyada en yakın dal meshini eşle (aynı ağaca ait olsun)
+    const tp = new THREE.Vector3().setFromMatrixPosition(trunk.matrixWorld);
+    let branch = null, best = Infinity;
+    for (const b of branches) { const dd = new THREE.Vector3().setFromMatrixPosition(b.matrixWorld).distanceToSquared(tp); if (dd < best) { best = dd; branch = b; } }
+    // dünya matrislerini geometriye işle (gövde+dal hizalı kalır)
+    const trunkGeo = trunk.geometry.clone(); trunkGeo.applyMatrix4(trunk.matrixWorld);
+    const branchGeo = branch ? branch.geometry.clone() : null; if (branchGeo) branchGeo.applyMatrix4(branch.matrixWorld);
+    // birleşik kutu → tabanı orijine al + ~8 birime ölçekle
+    trunkGeo.computeBoundingBox(); const bb = trunkGeo.boundingBox.clone();
+    if (branchGeo) { branchGeo.computeBoundingBox(); bb.union(branchGeo.boundingBox); }
+    const cx = (bb.min.x + bb.max.x) / 2, cz = (bb.min.z + bb.max.z) / 2, minY = bb.min.y, k = 8 / ((bb.max.y - bb.min.y) || 1);
+    for (const g of [trunkGeo, branchGeo]) { if (!g) continue; g.translate(-cx, -minY, -cz); g.scale(k, k, k); }
+    const N = trees.length;
+    modelTrunkIM = new THREE.InstancedMesh(trunkGeo, trunk.material, N); modelTrunkIM.frustumCulled = false;
+    if (shadowsOn) { modelTrunkIM.castShadow = true; modelTrunkIM.receiveShadow = true; }
+    scene.add(modelTrunkIM);
+    if (branchGeo) {
+      modelBranchIM = new THREE.InstancedMesh(branchGeo, branch.material, N); modelBranchIM.frustumCulled = false;
+      if (shadowsOn) { modelBranchIM.castShadow = true; modelBranchIM.receiveShadow = true; }
+      scene.add(modelBranchIM);
+    } else modelBranchIM = modelTrunkIM;   // dal yoksa aynı ref — writeTree zararsızca iki kez yazar
+    treeModelOn = true;
+    for (let i = 0; i < N; i++) writeTree(i);
+    modelTrunkIM.instanceMatrix.needsUpdate = modelBranchIM.instanceMatrix.needsUpdate = true;
+    trunkIM.visible = folLowIM.visible = folTopIM.visible = false;   // prosedürel ağaçları gizle
+    console.log("[trees] GLB ağaç modeli uygulandı:", trunk.name, branch ? branch.name : "(dal yok)");
+  } catch (e) { console.warn("[trees] GLB yüklenemedi — prosedürel ağaçlar kalıyor:", e); }
+}
 
 function buildTrees() {
   const N = CFG.TREES;
@@ -281,13 +339,21 @@ function buildTrees() {
 }
 function writeTree(i) {
   const t = trees[i];
-  if (!t.alive) { trunkIM.setMatrixAt(i, ZERO); folLowIM.setMatrixAt(i, ZERO); folTopIM.setMatrixAt(i, ZERO); return; }
+  if (!t.alive) {
+    trunkIM.setMatrixAt(i, ZERO); folLowIM.setMatrixAt(i, ZERO); folTopIM.setMatrixAt(i, ZERO);
+    if (modelTrunkIM) { modelTrunkIM.setMatrixAt(i, ZERO); modelBranchIM.setMatrixAt(i, ZERO); }
+    return;
+  }
   const s = t.s;
   _d.position.set(t.x, 2.6 * s, t.z); _d.rotation.set(0, t.rot, 0); _d.scale.set(s, s, s); _d.updateMatrix(); trunkIM.setMatrixAt(i, _d.matrix);
   _d.position.set(t.x, 5.4 * s, t.z); _d.scale.set(s * 1.25, s * 0.9, s * 1.25); _d.updateMatrix(); folLowIM.setMatrixAt(i, _d.matrix);
   _d.position.set(t.x, 7.0 * s, t.z); _d.scale.set(s * 0.95, s * 0.95, s * 0.95); _d.updateMatrix(); folTopIM.setMatrixAt(i, _d.matrix);
+  if (modelTrunkIM) {   // GLB ağaç: tabandan (y=0) yerleştir, t.rot/t.s ile çeşitlilik
+    _d.position.set(t.x, 0, t.z); _d.rotation.set(0, t.rot, 0); _d.scale.set(s, s, s); _d.updateMatrix();
+    modelTrunkIM.setMatrixAt(i, _d.matrix); modelBranchIM.setMatrixAt(i, _d.matrix);
+  }
 }
-function refreshTrees() { for (let i = 0; i < trees.length; i++) writeTree(i); trunkIM.instanceMatrix.needsUpdate = folLowIM.instanceMatrix.needsUpdate = folTopIM.instanceMatrix.needsUpdate = true; }
+function refreshTrees() { for (let i = 0; i < trees.length; i++) writeTree(i); treesNeedUpdate(); }
 
 /* ----- çalı + kaya ----- */
 function buildScatter() {
@@ -346,6 +412,13 @@ function clearDynamic() {
 function makeAnimal(type) {
   const g = new THREE.Group();
   if (type === "deer" && deerProto) { g.add(deerProto.clone(true)); scene.add(g); return g; }   // gerçek CC0 geyik modeli
+  if (type === "jaguar" && jaguarProto) {                                                        // gerçek jaguar modeli + animasyon
+    const m = SkeletonUtilsMod ? SkeletonUtilsMod.clone(jaguarProto) : jaguarProto.clone(true);  // iskeletli klon (animasyon için)
+    m.rotation.y = -Math.PI / 2;                                                                 // modelin önünü +X'e çevir (rotation.y = -dir ile uyum)
+    g.add(m); scene.add(g);
+    if (jaguarClip) { const mixer = new THREE.AnimationMixer(m); mixer.clipAction(jaguarClip).play(); g.userData.mixer = mixer; g.userData.model = m; }
+    return g;
+  }
   const col = { capybara: 0x8a6a44, deer: 0x9a7a52, tapir: 0x5a4a44, boar: 0x4a3a30, jaguar: 0xc8902c }[type];
   const big = type === "jaguar" || type === "tapir";
   const body = new THREE.Mesh(new THREE.BoxGeometry(big ? 1.6 : 1.1, 0.7, 0.6), new THREE.MeshStandardMaterial({ color: col, roughness: 1, flatShading: true }));
@@ -369,7 +442,7 @@ function spawnPrey() {
 }
 function spawnJaguar() {
   const ang = rnd(0, 6.28), d = rnd(30, 50);
-  const a = { group: makeAnimal("jaguar"), x: camera.position.x + Math.cos(ang) * d, z: camera.position.z + Math.sin(ang) * d, type: "jaguar", hp: 14, state: "stalk", dir: 0, atkCd: 0, hostile: true };
+  const a = { group: makeAnimal("jaguar"), x: camera.position.x + Math.cos(ang) * d, z: camera.position.z + Math.sin(ang) * d, type: "jaguar", hp: 14, state: "stalk", dir: 0, atkCd: 0, pounce: 0, bite: 0, hostile: true };
   animals.push(a);
 }
 
@@ -515,7 +588,7 @@ function doAction() {
   S.swingCd = 0.4; S.stamina = clamp(S.stamina - 4, 0, 100); Sound.chop();
   if (t.kind === "tree") {
     const tr = t.obj; tr.hp--; S.inv.wood++;
-    if (tr.hp <= 0) { tr.alive = false; tr.regrow = 95; S.inv.wood += 2; writeTree(trees.indexOf(tr)); trunkIM.instanceMatrix.needsUpdate = folLowIM.instanceMatrix.needsUpdate = folTopIM.instanceMatrix.needsUpdate = true; toast("🪵 Ağaç devrildi (+3)", "good"); }
+    if (tr.hp <= 0) { tr.alive = false; tr.regrow = 95; S.inv.wood += 2; writeTree(trees.indexOf(tr)); treesNeedUpdate(); toast("🪵 Ağaç devrildi (+3)", "good"); }
     return;
   }
   if (t.kind === "animal") {
@@ -777,7 +850,7 @@ function update(dt) {
   updateAnimals(dt);
 
   // ağaç regrow
-  for (let i = 0; i < trees.length; i++) { const t = trees[i]; if (t.regrow > 0) { t.regrow -= dt; if (t.regrow <= 0) { t.alive = true; t.hp = 4; writeTree(i); trunkIM.instanceMatrix.needsUpdate = folLowIM.instanceMatrix.needsUpdate = folTopIM.instanceMatrix.needsUpdate = true; } } }
+  for (let i = 0; i < trees.length; i++) { const t = trees[i]; if (t.regrow > 0) { t.regrow -= dt; if (t.regrow <= 0) { t.alive = true; t.hp = 4; writeTree(i); treesNeedUpdate(); } } }
 
   // ışık / atmosfer (gündüz-gece)
   const dk = darknessFor(S.time);
@@ -885,12 +958,17 @@ function updateAnimals(dt) {
     const a = animals[i], d = Math.hypot(a.x - px, a.z - pz);
     if (a.atkCd > 0) a.atkCd -= dt;
     if (a.type === "jaguar") {
+      if (a.group.userData.mixer) a.group.userData.mixer.update(dt);   // GLB animasyon klibi
       let fearFire = false; for (const f of fires) if (Math.hypot(a.x - f.x, a.z - f.z) < 7) fearFire = true;
       if (fearFire && fires.length) { const f = fires[0]; a.dir = Math.atan2(a.z - f.z, a.x - f.x); }
       else if (d < 38) a.dir = Math.atan2(pz - a.z, px - a.x);
-      const sp = d < 38 && !fearFire ? 7 : 3;
+      let sp = d < 38 && !fearFire ? 7 : 3;
+      // sıçrayarak saldırı (atılım): yakınken hamle başlat
+      if (d < 6 && d > 2 && a.atkCd <= 0 && a.pounce <= 0 && !fearFire) { a.pounce = 0.42; a.atkCd = 1.6; Sound.growl(); }
+      if (a.pounce > 0) { a.pounce -= dt; sp = 16; }    // atılım sırasında ileri fırlar
       a.x += Math.cos(a.dir) * sp * dt; a.z += Math.sin(a.dir) * sp * dt;
-      if (d < 2.2 && a.atkCd <= 0) { S.health = clamp(S.health - 11, 0, 100); S.hurt = 0.45; S.shake = 0.4; a.atkCd = 1.2; Sound.growl(); S.deathReason = "jaguar saldırısı"; if (S.health <= 0) { die("jaguar saldırısı"); return; } }
+      if (d < 2.4 && a.bite <= 0) { S.health = clamp(S.health - 11, 0, 100); S.hurt = 0.45; S.shake = 0.45; a.bite = 1.2; Sound.growl(); S.deathReason = "jaguar saldırısı"; if (S.health <= 0) { die("jaguar saldırısı"); return; } }
+      if (a.bite > 0) a.bite -= dt;
       if (!isNight() && d > 45) { scene.remove(a.group); animals.splice(i, 1); continue; }
     } else if (a.type === "boar" && a.hostile) {
       a.dir = Math.atan2(pz - a.z, px - a.x); a.x += Math.cos(a.dir) * 5.5 * dt; a.z += Math.sin(a.dir) * 5.5 * dt;
@@ -902,7 +980,8 @@ function updateAnimals(dt) {
       else { a.t -= dt; if (a.t <= 0) { a.t = rnd(1.5, 4); a.dir = rnd(0, 6.28); a.moving = Math.random() < 0.6; } if (a.moving) { a.x += Math.cos(a.dir) * 1.6 * dt; a.z += Math.sin(a.dir) * 1.6 * dt; } }
     }
     a.x = clamp(a.x, -CFG.WORLD, CFG.WORLD); a.z = clamp(a.z, -CFG.WORLD, CFG.WORLD);
-    a.group.position.set(a.x, 0, a.z); a.group.rotation.y = -a.dir;
+    const leap = a.pounce > 0 ? Math.sin((1 - a.pounce / 0.42) * Math.PI) * 0.7 : 0;   // sıçrama yayı
+    a.group.position.set(a.x, leap, a.z); a.group.rotation.y = -a.dir;
   }
 }
 

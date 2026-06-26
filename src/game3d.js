@@ -175,6 +175,7 @@ function updateBirds(dt) {
 
 /* ----- gerçek CC0 geyik + jaguar modelleri ----- */
 let deerProto = null, jaguarProto = null, jaguarClip = null, SkeletonUtilsMod = null;
+const animalProtos = {};   // boar/capybara/tapir GLB'leri — public/ içine konursa OTOMATİK kullanılır
 function groundModel(p, targetH) {   // modeli ~targetH birime ölçekle + ayaklarını yere koy
   const box = new THREE.Box3().setFromObject(p), size = new THREE.Vector3(); box.getSize(size);
   p.scale.setScalar(targetH / (size.y || 1));
@@ -192,6 +193,10 @@ async function setupAnimalModels() {
       jaguarProto = groundModel(gltf.scene, 1.15);                 // ~av boyu (kutu jaguar yaklaşık 1.1 yüksek)
       jaguarClip = (gltf.animations && gltf.animations[0]) || null; // tek birleşik "All Animations" klibi
     }, undefined, () => {});
+    // Boar/Capybara/Tapir: dosya public/ içinde varsa otomatik kullanılır, yoksa kutu modele düşülür.
+    for (const [type, file, h] of [["boar", "./Boar.glb", 0.95], ["capybara", "./Capybara.glb", 0.7], ["tapir", "./Tapir.glb", 1.1]]) {
+      loader.load(file, (gltf) => { animalProtos[type] = { proto: groundModel(gltf.scene, h), clip: (gltf.animations && gltf.animations[0]) || null }; }, undefined, () => {});
+    }
   } catch (e) { /* model yoksa kutu hayvanlar kullanılır */ }
 }
 
@@ -448,6 +453,7 @@ const animals = [];   // {group,x,z,type,hp,state,dir,atkCd}
 const fires = [];     // {group,light,flame,x,z,fuel,max,safeR}
 const walls = [];     // {x,z,group,r} — oyuncunun diktiği barikatlar
 const traps = [];     // {x,z,group,cd} — çivili tuzaklar
+const photos = [];    // {mesh,mat,t} — kamera korkusunda ağaca asılan fotoğraflar
 let watcher = null;   // {group,head,x,z,seen,life,alpha}
 let wCd = 8, wEnc = 0;
 
@@ -456,6 +462,7 @@ function clearDynamic() {
   for (const f of fires) scene.remove(f.group); fires.length = 0;
   for (const w of walls) scene.remove(w.group); walls.length = 0;
   for (const t of traps) scene.remove(t.group); traps.length = 0;
+  for (const p of photos) scene.remove(p.mesh); photos.length = 0;
   if (watcher) { scene.remove(watcher.group); watcher = null; }
   // yapıları sıfırla (yeniden oyun): hurda görünür, sandıklar kapalı
   for (const s of scraps) { s.taken = false; s.hp = 0; s.group.visible = true; }
@@ -490,6 +497,45 @@ function makeAnimal(type) {
     for (let i = 0; i < 6; i++) { const sx = i < 3 ? -1 : 1, lz = ((i % 3) - 1) * 0.34; const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 1.0, 3, 5), dark); leg.position.set(lz, 0.5, sx * 0.42); leg.rotation.x = sx * 0.8; leg.rotation.z = 0.35; g.add(leg); }
     for (let i = 0; i < 5; i++) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.03, rnd(0.2, 0.5), 0.02), blood); b.position.set(rnd(-0.1, 0.6), rnd(0.45, 0.75), rnd(-0.2, 0.2)); g.add(b); }
     if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    scene.add(g); return g;
+  }
+  if (type === "mimic") {                                     // TAKLİTÇİ — uzaktan arkadaşa benzer, yaklaşınca saldırır
+    const cloth = new THREE.MeshStandardMaterial({ color: 0x4f9be6, emissive: 0x0a1626, emissiveIntensity: 0.4, roughness: 1 });
+    const skin = new THREE.MeshStandardMaterial({ color: 0xccc2ad, roughness: 1 });
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.36, 1.05, 4, 8), cloth); body.position.y = 1.05; g.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 12), skin); head.position.y = 1.95; g.add(head);
+    g.add(new THREE.PointLight(0xbfe0ff, 0.5, 9, 1.6));        // arkadaş gibi ışık (tuzak)
+    const eye = new THREE.MeshStandardMaterial({ color: 0xff2a2a, emissive: 0xff0000, emissiveIntensity: 0 });   // saldırınca kızarır
+    for (const sz of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), eye); e.position.set(sz * 0.1, 1.98, 0.26); g.add(e); }
+    g.userData.eyeMat = eye;
+    if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    scene.add(g); return g;
+  }
+  if (type === "lurker") {                                    // PUSUCU — ağacın yanında bekler, geçince fırlar
+    const dark = new THREE.MeshStandardMaterial({ color: 0x20242a, roughness: 1 });
+    const pale = new THREE.MeshStandardMaterial({ color: 0xb7ad96, roughness: 1 });
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 1.0, 4, 8), dark); body.position.y = 1.0; body.rotation.x = 0.5; g.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 10), pale); head.position.set(0, 1.5, 0.3); g.add(head);
+    const eye = new THREE.MeshStandardMaterial({ color: 0xffd23a, emissive: 0xffaa00, emissiveIntensity: 2.6 });
+    for (const sz of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), eye); e.position.set(sz * 0.1, 1.54, 0.52); g.add(e); }
+    for (const sx of [-1, 1]) { const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, 1.1, 3, 6), dark); arm.position.set(sx * 0.4, 1.1, 0.2); arm.rotation.z = sx * 0.5; g.add(arm); for (let f = 0; f < 3; f++) { const cl = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.25, 4), pale); cl.position.set(sx * 0.7, 0.6, 0.3 + f * 0.05); cl.rotation.x = Math.PI; g.add(cl); } }
+    if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    scene.add(g); return g;
+  }
+  if (type === "pup") {                                       // SÜRÜ yavrusu — küçük, hızlı, zayıf
+    const fur = new THREE.MeshStandardMaterial({ color: 0x33291f, roughness: 1, flatShading: true });
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.18, 0.5, 4, 6), fur); body.rotation.z = Math.PI / 2; body.position.y = 0.32; g.add(body);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.24, 0.24), fur); head.position.set(0.42, 0.36, 0); g.add(head);
+    const eye = new THREE.MeshStandardMaterial({ color: 0xff5a2a, emissive: 0xff3000, emissiveIntensity: 2.4 });
+    for (const sz of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), eye); e.position.set(0.55, 0.4, sz * 0.08); g.add(e); }
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.28, 0.07), fur); leg.position.set(sx * 0.22, 0.14, sz * 0.12); g.add(leg); }
+    if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    scene.add(g); return g;
+  }
+  if (animalProtos[type]) {                                   // yüklenmiş gerçek GLB (boar/capybara/tapir)
+    const src = animalProtos[type]; const m = SkeletonUtilsMod ? SkeletonUtilsMod.clone(src.proto) : src.proto.clone(true);
+    m.rotation.y = Math.PI / 2; g.add(m); g.userData.model = m;
+    if (src.clip) { const mixer = new THREE.AnimationMixer(m); mixer.clipAction(src.clip).play(); g.userData.mixer = mixer; }
     scene.add(g); return g;
   }
   const col = { capybara: 0x8a6a44, deer: 0x9a7a52, tapir: 0x5a4a44, boar: 0x4a3a30, jaguar: 0xc8902c }[type] || 0x8a6a44;
@@ -530,6 +576,22 @@ function spawnJaguar() {
 function spawnCrawler() {
   const ang = rnd(0, 6.28), d = rnd(20, 38);
   animals.push({ group: makeAnimal("crawler"), x: camera.position.x + Math.cos(ang) * d, z: camera.position.z + Math.sin(ang) * d, type: "crawler", hp: 9, state: "chase", dir: 0, atkCd: 0, pounce: 0, bite: 0, hostile: true });
+}
+function spawnMimic() {                                        // arkadaş gibi durur, yaklaşınca saldırır
+  const ang = rnd(0, 6.28), d = rnd(12, 22);
+  const a = { group: makeAnimal("mimic"), x: camera.position.x + Math.cos(ang) * d, z: camera.position.z + Math.sin(ang) * d, type: "mimic", hp: 16, state: "lure", dir: ang + Math.PI, atkCd: 0, bite: 0, hostile: false };
+  animals.push(a); whisperText(choice(["buraya gel", "yardım et...", "bekliyorum", "neredesin?"])); Sound.whisper();
+}
+function spawnLurker() {                                       // bir ağacın yanına gizlenir
+  const alive = trees.filter((t) => t.alive && Math.hypot(t.x - camera.position.x, t.z - camera.position.z) < 30 && Math.hypot(t.x - camera.position.x, t.z - camera.position.z) > 8);
+  const t = alive.length ? choice(alive) : null; if (!t) return;
+  animals.push({ group: makeAnimal("lurker"), x: t.x, z: t.z, type: "lurker", hp: 11, state: "hide", dir: 0, atkCd: 0, bite: 0, hostile: false, homeX: t.x, homeZ: t.z });
+}
+function spawnPack() {                                         // sürü: 4-6 hızlı yavru
+  const baseAng = rnd(0, 6.28), bd = rnd(24, 38), n = rndi(4, 6);
+  const bx = camera.position.x + Math.cos(baseAng) * bd, bz = camera.position.z + Math.sin(baseAng) * bd;
+  for (let i = 0; i < n; i++) animals.push({ group: makeAnimal("pup"), x: bx + rnd(-3, 3), z: bz + rnd(-3, 3), type: "pup", hp: 3, state: "chase", dir: 0, atkCd: 0, bite: 0, hostile: true });
+  Sound.growl(); whisperText("sürü geliyor!");
 }
 
 /* ----- ateş modeli ----- */
@@ -958,6 +1020,29 @@ function captureFrame() {
 function triggerCamScare() {
   const img = captureFrame(); if (!img) return;
   camScare = { t: 0, img, cracks: [] }; S.shake = 1.0; S.sanity = clamp(S.sanity - 12, 0, 100); Sound.screech();
+  hangPhotoOnTree(img);   // görüntünü oyundaki bir ağaca da as
+}
+function hangPhotoOnTree(srcCanvas) {
+  // en yakın ağacı bul (oyuncunun baktığı yöne yakın olanı tercih et)
+  camera.getWorldDirection(_fwd); _fwd.y = 0; _fwd.normalize();
+  const px = camera.position.x, pz = camera.position.z;
+  let best = null, bestScore = -1e9;
+  for (const t of trees) { if (!t.alive) continue; const dx = t.x - px, dz = t.z - pz, d = Math.hypot(dx, dz); if (d < 4 || d > 26) continue; const dot = (dx / d) * _fwd.x + (dz / d) * _fwd.z; const score = dot * 2 - d * 0.05; if (score > bestScore) { bestScore = score; best = t; } }
+  if (!best) return;
+  // kanlı çerçeveli fotoğraf dokusu
+  const c = document.createElement("canvas"); c.width = 256; c.height = 200; const g = c.getContext("2d");
+  g.fillStyle = "#1a0606"; g.fillRect(0, 0, 256, 200);
+  try { g.drawImage(srcCanvas, 12, 12, 232, 150); } catch (e) {}
+  g.fillStyle = "rgba(120,0,0,0.4)"; g.fillRect(12, 12, 232, 150);
+  g.strokeStyle = "#3a0000"; g.lineWidth = 6; g.strokeRect(8, 8, 240, 184);
+  g.fillStyle = "#b00000"; g.font = "bold 22px monospace"; g.textAlign = "center"; g.fillText("SENİ GÖRDÜM", 128, 188);
+  const tex = new THREE.CanvasTexture(c);
+  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 1, side: THREE.DoubleSide, depthWrite: false });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 1.33), mat);
+  const ux = (best.x - px), uz = (best.z - pz), ul = Math.hypot(ux, uz) || 1;       // ağacın oyuncuya bakan yüzü
+  mesh.position.set(best.x - ux / ul * 0.9, 2.4, best.z - uz / ul * 0.9);
+  mesh.lookAt(px, 2.4, pz); mesh.frustumCulled = false; scene.add(mesh);
+  photos.push({ mesh, mat, t: 22 });
 }
 function drawCamScare(w, h, dt) {
   const cs = camScare; cs.t += dt;
@@ -1146,8 +1231,17 @@ function update(dt) {
   if (night && S.day > 1 && Math.random() < 0.0009 && animals.filter((a) => a.type === "jaguar").length < 2) { spawnJaguar(); Sound.growl(); whisperText("bir hırıltı..."); }
   // SÜRÜNEN — gece avcısı (gün geçtikçe + kanlı ayda daha çok)
   if (night && S.day >= 2 && Math.random() < (0.0007 + dread * 0.0014) && animals.filter((a) => a.type === "crawler").length < (S.bloodMoon ? 3 : 2)) { spawnCrawler(); Sound.growl(); whisperText(choice(["sürünüyor...", "duydun mu?", "çok ayak sesi"])); }
+  // TAKLİTÇİ (gün ≥3): arkadaş gibi durup yaklaşınca saldırır — tek seferde bir tane
+  if (night && S.day >= 3 && Math.random() < (0.0004 + dread * 0.0009) && !animals.some((a) => a.type === "mimic")) spawnMimic();
+  // PUSUCU (gün ≥3): ağaca gizlenir
+  if (night && S.day >= 3 && Math.random() < (0.0005 + dread * 0.001) && animals.filter((a) => a.type === "lurker").length < 2) spawnLurker();
+  // SÜRÜ (gün ≥4 / kanlı ay): hızlı yavrular dalga halinde
+  if (night && (S.day >= 4 || S.bloodMoon) && Math.random() < (0.00035 + dread * 0.0009) && !animals.some((a) => a.type === "pup")) spawnPack();
 
   updateAnimals(dt);
+
+  // ağaca asılan kamera fotoğrafları yaşlanıp solar
+  for (let i = photos.length - 1; i >= 0; i--) { const p = photos[i]; p.t -= dt; if (p.t < 4) p.mat.opacity = Math.max(0, p.t / 4); if (p.t <= 0) { scene.remove(p.mesh); photos.splice(i, 1); } }
 
   // ağaç regrow
   for (let i = 0; i < trees.length; i++) { const t = trees[i]; if (t.regrow > 0) { t.regrow -= dt; if (t.regrow <= 0) { t.alive = true; t.hp = 4; writeTree(i); treesNeedUpdate(); } } }
@@ -1259,8 +1353,8 @@ function updateAnimals(dt) {
   for (let i = animals.length - 1; i >= 0; i--) {
     const a = animals[i], d = Math.hypot(a.x - px, a.z - pz);
     if (a.atkCd > 0) a.atkCd -= dt;
+    if (a.group.userData.mixer) a.group.userData.mixer.update(dt);   // GLB animasyon klibi (jaguar/boar/…)
     if (a.type === "jaguar") {
-      if (a.group.userData.mixer) a.group.userData.mixer.update(dt);   // GLB animasyon klibi
       let fearFire = false; for (const f of fires) if (Math.hypot(a.x - f.x, a.z - f.z) < (f.safeR ? f.safeR - 4 : 7)) fearFire = true;
       if (fearFire && fires.length) { const f = fires[0]; a.dir = Math.atan2(a.z - f.z, a.x - f.x); }
       else if (d < 38) a.dir = Math.atan2(pz - a.z, px - a.x);
@@ -1281,6 +1375,37 @@ function updateAnimals(dt) {
       if (d < 2.2 && a.bite <= 0) { S.health = clamp(S.health - 9, 0, 100); S.sanity = clamp(S.sanity - 6, 0, 100); S.hurt = 0.5; S.shake = 0.5; a.bite = 1.1; Sound.screech(); S.deathReason = "ormandaki şey"; if (S.health <= 0) { playerDied("ormandaki şey"); return; } }
       if (a.bite > 0) a.bite -= dt;
       if (!isNight() && d > 14) { scene.remove(a.group); animals.splice(i, 1); continue; }  // gündüz dağılır
+    } else if (a.type === "mimic") {                            // TAKLİTÇİ — arkadaş taklidi, yaklaşınca atılır
+      a.dir = Math.atan2(pz - a.z, px - a.x);
+      if (a.bite > 0) a.bite -= dt;
+      if (d < 4.8 && a.bite <= 0) {                             // maske düşer → saldırı
+        if (a.group.userData.eyeMat) a.group.userData.eyeMat.emissiveIntensity = 4;
+        S.health = clamp(S.health - 13, 0, 100); S.sanity = clamp(S.sanity - 14, 0, 100); S.hurt = 0.6; S.shake = 0.7; Sound.screech(); jumpscare(0, 0, 0);
+        S.deathReason = "taklitçi"; if (S.health <= 0) { playerDied("taklitçi"); return; }
+        scene.remove(a.group); animals.splice(i, 1); continue;   // saldırıp kaybolur
+      }
+      a.x += Math.cos(a.dir) * 0.7 * dt; a.z += Math.sin(a.dir) * 0.7 * dt;   // yavaşça yaklaşır (tuhaf)
+      if (!isNight() || d > 40) { scene.remove(a.group); animals.splice(i, 1); continue; }
+    } else if (a.type === "lurker") {                          // PUSUCU — ağaçta bekler, yaklaşınca fırlar
+      if (a.state === "hide") {
+        a.x = a.homeX; a.z = a.homeZ; a.dir = Math.atan2(pz - a.z, px - a.x);
+        if (d < 6) { a.state = "ambush"; Sound.screech(); whisperText("ağaçtan!"); }
+      } else {
+        let fearFire = false; for (const f of fires) if (Math.hypot(a.x - f.x, a.z - f.z) < (f.safeR ? f.safeR - 3 : 8)) fearFire = true;
+        a.dir = fearFire ? Math.atan2(a.z - camera.position.z, a.x - camera.position.x) : Math.atan2(pz - a.z, px - a.x);
+        a.x += Math.cos(a.dir) * (fearFire ? 4 : 9) * dt; a.z += Math.sin(a.dir) * (fearFire ? 4 : 9) * dt;
+        if (a.bite > 0) a.bite -= dt;
+        if (d < 2.1 && a.bite <= 0) { S.health = clamp(S.health - 10, 0, 100); S.sanity = clamp(S.sanity - 5, 0, 100); S.hurt = 0.5; S.shake = 0.5; a.bite = 1.3; a.hits = (a.hits || 0) + 1; Sound.growl(); S.deathReason = "pusucu"; if (S.health <= 0) { playerDied("pusucu"); return; } }
+        if ((a.hits || 0) >= 2 || d > 30) { scene.remove(a.group); animals.splice(i, 1); continue; }   // vurup kaçar
+      }
+      if (!isNight()) { scene.remove(a.group); animals.splice(i, 1); continue; }
+    } else if (a.type === "pup") {                             // SÜRÜ yavrusu — hızlı, zayıf, kalabalık
+      let fearFire = false; for (const f of fires) if (Math.hypot(a.x - f.x, a.z - f.z) < (f.safeR ? f.safeR - 4 : 6)) fearFire = true;
+      a.dir = fearFire ? Math.atan2(a.z - camera.position.z, a.x - camera.position.x) : Math.atan2(pz - a.z, px - a.x);
+      a.x += Math.cos(a.dir) * (fearFire ? 4 : 7.5) * dt; a.z += Math.sin(a.dir) * (fearFire ? 4 : 7.5) * dt;
+      if (a.bite > 0) a.bite -= dt;
+      if (d < 1.8 && a.bite <= 0) { S.health = clamp(S.health - 4, 0, 100); S.hurt = 0.35; S.shake = 0.25; a.bite = 1.0; Sound.chop(); S.deathReason = "sürü"; if (S.health <= 0) { playerDied("sürü saldırısı"); return; } }
+      if (!isNight() && d > 12) { scene.remove(a.group); animals.splice(i, 1); continue; }
     } else if (a.type === "boar" && a.hostile) {
       a.dir = Math.atan2(pz - a.z, px - a.x); a.x += Math.cos(a.dir) * 5.5 * dt; a.z += Math.sin(a.dir) * 5.5 * dt;
       if (d < 2 && a.atkCd <= 0) { S.health = clamp(S.health - 7, 0, 100); S.hurt = 0.4; S.shake = 0.3; a.atkCd = 1.4; S.deathReason = "yaban domuzu"; if (S.health <= 0) { playerDied("yaban domuzu saldırısı"); return; } }
@@ -1291,7 +1416,7 @@ function updateAnimals(dt) {
       else { a.t -= dt; if (a.t <= 0) { a.t = rnd(1.5, 4); a.dir = rnd(0, 6.28); a.moving = Math.random() < 0.6; } if (a.moving) { a.x += Math.cos(a.dir) * 1.6 * dt; a.z += Math.sin(a.dir) * 1.6 * dt; } }
     }
     // OYUNCUYA GİRMESİN: atılım dışında bir dur-mesafesi koru (jaguar/domuz içimize giriyordu)
-    const STOP = a.type === "jaguar" ? 1.7 : a.type === "crawler" ? 1.5 : a.type === "boar" && a.hostile ? 1.6 : 0;
+    const STOP = a.type === "jaguar" ? 1.7 : a.type === "crawler" ? 1.5 : a.type === "lurker" && a.state === "ambush" ? 1.4 : a.type === "pup" ? 0.9 : a.type === "boar" && a.hostile ? 1.6 : 0;
     if (STOP && (a.pounce == null || a.pounce <= 0)) {
       const nd = Math.hypot(a.x - px, a.z - pz);
       if (nd < STOP) { const u = nd || 0.001; a.x = px + (a.x - px) / u * STOP; a.z = pz + (a.z - pz) / u * STOP; }

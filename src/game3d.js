@@ -14,7 +14,7 @@ const lerp = (a, b, t) => a + (b - a) * t;
 const map = (v, a, b, c, d) => c + (clamp(v, a, b) - a) / (b - a) * (d - c);
 const choice = (arr) => arr[(Math.random() * arr.length) | 0];
 
-const CFG = { WORLD: 110, DAY_LENGTH: 165, WIN_DAY: 100, TREES: 540, BUSHES: 260, ROCKS: 56, GRASS: 820, VINES: 160, EYE: 1.7 };
+const CFG = { WORLD: 165, DAY_LENGTH: 165, WIN_DAY: 100, TREES: 760, BUSHES: 320, ROCKS: 70, GRASS: 1000, VINES: 160, EYE: 1.7, SCRAP: 70, CHESTS: 26, HOUSES: 9 };
 
 /* ----------------------- DOM ----------------------- */
 const $ = (id) => document.getElementById(id);
@@ -133,6 +133,7 @@ function buildScene() {
   buildTrees();
   setupTreeModel();               // gerçek GLB ağaç paketi (low-poly) — prosedürel ağaçların yerini alır
   buildScatter();
+  buildStructures();              // metal hurda + sandık + kulübeler
   buildFireflies();
   setupBirds();                   // gerçek CC0 model kuşlar (animasyonlu)
   setupAnimalModels();            // gerçek CC0 geyik + jaguar modeli
@@ -381,6 +382,49 @@ function buildScatter() {
   grassIM.instanceColor.needsUpdate = true; scene.add(grassIM);
 }
 
+/* ----- yapılar: metal hurda + sandık + terk edilmiş kulübeler (99 Nights tarzı) ----- */
+const scraps = [];   // {x,z,group,taken}
+const chests = [];   // {x,z,group,lid,opened}
+const houses = [];   // {x,z,group}
+function farFromSpawn(min) { let x, z; do { x = rnd(-CFG.WORLD + 6, CFG.WORLD - 6); z = rnd(-CFG.WORLD + 6, CFG.WORLD - 6); } while (Math.hypot(x, z) < min); return [x, z]; }
+function makeScrap(x, z) {
+  const g = new THREE.Group(); g.position.set(x, 0, z);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x8a8f96, metalness: 0.7, roughness: 0.5 });
+  const rust = new THREE.MeshStandardMaterial({ color: 0x6b4a2e, roughness: 0.9 });
+  for (let i = 0; i < 3; i++) { const p = new THREE.Mesh(new THREE.BoxGeometry(rnd(0.3, 0.6), rnd(0.1, 0.25), rnd(0.3, 0.6)), i ? mat : rust); p.position.set(rnd(-0.25, 0.25), 0.12 + i * 0.12, rnd(-0.25, 0.25)); p.rotation.y = rnd(0, 6.3); g.add(p); }
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  scene.add(g); const s = { x, z, group: g, taken: false }; scraps.push(s); return s;
+}
+function makeChest(x, z) {
+  const g = new THREE.Group(); g.position.set(x, 0, z);
+  const wood = new THREE.MeshStandardMaterial({ color: 0x6b4a26, roughness: 0.9 });
+  const iron = new THREE.MeshStandardMaterial({ color: 0x55585c, metalness: 0.6, roughness: 0.5 });
+  const base = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 0.6), wood); base.position.y = 0.25; g.add(base);
+  const lid = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.22, 0.62), wood); lid.position.set(0, 0.5, -0.3); g.add(lid);
+  const lock = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.18, 0.06), iron); lock.position.set(0, 0.34, 0.31); g.add(lock);
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  scene.add(g); const c = { x, z, group: g, lid, opened: false }; chests.push(c); return c;
+}
+function makeHouse(x, z) {
+  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rnd(0, 6.3);
+  const wall = new THREE.MeshStandardMaterial({ color: 0x4a3a28, roughness: 1 });
+  const roofM = new THREE.MeshStandardMaterial({ color: 0x2e2418, roughness: 1, flatShading: true });
+  const W = rnd(4, 6), D = rnd(4, 6), H = 2.6;
+  // duvarlar (ön açık)
+  const back = new THREE.Mesh(new THREE.BoxGeometry(W, H, 0.2), wall); back.position.set(0, H / 2, -D / 2); g.add(back);
+  for (const sx of [-1, 1]) { const sw = new THREE.Mesh(new THREE.BoxGeometry(0.2, H, D), wall); sw.position.set(sx * W / 2, H / 2, 0); g.add(sw); }
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(W * 0.85, 1.6, 4), roofM); roof.position.set(0, H + 0.7, 0); roof.rotation.y = Math.PI / 4; g.add(roof);
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  scene.add(g); houses.push({ x, z, group: g });
+  // her kulübede bir sandık
+  makeChest(x + Math.cos(g.rotation.y) * 0.6, z + Math.sin(g.rotation.y) * 0.6);
+}
+function buildStructures() {
+  for (let i = 0; i < CFG.HOUSES; i++) { const [x, z] = farFromSpawn(26); makeHouse(x, z); }
+  for (let i = 0; i < CFG.CHESTS; i++) { const [x, z] = farFromSpawn(16); makeChest(x, z); }
+  for (let i = 0; i < CFG.SCRAP; i++) { const [x, z] = farFromSpawn(10); makeScrap(x, z); }
+}
+
 /* ----------------------- GAME STATE ----------------------- */
 let S;
 function newState() {
@@ -388,11 +432,14 @@ function newState() {
     running: false, paused: false, over: false, won: false,
     time: 0.16, day: 1,
     health: 100, hunger: 100, warmth: 100, sanity: 100, stamina: 100,
-    inv: { wood: 8, raw: 0, cooked: 2 },
+    inv: { wood: 10, raw: 0, cooked: 2, metal: 0, pelt: 0, bandage: 1 },
+    tools: { pickaxe: false, tent: false, spear: false },
     swingCd: 0, stepT: 0, sick: 0, hurt: 0, bob: 0,
     cookT: 0, fireCrackleT: 0, deathReason: "",
     heart: 0, heartLevel: 0, jumpCd: 12, firstNightDone: false, scripted: false, bloodMoon: false, dreadT: null, glitchCd: 35,
     shake: 0,
+    downed: false, bleed: 0, reviveT: 0,   // co-op: yere düşme / kan kaybı / diriltme ilerlemesi
+    sleeping: 0,                            // çadırda uyuma animasyonu
   };
 }
 
@@ -406,12 +453,20 @@ function clearDynamic() {
   for (const a of animals) scene.remove(a.group); animals.length = 0;
   for (const f of fires) scene.remove(f.group); fires.length = 0;
   if (watcher) { scene.remove(watcher.group); watcher = null; }
+  // yapıları sıfırla (yeniden oyun): hurda görünür, sandıklar kapalı
+  for (const s of scraps) { s.taken = false; s.hp = 0; s.group.visible = true; }
+  for (const c of chests) { c.opened = false; if (c.lid) c.lid.rotation.x = 0; }
 }
 
 /* ----- hayvan modeli ----- */
+// Hayvan grubu rotation.y = -dir ile yönlenir; modelin "ön"ü +X'e bakmalı.
+// GLB modelleri farklı eksene bakabilir → faceOff ile düzeltiyoruz (geyik yamuk koşma hatası fix).
 function makeAnimal(type) {
   const g = new THREE.Group();
-  if (type === "deer" && deerProto) { g.add(deerProto.clone(true)); scene.add(g); return g; }   // gerçek CC0 geyik modeli
+  if (type === "deer" && deerProto) {
+    const m = deerProto.clone(true); m.rotation.y = Math.PI / 2;   // önünü +X'e çevir (yamuk koşma düzeltmesi)
+    g.add(m); g.userData.model = m; scene.add(g); return g;
+  }
   if (type === "jaguar" && jaguarProto) {                                                        // gerçek jaguar modeli + animasyon
     const m = SkeletonUtilsMod ? SkeletonUtilsMod.clone(jaguarProto) : jaguarProto.clone(true);  // iskeletli klon (animasyon için)
     m.rotation.y = -Math.PI / 2;                                                                 // modelin önünü +X'e çevir (rotation.y = -dir ile uyum)
@@ -419,20 +474,43 @@ function makeAnimal(type) {
     if (jaguarClip) { const mixer = new THREE.AnimationMixer(m); mixer.clipAction(jaguarClip).play(); g.userData.mixer = mixer; g.userData.model = m; }
     return g;
   }
-  const col = { capybara: 0x8a6a44, deer: 0x9a7a52, tapir: 0x5a4a44, boar: 0x4a3a30, jaguar: 0xc8902c }[type];
-  const big = type === "jaguar" || type === "tapir";
-  const body = new THREE.Mesh(new THREE.BoxGeometry(big ? 1.6 : 1.1, 0.7, 0.6), new THREE.MeshStandardMaterial({ color: col, roughness: 1, flatShading: true }));
-  body.position.y = 0.55; g.add(body);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshStandardMaterial({ color: col, roughness: 1 }));
-  head.position.set((big ? 0.9 : 0.65), 0.7, 0); g.add(head);
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.5, 0.16), new THREE.MeshStandardMaterial({ color: 0x2a2018 }));
-    leg.position.set(sx * (big ? 0.6 : 0.4), 0.25, sz * 0.22); g.add(leg);
+  if (type === "crawler") {                                   // SÜRÜNEN — solgun, uzun bacaklı gece yaratığı
+    const pale = new THREE.MeshStandardMaterial({ color: 0xc4baa2, roughness: 1 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x2e2620, roughness: 1 });
+    const blood = new THREE.MeshStandardMaterial({ color: 0x5e0000, emissive: 0x250000, emissiveIntensity: 0.4 });
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.9, 4, 8), pale); body.rotation.z = Math.PI / 2; body.position.set(0.1, 0.55, 0); g.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 10, 10), pale); head.position.set(0.75, 0.55, 0); head.scale.set(1, 0.82, 0.92); g.add(head);
+    const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.16, 0.18), new THREE.MeshBasicMaterial({ color: 0x070000 })); mouth.position.set(0.96, 0.5, 0); g.add(mouth);
+    const eye = new THREE.MeshStandardMaterial({ color: 0xff2a2a, emissive: 0xff0000, emissiveIntensity: 3.2 });
+    for (const sz of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), eye); e.position.set(0.9, 0.62, sz * 0.1); g.add(e); }
+    for (let i = 0; i < 6; i++) { const sx = i < 3 ? -1 : 1, lz = ((i % 3) - 1) * 0.34; const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 1.0, 3, 5), dark); leg.position.set(lz, 0.5, sx * 0.42); leg.rotation.x = sx * 0.8; leg.rotation.z = 0.35; g.add(leg); }
+    for (let i = 0; i < 5; i++) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.03, rnd(0.2, 0.5), 0.02), blood); b.position.set(rnd(-0.1, 0.6), rnd(0.45, 0.75), rnd(-0.2, 0.2)); g.add(b); }
+    if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    scene.add(g); return g;
   }
+  const col = { capybara: 0x8a6a44, deer: 0x9a7a52, tapir: 0x5a4a44, boar: 0x4a3a30, jaguar: 0xc8902c }[type] || 0x8a6a44;
+  const big = type === "jaguar" || type === "tapir";
+  const mat = new THREE.MeshStandardMaterial({ color: col, roughness: 1, flatShading: true });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(big ? 1.6 : 1.1, 0.7, 0.6), mat);
+  body.position.y = 0.55; g.add(body);
+  // boyun + kafa (ileriye, +X)
+  const headY = type === "deer" ? 1.05 : 0.72, headFwd = big ? 0.9 : 0.66;
+  if (type === "deer") { const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 0.6, 6), mat); neck.position.set(0.45, 0.95, 0); neck.rotation.z = -0.7; g.add(neck); }
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.42, 0.42), mat); head.position.set(headFwd, headY, 0); g.add(head);
+  // snout / namlu
+  const snout = new THREE.Mesh(new THREE.BoxGeometry(type === "tapir" ? 0.45 : 0.28, 0.22, 0.26), mat); snout.position.set(headFwd + (type === "tapir" ? 0.3 : 0.24), headY - 0.05, 0); g.add(snout);
+  // bacaklar
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.16, type === "deer" ? 0.7 : 0.5, 0.16), new THREE.MeshStandardMaterial({ color: 0x2a2018 }));
+    leg.position.set(sx * (big ? 0.6 : 0.42), (type === "deer" ? 0.35 : 0.25), sz * 0.22); g.add(leg);
+  }
+  if (type === "deer") for (const sx of [-1, 1]) { const horn = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.5, 4), new THREE.MeshStandardMaterial({ color: 0x6a5436 })); horn.position.set(headFwd, headY + 0.4, sx * 0.12); horn.rotation.z = sx * 0.3; g.add(horn); }
+  if (type === "boar") for (const sx of [-1, 1]) { const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.22, 4), new THREE.MeshStandardMaterial({ color: 0xe8e0c8 })); tusk.position.set(headFwd + 0.22, headY - 0.12, sx * 0.1); tusk.rotation.z = 1.6; g.add(tusk); }
   if (type === "jaguar") {
     const em = new THREE.MeshStandardMaterial({ color: 0xffd83a, emissive: 0xffcc22, emissiveIntensity: 1.4 });
     for (const sz of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 6), em); e.position.set((big ? 1.15 : 0.9), 0.78, sz * 0.13); g.add(e); }
   }
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   scene.add(g); return g;
 }
 function spawnPrey() {
@@ -444,6 +522,10 @@ function spawnJaguar() {
   const ang = rnd(0, 6.28), d = rnd(30, 50);
   const a = { group: makeAnimal("jaguar"), x: camera.position.x + Math.cos(ang) * d, z: camera.position.z + Math.sin(ang) * d, type: "jaguar", hp: 14, state: "stalk", dir: 0, atkCd: 0, pounce: 0, bite: 0, hostile: true };
   animals.push(a);
+}
+function spawnCrawler() {
+  const ang = rnd(0, 6.28), d = rnd(20, 38);
+  animals.push({ group: makeAnimal("crawler"), x: camera.position.x + Math.cos(ang) * d, z: camera.position.z + Math.sin(ang) * d, type: "crawler", hp: 9, state: "chase", dir: 0, atkCd: 0, pounce: 0, bite: 0, hostile: true });
 }
 
 /* ----- ateş modeli ----- */
@@ -514,17 +596,20 @@ function vanishWatcher(quiet) { if (watcherGroup) watcherGroup.visible = false; 
 /* ----------------------- INPUT ----------------------- */
 const keys = {};
 let yaw = 0, pitch = 0, locked = false, isTouch = false;
-const inp = { jx: 0, jy: 0, joy: false, sprint: false, action: false, fire: false, eat: false };
+const inp = { jx: 0, jy: 0, joy: false, sprint: false, action: false, fire: false, eat: false, bandage: false, sleep: false };
 
 const typingInField = (e) => { const t = e.target; return t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable); };
 addEventListener("keydown", (e) => {
   if (typingInField(e)) return;            // input/şifre/e-posta alanına yazarken oyun tuşlarını yok say
-  const k = e.key.toLowerCase(); keys[k] = true;
+  const k = e.key.toLowerCase(); const first = !keys[k]; keys[k] = true;
   if (["w", "a", "s", "d", " ", "shift"].includes(k)) e.preventDefault();
   if (k === "e" || k === " ") inp.action = true;
   if (k === "f") inp.fire = true;
   if (k === "g") inp.eat = true;
   if (k === "v") startTalk();           // bas-konuş (sesli sohbet)
+  if (first && k === "c") toggleCraft();   // tezgah
+  if (first && k === "b") inp.bandage = true;  // bandaj (can / dirilt)
+  if (first && k === "t") inp.sleep = true;    // çadırda uyu
 });
 addEventListener("keyup", (e) => { if (typingInField(e)) return; const k = e.key.toLowerCase(); keys[k] = false; if (k === "v") stopTalk(); });
 
@@ -562,7 +647,9 @@ function bindBtn(id, onDown, hold) {
 bindBtn("btn-action", () => (inp.action = true));
 bindBtn("btn-fire", () => (inp.fire = true));
 bindBtn("btn-eat", () => (inp.eat = true));
+bindBtn("btn-bandage", () => (inp.bandage = true));
 const sprintBtn = bindBtn("btn-sprint", null, true);
+{ const cb = $("btn-craft"); if (cb) { cb.addEventListener("touchstart", (e) => { isTouch = true; toggleCraft(); e.preventDefault(); }, { passive: false }); cb.addEventListener("click", () => toggleCraft()); } }
 
 /* ----------------------- INTERACTION ----------------------- */
 const _fwd = new THREE.Vector3();
@@ -580,19 +667,38 @@ function findTarget() {
   };
   for (const t of trees) if (t.alive) consider(t.x, t.z, 4.2, "tree", t);
   for (const a of animals) consider(a.x, a.z, 4.4, "animal", a);
+  for (const s of scraps) if (!s.taken) consider(s.x, s.z, 3.4, "scrap", s);
+  for (const c of chests) if (!c.opened) consider(c.x, c.z, 3.6, "chest", c);
   return best;
 }
 function doAction() {
   if (S.swingCd > 0) return;
   const t = findTarget(); if (!t) return;
-  S.swingCd = 0.4; S.stamina = clamp(S.stamina - 4, 0, 100); Sound.chop();
+  S.swingCd = 0.4; S.stamina = clamp(S.stamina - 4, 0, 100);
   if (t.kind === "tree") {
-    const tr = t.obj; tr.hp--; S.inv.wood++;
+    Sound.chop(); const tr = t.obj; tr.hp--; S.inv.wood++;
     if (tr.hp <= 0) { tr.alive = false; tr.regrow = 95; S.inv.wood += 2; writeTree(trees.indexOf(tr)); treesNeedUpdate(); toast("🪵 Ağaç devrildi (+3)", "good"); }
     return;
   }
+  if (t.kind === "scrap") {                                   // metal hurda topla (kazma daha hızlı)
+    Sound.chop(); const s = t.obj; s.hp = (s.hp || (S.tools.pickaxe ? 1 : 2)) - 1;
+    if (s.hp <= 0) { s.taken = true; s.group.visible = false; const m = S.tools.pickaxe ? rndi(2, 4) : rndi(1, 2); S.inv.metal += m; toast("⚙️ +" + m + " metal" + (S.tools.pickaxe ? " (kazma)" : ""), "good"); }
+    else toast("⚙️ Hurda... (kazma işi hızlandırır)");
+    return;
+  }
+  if (t.kind === "chest") {                                   // sandık aç → ganimet
+    const c = t.obj; c.opened = true; if (c.lid) c.lid.rotation.x = -1.2; Sound.crackle();
+    const loot = [];
+    const wood = rndi(2, 6); S.inv.wood += wood; loot.push("🪵" + wood);
+    if (Math.random() < 0.75) { const m = rndi(1, 4); S.inv.metal += m; loot.push("⚙️" + m); }
+    if (Math.random() < 0.6) { const b = rndi(1, 2); S.inv.bandage += b; loot.push("🩹" + b); }
+    if (Math.random() < 0.5) { const f = rndi(1, 3); S.inv.cooked += f; loot.push("🍗" + f); }
+    if (Math.random() < 0.35) { const p = rndi(1, 2); S.inv.pelt += p; loot.push("🧵" + p); }
+    toast("📦 Sandık: " + loot.join("  "), "good");
+    return;
+  }
   if (t.kind === "animal") {
-    const a = t.obj; a.hp -= 3;
+    Sound.chop(); const a = t.obj; a.hp -= S.tools.spear ? 6 : 3;
     if (a.type === "boar" || a.type === "jaguar") { a.hostile = true; a.state = "chase"; }
     else { a.state = "flee"; a.dir = Math.atan2(a.z - camera.position.z, a.x - camera.position.x); }
     if (a.hp <= 0) killAnimal(a);
@@ -600,18 +706,24 @@ function doAction() {
 }
 function killAnimal(a) {
   const y = a.type === "jaguar" ? rndi(5, 7) : a.type === "tapir" ? rndi(3, 5) : rndi(2, 4);
-  S.inv.raw += y; toast("🥩 +" + y + " çiğ et (" + nameTR(a.type) + ")", "good");
+  S.inv.raw += y; const pelt = a.type === "jaguar" ? rndi(2, 3) : rndi(1, 2); S.inv.pelt += pelt;
+  toast("🥩 +" + y + " et · 🧵 +" + pelt + " post (" + nameTR(a.type) + ")", "good");
   scene.remove(a.group); animals.splice(animals.indexOf(a), 1);
-  if (a.type !== "jaguar") setTimeout(() => { if (S.running && animals.length < 16) spawnPrey(); }, 9000);
+  if (a.type !== "jaguar") setTimeout(() => { if (S.running && animals.length < 18) spawnPrey(); }, 9000);
 }
 const nameTR = (t) => ({ capybara: "kapibara", deer: "geyik", tapir: "tapir", boar: "yaban domuzu", jaguar: "jaguar" }[t] || t);
 
 function doFire() {
   const px = camera.position.x, pz = camera.position.z;
-  let near = null, nd = 36;
+  let near = null, nd = 64;   // 8 m içindeki ateş
   for (const f of fires) { const d = (f.x - px) ** 2 + (f.z - pz) ** 2; if (d < nd) { nd = d; near = f; } }
-  if (near) { if (S.inv.wood <= 0) { toast("Odun yok"); return; } const add = Math.min(S.inv.wood, 5); S.inv.wood -= add; near.fuel = Math.min(near.fuel + add * 14, near.max); toast("🔥 Ateşe odun eklendi", "good"); return; }
-  if (S.inv.wood < 5) { toast("Ateş için 5 odun lazım (" + S.inv.wood + ")", "bad"); return; }
+  if (near) {                 // YAKININDAKİ ATEŞE ODUN AT — ne kadar atarsan o kadar uzun yanar
+    if (S.inv.wood <= 0) { toast("Odun yok — ağaç kes", "bad"); return; }
+    const add = Math.min(S.inv.wood, 25); S.inv.wood -= add; near.fuel = Math.min(near.fuel + add * 13, near.max);
+    const secs = Math.round(near.fuel / 2.4);
+    toast("🔥 +" + add + " odun → ateş ~" + secs + " sn yanar", "good"); return;
+  }
+  if (S.inv.wood < 5) { toast("Yeni ateş için 5 odun lazım (" + S.inv.wood + ")", "bad"); return; }
   S.inv.wood -= 5; camera.getWorldDirection(_fwd); _fwd.y = 0; _fwd.normalize();
   makeFire(px + _fwd.x * 2.2, pz + _fwd.z * 2.2); toast("🔥 Kamp ateşi yakıldı!", "good");
 }
@@ -622,13 +734,77 @@ function doEat() {
   else toast("Yiyecek yok!", "bad");
 }
 
+/* ----------------------- CRAFTING (TEZGAH) ----------------------- */
+const RECIPES = [
+  { id: "bandage", name: "🩹 Bandaj", desc: "Can doldurur / düşen arkadaşı diriltir", cost: { pelt: 2, wood: 1 }, make: (s) => s.inv.bandage++ },
+  { id: "torch", name: "🔥 Meşale (5 odun ateş)", desc: "Yere kamp ateşi kurar", cost: { wood: 5 }, make: () => { camera.getWorldDirection(_fwd); _fwd.y = 0; _fwd.normalize(); makeFire(camera.position.x + _fwd.x * 2.2, camera.position.z + _fwd.z * 2.2); } },
+  { id: "pickaxe", name: "⛏️ Kazma", desc: "Metali hızlı toplar, daha sert vurur", cost: { metal: 4, wood: 3 }, once: () => S.tools.pickaxe, make: (s) => s.tools.pickaxe = true },
+  { id: "tent", name: "⛺ Çadır", desc: "Güvendeyken uyu, sabaha atla", cost: { pelt: 4, wood: 6, metal: 2 }, once: () => S.tools.tent, make: (s) => s.tools.tent = true },
+  { id: "spear", name: "🗡️ Mızrak", desc: "Avı/canavarı daha çok yaralar", cost: { metal: 2, wood: 4 }, once: () => S.tools.spear, make: (s) => s.tools.spear = true },
+];
+function canAfford(r) { for (const k in r.cost) if ((S.inv[k] || 0) < r.cost[k]) return false; return !(r.once && r.once()); }
+function craft(r) {
+  if (r.once && r.once()) { toast("Zaten var.", "bad"); return; }
+  if (!canAfford(r)) { toast("Yetersiz malzeme.", "bad"); return; }
+  for (const k in r.cost) S.inv[k] -= r.cost[k];
+  r.make(S); Sound.chop(); toast("🛠️ Üretildi: " + r.name, "good"); renderCraft();
+}
+const costStr = (c) => Object.entries(c).map(([k, v]) => ({ wood: "🪵", metal: "⚙️", pelt: "🧵", bandage: "🩹" }[k] + v)).join(" ");
+function renderCraft() {
+  const list = $("craftList"); if (!list) return;
+  $("craftInv").textContent = `🪵${S.inv.wood} ⚙️${S.inv.metal} 🧵${S.inv.pelt} 🩹${S.inv.bandage}`;
+  list.innerHTML = "";
+  for (const r of RECIPES) {
+    const row = document.createElement("div"); row.className = "craft-row";
+    const owned = r.once && r.once();
+    row.innerHTML = `<div class="ci">${r.name}<small>${r.desc} · ${costStr(r.cost)}</small></div>`;
+    const b = document.createElement("button"); b.className = "minibtn"; b.textContent = owned ? "✓ VAR" : "ÜRET";
+    b.disabled = owned || !canAfford(r); b.addEventListener("click", () => craft(r));
+    row.appendChild(b); list.appendChild(row);
+  }
+}
+let craftOpen = false;
+function openCraft() { if (!S || !S.running || S.downed) return; craftOpen = true; renderCraft(); $("craft").classList.remove("hidden"); if (document.exitPointerLock) document.exitPointerLock(); }
+function closeCraft() { craftOpen = false; $("craft").classList.add("hidden"); if (!isTouch && S && S.running && threeCanvas.requestPointerLock) threeCanvas.requestPointerLock(); }
+function toggleCraft() { if (craftOpen) closeCraft(); else openCraft(); }
+
+/* ----------------------- BANDAJ: kendini iyileştir / düşen arkadaşı dirilt ----------------------- */
+function nearestDownedRemote() {
+  let best = null, bd = 3.2 * 3.2;
+  for (const id in remotes) { const r = remotes[id]; if (!r.g || !r.downed) continue; const d = (r.g.position.x - camera.position.x) ** 2 + (r.g.position.z - camera.position.z) ** 2; if (d < bd) { bd = d; best = id; } }
+  return best;
+}
+function useBandage() {
+  if (S.downed) return;                                  // düşmüşken kendini kurtaramazsın (arkadaş gerekir)
+  const downedId = nearestDownedRemote();
+  if (downedId) {                                        // yakındaki düşen arkadaşı dirilt
+    if (S.inv.bandage <= 0) { toast("Diriltmek için bandaj yok 🩹", "bad"); return; }
+    S.inv.bandage--; const r = remotes[downedId]; if (r) r.downed = false;
+    try { net.broadcast({ t: "revived", id: downedId }); } catch (e) {}
+    toast("🩹 Arkadaşını dirilttin!", "good"); return;
+  }
+  if (S.inv.bandage <= 0) { toast("Bandaj yok 🩹 (tezgahta üret)", "bad"); return; }
+  if (S.health >= 100) { toast("Canın zaten dolu.", "bad"); return; }
+  S.inv.bandage--; S.health = clamp(S.health + 35, 0, 100); S.sick = 0; toast("🩹 Bandaj: +35 can", "good");
+}
+
+/* ----------------------- ÇADIR: güvendeyken uyu, sabaha atla ----------------------- */
+function doSleep() {
+  if (!S.tools.tent) { toast("Önce ⛺ çadır üret (tezgah / C)", "bad"); return; }
+  if (S.sleeping > 0) return;
+  let safe = false; for (const f of fires) if (Math.hypot(f.x - camera.position.x, f.z - camera.position.z) < 11) safe = true;
+  if (!safe) { toast("Sadece yanan ateşin yanında uyuyabilirsin 🔥", "bad"); return; }
+  if (watcher || animals.some((a) => a.hostile && Math.hypot(a.x - camera.position.x, a.z - camera.position.z) < 22)) { toast("Tehlike yakın — uyuyamazsın!", "bad"); return; }
+  S.sleeping = 2.0; toast("⛺ Uyuyorsun... sabaha atlanıyor", "good");
+}
+
 /* ----------------------- JUMPSCARE ----------------------- */
 let jumpT = 0, jumpFace = 0;
 function jumpscare(face, san, hp) {
   jumpT = 1.0; jumpFace = face != null ? face : rndi(0, 2);
   S.shake = Math.max(S.shake, 0.9);
   S.sanity = clamp(S.sanity - (san || 12), 0, 100);
-  if (hp) { S.health = clamp(S.health - hp, 0, 100); S.hurt = 0.6; if (S.health <= 0) die("kalp krizi"); }
+  if (hp) { S.health = clamp(S.health - hp, 0, 100); S.hurt = 0.6; if (S.health <= 0) playerDied("kalp krizi"); }
   Sound.screech();
 }
 function drawScaryFace(w, h) {
@@ -726,9 +902,68 @@ function drawGlitchScare(w, h, gl, dt) {
   if (gl.t >= 3.15) glitch = null;
 }
 
-/* ----------------------- DEATH / WIN ----------------------- */
+/* ---- OPSİYONEL KAMERA KORKUSU (yalnızca İZİNLE) ----
+   Kullanıcı açıkça açarsa tarayıcı kamera izni ister; verilirse oyun ARA SIRA
+   senin görüntünü yakalayıp ekrana çarpık/kanlı gösterir ("seni gördüm"). Gizli/arka-plan
+   erişim YOK; izin verilmezse hiçbir şey olmaz. Hiçbir görüntü kaydedilmez/gönderilmez. */
+let camEnabled = false, camVideo = null, camStream = null, camScare = null, camScareCd = 40;
+async function enableCamScare() {
+  if (camEnabled) return true;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error("kamera yok");
+  camStream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: false });
+  camVideo = document.createElement("video"); camVideo.autoplay = true; camVideo.playsInline = true; camVideo.muted = true;
+  camVideo.srcObject = camStream; await camVideo.play().catch(() => {});
+  camEnabled = true; return true;
+}
+function captureFrame() {
+  if (!camEnabled || !camVideo || camVideo.videoWidth === 0) return null;
+  const c = document.createElement("canvas"); c.width = 320; c.height = 240;
+  const g = c.getContext("2d"); g.drawImage(camVideo, 0, 0, 320, 240); return c;
+}
+function triggerCamScare() {
+  const img = captureFrame(); if (!img) return;
+  camScare = { t: 0, img, cracks: [] }; S.shake = 1.0; S.sanity = clamp(S.sanity - 12, 0, 100); Sound.screech();
+}
+function drawCamScare(w, h, dt) {
+  const cs = camScare; cs.t += dt;
+  const jx = rnd(-14, 14), jy = rnd(-14, 14);
+  fxc.fillStyle = "#180000"; fxc.fillRect(0, 0, w, h);
+  // senin görüntün — büyük, kanlı, titreyen
+  const iw = Math.min(w, h) * 0.9, ih = iw * 0.75;
+  fxc.save(); fxc.translate(w / 2 + jx, h / 2 + jy); fxc.scale(1 + cs.t * 0.06, 1 + cs.t * 0.06);
+  try { fxc.drawImage(cs.img, -iw / 2, -ih / 2, iw, ih); } catch (e) {}
+  fxc.fillStyle = "rgba(120,0,0,0.45)"; fxc.fillRect(-iw / 2, -ih / 2, iw, ih);   // kan tonu
+  fxc.restore();
+  if (Math.random() < 0.3) { camScare.cracks.push({ x: rnd(w * 0.2, w * 0.8), y: rnd(h * 0.2, h * 0.8), r: 4 }); Sound.punch(); }
+  for (const cr of cs.cracks) { cr.r = Math.min(cr.r + 700 * dt, Math.max(w, h)); drawCrack(cr.x, cr.y, cr.r); }
+  fxc.fillStyle = "#9a0000"; fxc.font = "bold " + Math.round(Math.min(w, h) / 9) + "px monospace"; fxc.textAlign = "center";
+  fxc.fillText("SENİ GÖRDÜM", w / 2 + jx, h * 0.5 + jy); fxc.textAlign = "start";
+  fxc.fillStyle = "rgba(0,0,0,0.16)"; for (let y = 0; y < h; y += 4) fxc.fillRect(0, y, w, 1);
+  if (cs.t >= 2.6) camScare = null;
+}
+
+/* ----------------------- DEATH / DOWNED / WIN ----------------------- */
+// Co-op'ta tek başına DEĞİLSEN ölmezsin: yere düşersin, arkadaşın bandajla diriltir.
+// Tek başınaysan (peer yok) doğrudan ölürsün.
+function playerDied(reason) {
+  if (S.over || S.downed) return;
+  S.deathReason = reason || S.deathReason || "bilinmeyen";
+  if (net.online && net.peerCount() > 0) goDown(S.deathReason);
+  else die(S.deathReason);
+}
+function goDown(reason) {
+  S.downed = true; S.bleed = 45; S.health = 0; S.deathReason = reason;
+  document.exitPointerLock && document.exitPointerLock();
+  $("downed").classList.remove("hidden");
+  Sound.thump(); toast("🩸 Yere düştün — bir arkadaşın seni diriltmeli!", "bad");
+  try { net.broadcast({ t: "down", reason }); } catch (e) {}
+}
+function reviveSelf() {
+  S.downed = false; S.bleed = 0; S.health = 35; S.sanity = clamp(S.sanity + 10, 0, 100);
+  $("downed").classList.add("hidden"); toast("🩹 Arkadaşın seni dirilttin — ayaktasın!", "good");
+}
 function die(reason) {
-  if (S.over) return; S.over = true; S.running = false; S.deathReason = reason; Sound.screech();
+  if (S.over) return; S.over = true; S.running = false; S.deathReason = reason; S.downed = false; $("downed").classList.add("hidden"); Sound.screech();
   document.exitPointerLock && document.exitPointerLock();
   setTimeout(() => { $("deathReason").textContent = "Sebep: " + reason; $("daysSurvived").textContent = S.day; $("gameover").classList.remove("hidden"); }, 700);
 }
@@ -747,8 +982,29 @@ function update(dt) {
   const night = isNight();
   const dread = dreadLevel();
 
-  // bakış (kamera) uygula
+  // bakış (kamera) uygula — her durumda etrafa bakılabilir
   camera.rotation.set(pitch, yaw, 0, "YXZ");
+
+  // ÇADIRDA UYUMA → sabaha atla
+  if (S.sleeping > 0) {
+    S.sleeping -= dt;
+    if (S.sleeping <= 0) {
+      if (S.time >= 0.5) { S.day++; if (S.day > CFG.WIN_DAY) { winGame(); return; } S.bloodMoon = false; }
+      S.time = 0.18; S.warmth = clamp(S.warmth + 25, 0, 100); S.stamina = 100; S.sanity = clamp(S.sanity + 15, 0, 100); S.hunger = clamp(S.hunger - 10, 0, 100);
+      toast("🌅 Uyandın — GÜN " + S.day, "good");
+    }
+    updateHUD(night); return;
+  }
+
+  // YERE DÜŞTÜ (co-op) → kan kaybı, hareket yok, diriltilmeyi bekle
+  if (S.downed) {
+    S.bleed -= dt; S.heartLevel = 1; if ((S.heart -= dt) <= 0) { Sound.thump(); S.heart = 0.5; }
+    $("bleedTxt").textContent = Math.max(0, Math.ceil(S.bleed)) + " sn";
+    if (net.online) { S.netT = (S.netT || 0) - dt; if (S.netT <= 0) { S.netT = 0.2; try { net.broadcast({ t: "state", x: camera.position.x, z: camera.position.z, yaw, day: S.day, time: S.time, hp: 0, downed: true }); } catch (e) {} } }
+    lerpRemotes(dt);
+    if (S.bleed <= 0) { die(S.deathReason || "kan kaybı"); return; }
+    updateHUD(night); return;
+  }
 
   // hareket
   let mz = 0, mx = 0;
@@ -782,6 +1038,8 @@ function update(dt) {
   if (inp.action) { inp.action = false; doAction(); }
   if (inp.fire) { inp.fire = false; doFire(); }
   if (inp.eat) { inp.eat = false; doEat(); }
+  if (inp.bandage) { inp.bandage = false; useBandage(); }
+  if (inp.sleep) { inp.sleep = false; doSleep(); }
 
   // ateşler
   let nearFire = false, fireDist = 1e9;
@@ -816,7 +1074,7 @@ function update(dt) {
   if (S.sanity <= 0) { dmg += 2.5; S.deathReason = "delirme"; }
   if (dmg > 0) S.health = clamp(S.health - dmg * dt, 0, 100);
   else if (S.hunger > 40 && S.warmth > 40 && S.sanity > 25 && S.sick <= 0) S.health = clamp(S.health + 0.8 * dt, 0, 100);
-  if (S.health <= 0) { die(S.deathReason || "bilinmeyen"); return; }
+  if (S.health <= 0) { playerDied(S.deathReason || "bilinmeyen"); if (S.over || S.downed) return; }
 
   // korku — İzleyen
   updateWatcher(dt, night);
@@ -826,6 +1084,9 @@ function update(dt) {
   // ÖZEL DEHŞET: ekrana yumruk atan kanlı kadın + sahte sistem bozulması (nadir; gece + ilerleyen günlerde)
   S.glitchCd -= dt;
   if (night && glitch == null && S.glitchCd <= 0 && S.day >= 3 && Math.random() < (0.0008 + dread * 0.004)) { triggerGlitchScare(); S.glitchCd = rnd(120, 260); }
+  // OPSİYONEL KAMERA KORKUSU (yalnızca izin verildiyse): görüntünü çarpık/kanlı gösterir
+  camScareCd -= dt;
+  if (camEnabled && night && glitch == null && camScare == null && S.day >= 2 && camScareCd <= 0 && Math.random() < (0.0006 + dread * 0.003)) { triggerCamScare(); camScareCd = rnd(90, 200); }
   // gün geçtikçe artan ORTAM DEHŞETİ (fısıltı / hırıltı / kalp / titreme) — sadece jumpscare değil
   if (night) {
     S.dreadT = (S.dreadT == null ? rnd(6, 12) : S.dreadT) - dt;
@@ -846,6 +1107,8 @@ function update(dt) {
 
   // gece jaguarı
   if (night && S.day > 1 && Math.random() < 0.0009 && animals.filter((a) => a.type === "jaguar").length < 2) { spawnJaguar(); Sound.growl(); whisperText("bir hırıltı..."); }
+  // SÜRÜNEN — gece avcısı (gün geçtikçe + kanlı ayda daha çok)
+  if (night && S.day >= 2 && Math.random() < (0.0007 + dread * 0.0014) && animals.filter((a) => a.type === "crawler").length < (S.bloodMoon ? 3 : 2)) { spawnCrawler(); Sound.growl(); whisperText(choice(["sürünüyor...", "duydun mu?", "çok ayak sesi"])); }
 
   updateAnimals(dt);
 
@@ -885,10 +1148,10 @@ function update(dt) {
 
   if (whisperT > 0) whisperT -= dt;
 
-  // co-op: kendi durumunu yayınla + uzak oyuncuları yumuşat
+  // co-op: kendi durumunu yayınla (host saat/günü de gönderir → senkron) + uzak oyuncuları yumuşat
   if (net.online) {
     S.netT = (S.netT || 0) - dt;
-    if (S.netT <= 0) { S.netT = 0.1; net.broadcast({ t: "state", x: camera.position.x, z: camera.position.z, yaw: yaw, day: S.day, hp: Math.round(S.health) }); }
+    if (S.netT <= 0) { S.netT = 0.1; net.broadcast({ t: "state", x: camera.position.x, z: camera.position.z, yaw: yaw, day: S.day, time: S.time, hp: Math.round(S.health), downed: !!S.downed, host: net.host }); }
   }
   lerpRemotes(dt);
   updateBirds(dt);
@@ -937,7 +1200,9 @@ function updateWatcher(dt, night) {
     w.seen = Math.max(0, w.seen - dt * 0.6);
     S.sanity = clamp(S.sanity - map(d, 4, 30, 16, 1.5) * (1 + dread) * dt, 0, 100);
     // BAKMIYORSAN ÜSTÜNE GELİR — gün geçtikçe daha hızlı
-    if (d > 3.5) { const ang = Math.atan2(camera.position.z - w.z, camera.position.x - w.x); const sp = map(d, 5, 45, 0.8, 2.8) * (1 + dread * 1.3); w.x += Math.cos(ang) * sp * dt; w.z += Math.sin(ang) * sp * dt; }
+    if (d > 3.5) { const ang = Math.atan2(camera.position.z - w.z, camera.position.x - w.x); const sp = map(d, 5, 45, 1.4, 4.2) * (1 + dread * 1.4); w.x += Math.cos(ang) * sp * dt; w.z += Math.sin(ang) * sp * dt; }
+    // YETERİNCE YAKLAŞTIYSA SALDIRIR (artık sadece izlemiyor — üstüne atılır)
+    else if (w.lunge == null) { w.lunge = 0.45; Sound.growl(); whisperText("KOŞ!"); }
   }
   // konum + bakış + hafif süzülme
   w.x = clamp(w.x, -CFG.WORLD, CFG.WORLD); w.z = clamp(w.z, -CFG.WORLD, CFG.WORLD);
@@ -946,8 +1211,8 @@ function updateWatcher(dt, night) {
   w.life -= dt;
   if (d > 70) { vanishWatcher(true); wCd = rnd(5, 10); return; }
   if (w.life <= 0) {
-    if (d < 7 && S.sanity < 55) { w.lunge = 0.5; Sound.growl(); whisperText("KOŞ!"); }   // üstüne koşmaya başla
-    else if (Math.random() < 0.55) { spawnWatcher(true); whisperText(choice(["daha yakın", "kıpırdama", "arkanda"])); }
+    if (d < 11) { w.lunge = 0.5; Sound.growl(); whisperText("KOŞ!"); }   // yakınsa üstüne koşar (saldırı)
+    else if (Math.random() < 0.6) { spawnWatcher(true); whisperText(choice(["daha yakın", "kıpırdama", "arkanda"])); }
     else vanishWatcher(true);
   }
 }
@@ -967,17 +1232,32 @@ function updateAnimals(dt) {
       if (d < 6 && d > 2 && a.atkCd <= 0 && a.pounce <= 0 && !fearFire) { a.pounce = 0.42; a.atkCd = 1.6; Sound.growl(); }
       if (a.pounce > 0) { a.pounce -= dt; sp = 16; }    // atılım sırasında ileri fırlar
       a.x += Math.cos(a.dir) * sp * dt; a.z += Math.sin(a.dir) * sp * dt;
-      if (d < 2.4 && a.bite <= 0) { S.health = clamp(S.health - 11, 0, 100); S.hurt = 0.45; S.shake = 0.45; a.bite = 1.2; Sound.growl(); S.deathReason = "jaguar saldırısı"; if (S.health <= 0) { die("jaguar saldırısı"); return; } }
+      if (d < 2.4 && a.bite <= 0) { S.health = clamp(S.health - 11, 0, 100); S.hurt = 0.45; S.shake = 0.45; a.bite = 1.2; Sound.growl(); S.deathReason = "jaguar saldırısı"; if (S.health <= 0) { playerDied("jaguar saldırısı"); return; } }
       if (a.bite > 0) a.bite -= dt;
       if (!isNight() && d > 45) { scene.remove(a.group); animals.splice(i, 1); continue; }
+    } else if (a.type === "crawler") {                         // SÜRÜNEN — hızlı gece avcısı, ateşten korkar
+      let fearFire = false; for (const f of fires) if (Math.hypot(a.x - f.x, a.z - f.z) < 8) fearFire = true;
+      if (fearFire && fires.length) { const f = fires[0]; a.dir = Math.atan2(a.z - f.z, a.x - f.x); }
+      else a.dir = Math.atan2(pz - a.z, px - a.x);
+      const sp = fearFire ? 5 : 8 + dreadLevel() * 3;
+      a.x += Math.cos(a.dir) * sp * dt; a.z += Math.sin(a.dir) * sp * dt;
+      if (d < 2.2 && a.bite <= 0) { S.health = clamp(S.health - 9, 0, 100); S.sanity = clamp(S.sanity - 6, 0, 100); S.hurt = 0.5; S.shake = 0.5; a.bite = 1.1; Sound.screech(); S.deathReason = "ormandaki şey"; if (S.health <= 0) { playerDied("ormandaki şey"); return; } }
+      if (a.bite > 0) a.bite -= dt;
+      if (!isNight() && d > 14) { scene.remove(a.group); animals.splice(i, 1); continue; }  // gündüz dağılır
     } else if (a.type === "boar" && a.hostile) {
       a.dir = Math.atan2(pz - a.z, px - a.x); a.x += Math.cos(a.dir) * 5.5 * dt; a.z += Math.sin(a.dir) * 5.5 * dt;
-      if (d < 2 && a.atkCd <= 0) { S.health = clamp(S.health - 7, 0, 100); S.hurt = 0.4; S.shake = 0.3; a.atkCd = 1.4; S.deathReason = "yaban domuzu"; if (S.health <= 0) { die("yaban domuzu saldırısı"); return; } }
+      if (d < 2 && a.atkCd <= 0) { S.health = clamp(S.health - 7, 0, 100); S.hurt = 0.4; S.shake = 0.3; a.atkCd = 1.4; S.deathReason = "yaban domuzu"; if (S.health <= 0) { playerDied("yaban domuzu saldırısı"); return; } }
       if (d > 30) a.hostile = false;
     } else {
       if (d < 9 && a.state !== "flee") { a.state = "flee"; a.dir = Math.atan2(a.z - pz, a.x - px) + rnd(-0.4, 0.4); }
       if (a.state === "flee") { a.x += Math.cos(a.dir) * 5 * dt; a.z += Math.sin(a.dir) * 5 * dt; if (d > 22) a.state = "wander"; }
       else { a.t -= dt; if (a.t <= 0) { a.t = rnd(1.5, 4); a.dir = rnd(0, 6.28); a.moving = Math.random() < 0.6; } if (a.moving) { a.x += Math.cos(a.dir) * 1.6 * dt; a.z += Math.sin(a.dir) * 1.6 * dt; } }
+    }
+    // OYUNCUYA GİRMESİN: atılım dışında bir dur-mesafesi koru (jaguar/domuz içimize giriyordu)
+    const STOP = a.type === "jaguar" ? 1.7 : a.type === "crawler" ? 1.5 : a.type === "boar" && a.hostile ? 1.6 : 0;
+    if (STOP && (a.pounce == null || a.pounce <= 0)) {
+      const nd = Math.hypot(a.x - px, a.z - pz);
+      if (nd < STOP) { const u = nd || 0.001; a.x = px + (a.x - px) / u * STOP; a.z = pz + (a.z - pz) / u * STOP; }
     }
     a.x = clamp(a.x, -CFG.WORLD, CFG.WORLD); a.z = clamp(a.z, -CFG.WORLD, CFG.WORLD);
     const leap = a.pounce > 0 ? Math.sin((1 - a.pounce / 0.42) * Math.PI) * 0.7 : 0;   // sıçrama yayı
@@ -999,7 +1279,7 @@ function phaseInfo(t) { if (t < 0.07) return ["🌑", "Gece"]; if (t < 0.20) ret
 
 /* ----------------------- HUD ----------------------- */
 const bars = { health: $("bar-health"), hunger: $("bar-hunger"), warmth: $("bar-warmth"), sanity: $("bar-sanity"), stamina: $("bar-stamina") };
-const invEl = { wood: $("inv-wood"), raw: $("inv-raw"), cooked: $("inv-cooked") };
+const invEl = { wood: $("inv-wood"), raw: $("inv-raw"), cooked: $("inv-cooked"), metal: $("inv-metal"), pelt: $("inv-pelt"), bandage: $("inv-bandage") };
 const mmCanvas = $("minimap"), mmctx = mmCanvas.getContext("2d");
 function drawMinimap() {
   const W = mmCanvas.width, H = mmCanvas.height, cx = W / 2, cy = H / 2, R = 55, sc = (W / 2 - 6) / R;
@@ -1008,6 +1288,8 @@ function drawMinimap() {
   mmctx.fillStyle = "#2f6b3a";
   for (const t of trees) { if (!t.alive) continue; const dx = t.x - px, dz = t.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillRect(cx + dx * sc - 1, cy + dz * sc - 1, 2, 2); }
   for (const a of animals) { const dx = a.x - px, dz = a.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillStyle = a.hostile ? "#ff5a4d" : "#d8c060"; mmctx.fillRect(cx + dx * sc - 1.5, cy + dz * sc - 1.5, 3, 3); }
+  mmctx.fillStyle = "#9aa0a6"; for (const s of scraps) { if (s.taken) continue; const dx = s.x - px, dz = s.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillRect(cx + dx * sc - 1, cy + dz * sc - 1, 2, 2); }
+  mmctx.fillStyle = "#e0b14a"; for (const c of chests) { if (c.opened) continue; const dx = c.x - px, dz = c.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillRect(cx + dx * sc - 1.5, cy + dz * sc - 1.5, 3, 3); }
   for (const f of fires) { const dx = f.x - px, dz = f.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillStyle = "#ff9a3c"; mmctx.beginPath(); mmctx.arc(cx + dx * sc, cy + dz * sc, 3, 0, 6.3); mmctx.fill(); }
   for (const id in remotes) { const r = remotes[id]; if (!r.g) continue; const dx = r.g.position.x - px, dz = r.g.position.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillStyle = "#6fa3d6"; mmctx.beginPath(); mmctx.arc(cx + dx * sc, cy + dz * sc, 2.5, 0, 6.3); mmctx.fill(); }
   if (watcher) { const dx = watcher.x - px, dz = watcher.z - pz; if (dx * dx + dz * dz <= R * R) { mmctx.fillStyle = "#ff1010"; mmctx.beginPath(); mmctx.arc(cx + dx * sc, cy + dz * sc, 3.6, 0, 6.3); mmctx.fill(); } }
@@ -1020,9 +1302,13 @@ function updateHUD(night) {
   const [ic, tx] = phaseInfo(S.time); $("phaseIcon").textContent = ic; $("phaseText").textContent = tx;
   bars.health.style.width = S.health + "%"; bars.hunger.style.width = S.hunger + "%"; bars.warmth.style.width = S.warmth + "%"; bars.sanity.style.width = S.sanity + "%"; bars.stamina.style.width = S.stamina + "%";
   invEl.wood.textContent = S.inv.wood; invEl.raw.textContent = S.inv.raw; invEl.cooked.textContent = S.inv.cooked;
+  invEl.metal.textContent = S.inv.metal; invEl.pelt.textContent = S.inv.pelt; invEl.bandage.textContent = S.inv.bandage;
   const t = findTarget();
-  if (t) { const key = isTouch ? "VUR" : "[Sol tık]"; promptEl.textContent = t.kind === "tree" ? "🪓 Odun kes " + key : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ") + key; promptEl.classList.remove("hidden"); }
-  else promptEl.classList.add("hidden");
+  if (t) {
+    const key = isTouch ? "VUR" : "[Sol tık / E]";
+    const txt = t.kind === "tree" ? "🪓 Odun kes " : t.kind === "scrap" ? "⚙️ Metal topla " : t.kind === "chest" ? "📦 Sandığı aç " : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ");
+    promptEl.textContent = txt + key; promptEl.classList.remove("hidden");
+  } else promptEl.classList.add("hidden");
   // pusula
   let nf = null, nd = 1e9; for (const f of fires) { const d = (f.x - camera.position.x) ** 2 + (f.z - camera.position.z) ** 2; if (d < nd) { nd = d; nf = f; } }
   const comp = $("compass");
@@ -1057,9 +1343,12 @@ function loop() {
     if (S.hurt > 0) { fxc.fillStyle = "rgba(180,0,0," + S.hurt * 0.5 + ")"; fxc.fillRect(0, 0, w, h); }
     if (sanFrac > 0.25) { const pulse = (Math.sin(performance.now() / 400) * 0.5 + 0.5) * sanFrac; fxc.fillStyle = "rgba(120,0,0," + pulse * 0.22 + ")"; fxc.fillRect(0, 0, w, h); }
     if (watcher) { const d = Math.hypot(watcher.x - camera.position.x, watcher.z - camera.position.z); const a = map(d, 4, 30, 0.45, 0); if (a > 0.02) { fxc.fillStyle = "rgba(40,0,0," + a + ")"; fxc.fillRect(0, 0, w, h); } }
+    if (S.downed) { const p = 0.4 + Math.sin(performance.now() / 300) * 0.12; fxc.fillStyle = "rgba(90,0,0," + p + ")"; fxc.fillRect(0, 0, w, h); }   // yerde, kanlı kırmızı
+    if (S.sleeping > 0) { fxc.fillStyle = "rgba(0,0,0," + clamp(1 - Math.abs(S.sleeping - 1) , 0, 1) * 0.96 + ")"; fxc.fillRect(0, 0, w, h); }  // uyku karartması
   }
   if (jumpT > 0 && !glitch) { fxc.fillStyle = Math.random() > 0.5 ? "#120000" : "#3a0000"; fxc.fillRect(0, 0, w, h); drawScaryFace(w, h, jumpFace); }
   if (glitch) drawGlitchScare(w, h, glitch, dt);
+  if (camScare && camScare.img) drawCamScare(w, h, dt);
 }
 
 /* ----------------------- TAM EKRAN + SESLİ SOHBET ----------------------- */
@@ -1102,19 +1391,24 @@ function startGame() {
   for (let i = 0; i < trees.length; i++) { trees[i].alive = true; trees[i].hp = 4; trees[i].regrow = 0; }
   refreshTrees();
   clearDynamic(); watcherGroup = null; wCd = 8; wEnc = 0;
-  for (let i = 0; i < 14; i++) spawnPrey();
+  for (let i = 0; i < 16; i++) spawnPrey();
   camera.position.set(0, CFG.EYE, 0); yaw = 0; pitch = 0;
+  // başlangıç kamp ateşi (üs): büyük yakıt deposu — odun atıp uzun yakabilirsin
+  const base = makeFire(0, -3); base.max = 600; base.fuel = 150;
   Sound.init(); Sound.resume();
   S.running = true;
+  craftOpen = false; pauseOpen = false;
+  $("craft").classList.add("hidden"); $("pause").classList.add("hidden"); $("downed").classList.add("hidden");
   $("start").classList.add("hidden"); $("gameover").classList.add("hidden"); $("win").classList.add("hidden");
   $("hud").classList.remove("hidden"); crosshair.classList.remove("hidden"); $("pauseBtn").classList.remove("hidden");
+  $("btn-craft").classList.toggle("hidden", false);
   const wantMobile = isTouch || (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) || window.innerWidth < 820;
   if (wantMobile) $("mobile").classList.remove("hidden");
   else { $("mobile").classList.add("hidden"); threeCanvas.requestPointerLock && threeCanvas.requestPointerLock(); }
   goFullscreen();                                  // BAŞLA ile tam ekran (F11)
-  toast("🌴 Amazon'a hoş geldin. Geceye hazırlan...", "good");
-  setTimeout(() => toast("🎤 V'ye basılı tut: sesli sohbet (co-op)", "good"), 5000);
-  setTimeout(() => toast("🪓 Ağaca bakıp VUR → odun · 🔥 ile ateş yak", "good"), 2600);
+  toast("🌴 Amazon'a hoş geldin. Ateşi besle, geceye hazırlan...", "good");
+  setTimeout(() => toast("🪓 Ağaç kes → 🔥'e odun at (çok odun = uzun yanar). ⚙️ hurda + 📦 sandık topla.", "good"), 2600);
+  setTimeout(() => toast(isTouch ? "🛠️ Üret · 🩹 bandaj · KOŞ" : "🛠️ C: tezgah · 🩹 B: bandaj · ⛺ T: çadırda uyu · V: konuş", "good"), 5600);
 }
 
 $("startBtn").addEventListener("click", startGame);
@@ -1122,9 +1416,16 @@ $("retryBtn").addEventListener("click", startGame);
 $("winBtn").addEventListener("click", startGame);
 let audioOn = true;
 $("audioToggleStart").addEventListener("click", () => { audioOn = !audioOn; Sound.setOn(audioOn); $("audioToggleStart").textContent = audioOn ? "🔊 Ses: AÇIK" : "🔇 Ses: KAPALI"; });
+$("camToggleStart").addEventListener("click", async () => {
+  const b = $("camToggleStart");
+  if (camEnabled) { try { camStream && camStream.getTracks().forEach((t) => t.stop()); } catch (e) {} camEnabled = false; camStream = null; b.textContent = "📷 Kamera korkusu: KAPALI"; return; }
+  b.textContent = "📷 İzin isteniyor..."; try { await enableCamScare(); b.textContent = "📷 Kamera korkusu: AÇIK 😈"; } catch (e) { b.textContent = "📷 Kamera açılamadı (izin yok)"; }
+});
+$("cr-close").addEventListener("click", () => closeCraft());
 const pauseBtn = $("pauseBtn");
 pauseBtn.addEventListener("click", () => togglePause());
-addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); togglePause(); } });
+pauseBtn.addEventListener("touchstart", (e) => { isTouch = true; togglePause(); e.preventDefault(); }, { passive: false });
+addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); if (craftOpen) closeCraft(); else togglePause(); } });
 document.addEventListener("visibilitychange", () => { if (document.hidden && S && S.running) { S.paused = true; pauseBtn.textContent = "▶"; } });
 addEventListener("touchstart", () => { isTouch = true; }, { once: true, passive: true });
 const vBtn = $("btn-voice");
@@ -1170,17 +1471,38 @@ $("ac-continue").addEventListener("click", () => {
 
 /* uzak oyuncu avatarları */
 const remotes = {}, remoteName = {};
-function makeRemoteAvatar() {
+function nameSprite(text) {
+  const c = document.createElement("canvas"); c.width = 256; c.height = 64; const g = c.getContext("2d");
+  g.fillStyle = "rgba(0,0,0,0.55)"; g.fillRect(0, 0, 256, 64); g.font = "bold 30px monospace"; g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillStyle = "#cfe6ff"; g.fillText((text || "Oyuncu").slice(0, 14), 128, 32);
+  const tex = new THREE.CanvasTexture(c); const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  sp.scale.set(2.2, 0.55, 1); sp.position.y = 2.5; return sp;
+}
+function makeRemoteAvatar(name) {
   const g = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 1.0, 4, 8), new THREE.MeshStandardMaterial({ color: 0x6fa3d6, roughness: 1 })); body.position.y = 1.0; g.add(body);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 12), new THREE.MeshStandardMaterial({ color: 0xd0c0a0, roughness: 1 })); head.position.y = 1.85; g.add(head);
-  g.add(new THREE.PointLight(0xffe6c0, 0.5, 8, 1.6));
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.36, 1.05, 4, 8), new THREE.MeshStandardMaterial({ color: 0x4f9be6, emissive: 0x12243a, emissiveIntensity: 0.5, roughness: 1 })); body.position.y = 1.05; g.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 12), new THREE.MeshStandardMaterial({ color: 0xe0cda6, roughness: 1 })); head.position.y = 1.95; g.add(head);
+  g.add(new THREE.PointLight(0xbfe0ff, 0.8, 12, 1.6));          // arkadaş ışığı (uzaktan görünür)
+  const tag = nameSprite(name); g.add(tag); g.userData.tag = tag; g.userData.body = body;
   if (scene) scene.add(g);
   return g;
 }
-function updateRemote(id, d) { if (!scene) return; let r = remotes[id]; if (!r) r = remotes[id] = { g: makeRemoteAvatar() }; r.tx = d.x; r.tz = d.z; r.yaw = d.yaw; }
+function updateRemote(id, d) {
+  if (!scene) return; let r = remotes[id];
+  if (!r) r = remotes[id] = { g: makeRemoteAvatar(remoteName[id] || id) };
+  r.tx = d.x; r.tz = d.z; r.yaw = d.yaw; r.downed = !!d.downed;
+  // host saat/gününü ben host DEĞİLSEM benimkine uygula (onda sabah bende akşam sorunu)
+  if (!net.host && d.time != null && S && S.running) { S.time = d.time; S.day = d.day; }
+}
 function removeRemote(id) { const r = remotes[id]; if (r && scene) scene.remove(r.g); delete remotes[id]; }
-function lerpRemotes(dt) { for (const id in remotes) { const r = remotes[id]; if (r.tx == null) continue; r.g.position.x += (r.tx - r.g.position.x) * Math.min(1, dt * 8); r.g.position.z += (r.tz - r.g.position.z) * Math.min(1, dt * 8); if (r.yaw != null) r.g.rotation.y = r.yaw; } }
+function lerpRemotes(dt) {
+  for (const id in remotes) {
+    const r = remotes[id]; if (r.tx == null) continue;
+    r.g.position.x += (r.tx - r.g.position.x) * Math.min(1, dt * 8); r.g.position.z += (r.tz - r.g.position.z) * Math.min(1, dt * 8);
+    if (r.yaw != null) r.g.rotation.y = r.yaw;
+    if (r.g.userData.body) { r.g.userData.body.rotation.z = r.downed ? Math.PI / 2 : 0; r.g.userData.body.material.color.setHex(r.downed ? 0x8a2020 : 0x4f9be6); }  // düşen arkadaş kırmızı + yatık
+  }
+}
 
 /* sosyal / parti menüsü */
 function renderFriends() {
@@ -1228,6 +1550,12 @@ net.onStatus = (s) => mpMsg(s);
 net.onJoin = (id, meta) => { remoteName[id] = (meta && meta.name) || id; toast("🟢 Katıldı: " + remoteName[id], "good"); renderFriends(); };
 net.onLeave = (id) => { toast("🔴 Ayrıldı: " + (remoteName[id] || id), "bad"); removeRemote(id); renderFriends(); };
 net.onState = (id, d) => updateRemote(id, d);
+net.onData = (id, d) => {
+  if (!d || !S) return;
+  if (d.t === "down") { toast("🩸 " + (remoteName[id] || "Arkadaşın") + " yere düştü — bandajla diriltin!", "bad"); const r = remotes[id]; if (r) r.downed = true; }
+  else if (d.t === "revived" && d.id === net.id) { if (S.downed) reviveSelf(); }                 // biri beni diriltti
+  else if (d.t === "revived") { const r = remotes[d.id]; if (r) r.downed = false; }
+};
 
 /* ESC: durdur / sosyal menü */
 let pauseOpen = false;

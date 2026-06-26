@@ -44,15 +44,16 @@ canvas#fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-eve
 
 /* ===== mobile ===== */
 #mobile { position: absolute; inset: 0; z-index: 12; pointer-events: none; }
-#joy-zone { position: absolute; left: 0; bottom: 0; width: 42%; height: 60%; pointer-events: auto; }
-#look-zone { position: absolute; right: 0; top: 0; width: 58%; height: 62%; pointer-events: auto; }
-#joy-base { position: absolute; width: 120px; height: 120px; border-radius: 50%; background: rgba(255,255,255,.06); border: 2px solid rgba(255,255,255,.18); left: 30px; bottom: 30px; display: none; }
-#joy-stick { position: absolute; width: 54px; height: 54px; border-radius: 50%; background: rgba(255,255,255,.28); left: 33px; top: 33px; }
-#btns { position: absolute; right: 18px; bottom: 26px; pointer-events: auto; display: grid; grid-template-columns: 76px 76px; gap: 12px; grid-template-areas: "eat fire" "sprint action"; }
-.mbtn { width: 76px; height: 76px; border-radius: 50%; font-size: 16px; font-weight: bold; background: rgba(20,24,22,.7); color: #eee; border: 2px solid rgba(255,255,255,.22); font-family: inherit; touch-action: none; }
+/* sol-alt: hareket joystick'i (üst HUD'a ve buton alanına girmez) */
+#joy-zone { position: absolute; left: 0; bottom: 0; width: 50%; height: 62%; pointer-events: auto; touch-action: none; }
+/* sağ: bakış sürükleme — üstte 64px boşluk bırakır ki pause/HUD'a tıklanabilsin, sağ-alt buton alanını kaplamaz */
+#look-zone { position: absolute; right: 0; top: 64px; width: 50%; height: calc(60% - 64px); pointer-events: auto; touch-action: none; }
+#joy-base { position: absolute; width: 130px; height: 130px; border-radius: 50%; background: rgba(255,255,255,.07); border: 2px solid rgba(255,255,255,.22); left: 30px; bottom: 30px; display: none; }
+#joy-stick { position: absolute; width: 58px; height: 58px; border-radius: 50%; background: rgba(255,255,255,.32); left: 36px; top: 36px; box-shadow: 0 0 12px rgba(0,0,0,.5); }
+#btns { position: absolute; right: 18px; bottom: 26px; pointer-events: auto; display: grid; grid-template-columns: 72px 72px; gap: 10px; }
+.mbtn { width: 72px; height: 72px; border-radius: 50%; font-size: 15px; font-weight: bold; background: rgba(20,24,22,.7); color: #eee; border: 2px solid rgba(255,255,255,.22); font-family: inherit; touch-action: none; }
 .mbtn:active { background: rgba(120,30,30,.7); transform: scale(.94); }
 .mbtn.big { background: rgba(120,20,20,.55); }
-#btn-action { grid-area: action; } #btn-fire { grid-area: fire; } #btn-eat { grid-area: eat; } #btn-sprint { grid-area: sprint; }
 #btn-voice { position: absolute; left: 50%; transform: translateX(-50%); bottom: 26px; width: 64px; height: 64px; pointer-events: auto; }
 #btn-voice.on { background: rgba(200,30,30,.85); box-shadow: 0 0 16px rgba(220,0,0,.6); }
 #voice { position: absolute; right: 16px; bottom: 150px; background: rgba(150,20,20,.75); color: #fff; padding: 6px 14px; border-radius: 18px; font-size: 15px; border: 1px solid #f66; text-shadow: 0 0 6px #000; animation: pulseVoice 1s infinite; }
@@ -78,7 +79,10 @@ canvas#fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-eve
 .minibtn { display: block; margin: 12px auto 0; font-family: inherit; font-size: 14px; padding: 7px 16px; background: rgba(255,255,255,.07); color: #ccc; border: 1px solid rgba(255,255,255,.2); border-radius: 8px; cursor: pointer; }
 .loadnote { margin-top: 10px; font-size: 13px; color: #e0a; min-height: 16px; }
 .panel.dead { border-color: rgba(200,20,20,.6); } .panel.win { border-color: rgba(220,170,40,.6); }
-#pauseBtn { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 11; width: 34px; height: 34px; border-radius: 8px; background: rgba(0,0,0,.4); color: #ccc; border: 1px solid rgba(255,255,255,.2); font-size: 16px; pointer-events: auto; }
+/* pause butonu: mobil bakış/joystick katmanının ÜSTÜNDE olmalı (z-index 14) yoksa dokunuş ona ulaşmaz */
+#pauseBtn { position: absolute; top: 8px; right: 10px; z-index: 14; width: 44px; height: 44px; border-radius: 10px; background: rgba(0,0,0,.55); color: #eee; border: 1px solid rgba(255,255,255,.28); font-size: 20px; pointer-events: auto; touch-action: none; }
+/* mobil craft butonu */
+#btn-craft { position: absolute; left: 10px; top: 8px; z-index: 14; width: 44px; height: 44px; border-radius: 10px; background: rgba(40,30,12,.7); color: #ffd98a; border: 1px solid rgba(255,210,120,.4); font-size: 20px; pointer-events: auto; touch-action: none; }
 
 /* ===== hesap / sosyal menü ===== */
 .panel.account, .panel.social { max-width: 720px; }
@@ -107,4 +111,18 @@ canvas#fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-eve
 .pause-btns { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; align-items: center; }
 #pz-voice.on { color: #b6ffce; border-color: #194; }
 
-@media (max-width: 560px) { .bar { width: 92px; } #topbar { font-size: 15px; } .inv { font-size: 14px; min-width: 48px; padding: 2px 7px; } }
+/* ===== yere düşme (co-op revive) ===== */
+#downed { position: absolute; top: 40%; left: 50%; transform: translateX(-50%); z-index: 13; background: rgba(60,0,0,.82); border: 1px solid #b33; border-radius: 12px; padding: 14px 22px; color: #ffd0d0; font-size: 16px; text-align: center; max-width: 90%; pointer-events: none; box-shadow: 0 0 30px rgba(150,0,0,.5); }
+#downed b { color: #fff; }
+
+/* ===== tezgah / crafting ===== */
+.panel.craftp { max-width: 640px; }
+.craftinv { font-size: 13px; color: #cfc8b6; letter-spacing: 0; }
+.craft-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 16px; text-align: left; }
+.craft-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 10px; padding: 9px 12px; }
+.craft-row .ci { font-size: 15px; color: #f0ead2; }
+.craft-row .ci small { display: block; color: #a39; font-size: 12px; color: #b6a98c; }
+.craft-row button { padding: 7px 14px; font-size: 14px; }
+.craft-row button:disabled { opacity: .4; }
+
+@media (max-width: 560px) { .bar { width: 78px; } #topbar { font-size: 14px; } .inv { font-size: 13px; min-width: 40px; padding: 2px 5px; } #inventory { flex-wrap: wrap; max-width: 60%; } }

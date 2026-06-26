@@ -39,7 +39,11 @@
       <div class="inv"><span>🪵</span><b id="inv-wood">0</b></div>
       <div class="inv"><span>🥩</span><b id="inv-raw">0</b></div>
       <div class="inv"><span>🍗</span><b id="inv-cooked">0</b></div>
+      <div class="inv"><span>⚙️</span><b id="inv-metal">0</b></div>
+      <div class="inv"><span>🧵</span><b id="inv-pelt">0</b></div>
+      <div class="inv"><span>🩹</span><b id="inv-bandage">0</b></div>
     </div>
+    <div id="downed" class="hidden">🩸 YERE DÜŞTÜN — bir arkadaşın seni <b>bandajla</b> diriltmeli! <span id="bleedTxt"></span></div>
     <div id="compass" class="hidden">🔥 <span id="compassDist"></span></div>
     <div id="toasts"></div>
     <div id="prompt" class="hidden"></div>
@@ -51,10 +55,12 @@
   <div id="mobile" class="hidden">
     <div id="joy-zone"><div id="joy-base"><div id="joy-stick"></div></div></div>
     <div id="look-zone"></div>
+    <button id="btn-craft">🛠️</button>
     <div id="btns">
       <button class="mbtn big" id="btn-action">VUR</button>
       <button class="mbtn" id="btn-fire">🔥</button>
       <button class="mbtn" id="btn-eat">🍗</button>
+      <button class="mbtn" id="btn-bandage">🩹</button>
       <button class="mbtn" id="btn-sprint">KOŞ</button>
     </div>
     <button id="btn-voice" class="mbtn voice">🎤</button>
@@ -103,27 +109,30 @@
         <div class="howcol">
           <h3>🖥️ PC</h3>
           <ul>
-            <li><b>Tıkla</b> — fareyi kilitle / etrafa bak</li>
-            <li><b>WASD</b> — hareket, <b>Shift</b> — koş</li>
-            <li><b>Sol tık / E</b> — vur (odun, av)</li>
-            <li><b>F</b> — ateş yak / odun ekle</li>
-            <li><b>G</b> — ye, <b>Esc</b> — fareyi bırak</li>
+            <li><b>WASD</b> hareket · <b>Shift</b> koş · <b>Tıkla</b> bakış</li>
+            <li><b>Sol tık / E</b> — vur · kes · metal · sandık</li>
+            <li><b>F</b> ateşe odun at · <b>G</b> ye</li>
+            <li><b>C</b> tezgah · <b>B</b> bandaj · <b>T</b> çadırda uyu</li>
+            <li><b>Esc</b> menü · <b>V</b> sesli sohbet</li>
           </ul>
         </div>
         <div class="howcol">
           <h3>📱 Mobil</h3>
           <ul>
-            <li><b>Sol joystick</b> — hareket</li>
-            <li><b>Sağ ekranı sürükle</b> — bakış</li>
-            <li><b>VUR</b> — odun kes / avlan</li>
-            <li><b>🔥</b> ateş · <b>🍗</b> ye · <b>KOŞ</b></li>
+            <li><b>Sol joystick</b> hareket · <b>sağ sürükle</b> bakış</li>
+            <li><b>VUR</b> kes/avlan/metal/sandık · <b>🔥</b> odun at</li>
+            <li><b>🛠️</b> tezgah · <b>🩹</b> bandaj · <b>🍗</b> ye · <b>KOŞ</b></li>
+            <li><b>⏸</b> (sağ üst) duraklat · <b>🎤</b> konuş</li>
           </ul>
         </div>
       </div>
-      <div class="goal">🎯 <b>100 gün</b> hayatta kal. Odun kes, ateş yak, et pişir, akıl sağlığını koru.
-        Geceleri ağaçların arasında seni izleyen <b>uzun, kanlı bir şey</b> belirir — <b>ona bakarsan kaybolur.</b></div>
+      <div class="goal">🎯 <b>100 gün</b> hayatta kal. Ağaç kes, <b>ateşi besle</b> (çok odun = uzun yanar), avlan, et pişir,
+        ⚙️ metal & 📦 sandık topla, 🛠️ tezgahta üret (kazma, çadır, bandaj). Geceleri seni izleyen
+        <b>uzun kanlı bir şey</b> ve <b>sürünen yaratıklar</b> gelir — co-op'ta düşersen arkadaşın <b>bandajla</b> diriltir.</div>
       <button id="startBtn" class="bigbtn">🌙 BAŞLA</button>
       <button id="audioToggleStart" class="minibtn">🔊 Ses: AÇIK</button>
+      <button id="camToggleStart" class="minibtn">📷 Kamera korkusu: KAPALI</button>
+      <div class="warn" style="font-size:12px">📷 <b>İsteğe bağlı.</b> Açarsan tarayıcı kamera izni ister; verirsen oyun ara sıra <b>kendi görüntünü</b> korku amaçlı ekranda gösterir. Gizli erişim yok, hiçbir görüntü kaydedilmez/gönderilmez. Kapalıyken kamera hiç açılmaz.</div>
       <div id="loadNote" class="loadnote"></div>
     </div>
   </div>
@@ -142,6 +151,16 @@
       <h1 class="title-creep gold">100 GÜN!</h1>
       <p class="subtitle">Ormandan sağ çıktın. Ama <i>o</i> seni unutmadı...</p>
       <button id="winBtn" class="bigbtn">🌅 YENİDEN OYNA</button>
+    </div>
+  </div>
+
+  <!-- ======================= CRAFTING (TEZGAH) ======================= -->
+  <div id="craft" class="overlay hidden">
+    <div class="panel craftp">
+      <h1 class="title-creep" style="font-size:clamp(24px,7vw,44px)">🛠️ TEZGAH</h1>
+      <p class="subtitle">Eşya üret. <span id="craftInv" class="craftinv"></span></p>
+      <div id="craftList" class="craft-list"></div>
+      <button id="cr-close" class="bigbtn">▶ KAPAT (C)</button>
     </div>
   </div>
 

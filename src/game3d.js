@@ -445,13 +445,17 @@ function newState() {
 
 /* ----- dinamik nesneler ----- */
 const animals = [];   // {group,x,z,type,hp,state,dir,atkCd}
-const fires = [];     // {group,light,flame,x,z,fuel,max}
+const fires = [];     // {group,light,flame,x,z,fuel,max,safeR}
+const walls = [];     // {x,z,group,r} — oyuncunun diktiği barikatlar
+const traps = [];     // {x,z,group,cd} — çivili tuzaklar
 let watcher = null;   // {group,head,x,z,seen,life,alpha}
 let wCd = 8, wEnc = 0;
 
 function clearDynamic() {
   for (const a of animals) scene.remove(a.group); animals.length = 0;
   for (const f of fires) scene.remove(f.group); fires.length = 0;
+  for (const w of walls) scene.remove(w.group); walls.length = 0;
+  for (const t of traps) scene.remove(t.group); traps.length = 0;
   if (watcher) { scene.remove(watcher.group); watcher = null; }
   // yapıları sıfırla (yeniden oyun): hurda görünür, sandıklar kapalı
   for (const s of scraps) { s.taken = false; s.hp = 0; s.group.visible = true; }
@@ -542,8 +546,27 @@ function makeFire(x, z) {
   const emat = new THREE.PointsMaterial({ color: 0xffb24a, size: 0.12, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
   const embers = new THREE.Points(egeo, emat); embers.frustumCulled = false; g.add(embers);
   scene.add(g);
-  const f = { group: g, light, flame, flame2, embers, ev, x, z, fuel: 70, max: 140 }; fires.push(f); return f;
+  const f = { group: g, light, flame, flame2, embers, ev, x, z, fuel: 70, max: 140, safeR: 11, big: false }; fires.push(f); return f;
 }
+
+/* ----- üs: barikat duvarı + çivili tuzak (oyuncu diker) ----- */
+function makeWall(x, z, rotY) {
+  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rotY || 0;
+  const wood = new THREE.MeshStandardMaterial({ color: 0x5a3f22, roughness: 1, flatShading: true });
+  for (let i = -2; i <= 2; i++) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.18, 2.0, 6), wood); p.position.set(i * 0.42, 1.0, 0); p.rotation.x = rnd(-0.05, 0.05); g.add(p); const tip = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.35, 6), wood); tip.position.set(i * 0.42, 2.1, 0); g.add(tip); }
+  const rail = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.16, 0.16), wood); rail.position.set(0, 1.4, 0); g.add(rail);
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  scene.add(g); const w = { x, z, group: g, r: 1.25 }; walls.push(w); return w;
+}
+function makeSpikeTrap(x, z) {
+  const g = new THREE.Group(); g.position.set(x, 0, z);
+  const base = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.08, 1.3), new THREE.MeshStandardMaterial({ color: 0x33270f, roughness: 1 })); base.position.y = 0.04; g.add(base);
+  const spike = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, metalness: 0.6, roughness: 0.4 });
+  for (let i = 0; i < 9; i++) { const s = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.5, 5), spike); s.position.set(((i % 3) - 1) * 0.4, 0.28, ((i / 3 | 0) - 1) * 0.4); g.add(s); }
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  scene.add(g); const t = { x, z, group: g, cd: 0 }; traps.push(t); return t;
+}
+function placeInFront(dist) { camera.getWorldDirection(_fwd); _fwd.y = 0; _fwd.normalize(); return [camera.position.x + _fwd.x * (dist || 2.4), camera.position.z + _fwd.z * (dist || 2.4)]; }
 
 /* ----- İzleyen modeli ----- */
 function makeWatcher() {
@@ -737,17 +760,29 @@ function doEat() {
 /* ----------------------- CRAFTING (TEZGAH) ----------------------- */
 const RECIPES = [
   { id: "bandage", name: "🩹 Bandaj", desc: "Can doldurur / düşen arkadaşı diriltir", cost: { pelt: 2, wood: 1 }, make: (s) => s.inv.bandage++ },
-  { id: "torch", name: "🔥 Meşale (5 odun ateş)", desc: "Yere kamp ateşi kurar", cost: { wood: 5 }, make: () => { camera.getWorldDirection(_fwd); _fwd.y = 0; _fwd.normalize(); makeFire(camera.position.x + _fwd.x * 2.2, camera.position.z + _fwd.z * 2.2); } },
+  { id: "torch", name: "🔥 Meşale (kamp ateşi)", desc: "Önüne yeni kamp ateşi kurar", cost: { wood: 5 }, make: () => { const [x, z] = placeInFront(2.4); makeFire(x, z); } },
+  { id: "wall", name: "🧱 Barikat duvarı", desc: "Önüne sivri kazıklı duvar diker (seni + canavarı durdurur)", cost: { wood: 4 }, make: () => { camera.getWorldDirection(_fwd); _fwd.y = 0; _fwd.normalize(); const [x, z] = placeInFront(2.2); makeWall(x, z, Math.atan2(-_fwd.x, -_fwd.z)); toast("🧱 Duvar dikildi", "good"); } },
+  { id: "trap", name: "🪤 Çivili tuzak", desc: "Önüne tuzak kurar — üstünden geçen canavarı yaralar", cost: { metal: 2, wood: 3 }, make: () => { const [x, z] = placeInFront(2.6); makeSpikeTrap(x, z); toast("🪤 Tuzak kuruldu", "good"); } },
   { id: "pickaxe", name: "⛏️ Kazma", desc: "Metali hızlı toplar, daha sert vurur", cost: { metal: 4, wood: 3 }, once: () => S.tools.pickaxe, make: (s) => s.tools.pickaxe = true },
-  { id: "tent", name: "⛺ Çadır", desc: "Güvendeyken uyu, sabaha atla", cost: { pelt: 4, wood: 6, metal: 2 }, once: () => S.tools.tent, make: (s) => s.tools.tent = true },
   { id: "spear", name: "🗡️ Mızrak", desc: "Avı/canavarı daha çok yaralar", cost: { metal: 2, wood: 4 }, once: () => S.tools.spear, make: (s) => s.tools.spear = true },
+  { id: "tent", name: "⛺ Çadır", desc: "Güvendeyken uyu, sabaha atla (T)", cost: { pelt: 4, wood: 6, metal: 2 }, once: () => S.tools.tent, make: (s) => s.tools.tent = true },
+  { id: "bonfire", name: "🔥 Şenlik ateşi (yükselt)", desc: "Yakındaki ateşi büyütür: geniş güvenli alan + uzun yanma", cost: { metal: 3, wood: 8 }, make: () => upgradeNearestFire() },
 ];
+function upgradeNearestFire() {
+  let near = null, nd = 100; for (const f of fires) { const d = (f.x - camera.position.x) ** 2 + (f.z - camera.position.z) ** 2; if (d < nd && !f.big) { nd = d; near = f; } }
+  if (!near) { toast("Yükseltmek için yakında (≤10m) normal bir ateş olmalı", "bad"); return false; }
+  near.big = true; near.max = Math.max(near.max, 900); near.fuel = Math.min(near.fuel + 200, near.max); near.safeR = 19;
+  near.flame.scale.multiplyScalar(1.6); if (near.flame2) near.flame2.scale.multiplyScalar(1.6);
+  toast("🔥 Şenlik ateşi! Güvenli alan büyüdü, yavaş yanar", "good"); return true;
+}
 function canAfford(r) { for (const k in r.cost) if ((S.inv[k] || 0) < r.cost[k]) return false; return !(r.once && r.once()); }
 function craft(r) {
   if (r.once && r.once()) { toast("Zaten var.", "bad"); return; }
   if (!canAfford(r)) { toast("Yetersiz malzeme.", "bad"); return; }
   for (const k in r.cost) S.inv[k] -= r.cost[k];
-  r.make(S); Sound.chop(); toast("🛠️ Üretildi: " + r.name, "good"); renderCraft();
+  const ok = r.make(S);
+  if (ok === false) { for (const k in r.cost) S.inv[k] += r.cost[k]; renderCraft(); return; }   // başarısız → malzeme iadesi
+  Sound.chop(); toast("🛠️ Üretildi: " + r.name, "good"); renderCraft();
 }
 const costStr = (c) => Object.entries(c).map(([k, v]) => ({ wood: "🪵", metal: "⚙️", pelt: "🧵", bandage: "🩹" }[k] + v)).join(" ");
 function renderCraft() {
@@ -792,7 +827,7 @@ function useBandage() {
 function doSleep() {
   if (!S.tools.tent) { toast("Önce ⛺ çadır üret (tezgah / C)", "bad"); return; }
   if (S.sleeping > 0) return;
-  let safe = false; for (const f of fires) if (Math.hypot(f.x - camera.position.x, f.z - camera.position.z) < 11) safe = true;
+  let safe = false; for (const f of fires) if (Math.hypot(f.x - camera.position.x, f.z - camera.position.z) < (f.safeR || 11)) safe = true;
   if (!safe) { toast("Sadece yanan ateşin yanında uyuyabilirsin 🔥", "bad"); return; }
   if (watcher || animals.some((a) => a.hostile && Math.hypot(a.x - camera.position.x, a.z - camera.position.z) < 22)) { toast("Tehlike yakın — uyuyamazsın!", "bad"); return; }
   S.sleeping = 2.0; toast("⛺ Uyuyorsun... sabaha atlanıyor", "good");
@@ -1020,6 +1055,8 @@ function update(dt) {
   let nz = camera.position.z + (_fwd.z * mz + rightZ * mx) * spd;
   // ağaç çarpışması
   for (const t of trees) { if (!t.alive) continue; const dx = nx - t.x, dz = nz - t.z, rr = t.r + 0.5; if (dx * dx + dz * dz < rr * rr) { const d = Math.hypot(dx, dz) || 0.001; nx = t.x + dx / d * rr; nz = t.z + dz / d * rr; } }
+  // barikat duvarı çarpışması
+  for (const w of walls) { const dx = nx - w.x, dz = nz - w.z, rr = w.r + 0.4; if (dx * dx + dz * dz < rr * rr) { const d = Math.hypot(dx, dz) || 0.001; nx = w.x + dx / d * rr; nz = w.z + dz / d * rr; } }
   nx = clamp(nx, -CFG.WORLD, CFG.WORLD); nz = clamp(nz, -CFG.WORLD, CFG.WORLD);
   camera.position.x = nx; camera.position.z = nz;
   // baş sallanması + sarsıntı
@@ -1044,16 +1081,16 @@ function update(dt) {
   // ateşler
   let nearFire = false, fireDist = 1e9;
   for (let i = fires.length - 1; i >= 0; i--) {
-    const f = fires[i]; f.fuel -= dt * (night ? 2.4 : 3.2);
+    const f = fires[i]; f.fuel -= dt * (night ? 2.4 : 3.2) * (f.big ? 0.5 : 1);   // şenlik ateşi yavaş yanar
     if (f.fuel <= 0) { scene.remove(f.group); fires.splice(i, 1); toast("🪵 Ateş söndü", "bad"); continue; }
-    const flick = 0.85 + Math.sin(performance.now() / 70 + i) * 0.15 + Math.random() * 0.1;
-    f.light.intensity = map(f.fuel, 0, f.max, 0.8, 2.6) * flick;
-    f.light.distance = map(f.fuel, 0, f.max, 8, 17);
-    f.flame.scale.set(flick, 0.8 + flick * 0.5, flick); f.flame.rotation.y += dt * 3;
-    if (f.flame2) { f.flame2.scale.set(flick * 0.9, 0.7 + flick * 0.6, flick * 0.9); f.flame2.rotation.y -= dt * 4; }
+    const flick = 0.85 + Math.sin(performance.now() / 70 + i) * 0.15 + Math.random() * 0.1, bs = f.big ? 1.7 : 1;
+    f.light.intensity = map(f.fuel, 0, f.max, 0.8, 2.6) * flick * (f.big ? 1.5 : 1);
+    f.light.distance = map(f.fuel, 0, f.max, 8, 17) * (f.big ? 1.6 : 1);
+    f.flame.scale.set(flick * bs, (0.8 + flick * 0.5) * bs, flick * bs); f.flame.rotation.y += dt * 3;
+    if (f.flame2) { f.flame2.scale.set(flick * 0.9 * bs, (0.7 + flick * 0.6) * bs, flick * 0.9 * bs); f.flame2.rotation.y -= dt * 4; }
     // kıvılcımları yükselt
     if (f.embers) { const pa = f.embers.geometry.attributes.position, ar = pa.array; for (let k = 0; k < f.ev.length; k++) { ar[k * 3 + 1] += f.ev[k] * dt; if (ar[k * 3 + 1] > 2.6) { ar[k * 3] = rnd(-0.2, 0.2); ar[k * 3 + 1] = 0.3; ar[k * 3 + 2] = rnd(-0.2, 0.2); } } pa.needsUpdate = true; }
-    const d = Math.hypot(f.x - camera.position.x, f.z - camera.position.z); if (d < 6) { nearFire = true; fireDist = Math.min(fireDist, d); }
+    const d = Math.hypot(f.x - camera.position.x, f.z - camera.position.z); if (d < (f.big ? 9 : 6)) { nearFire = true; fireDist = Math.min(fireDist, d); }
   }
   if (nearFire) { S.fireCrackleT -= dt; if (S.fireCrackleT <= 0) { Sound.crackle(); S.fireCrackleT = rnd(0.08, 0.3); } }
   // pişirme
@@ -1162,7 +1199,7 @@ function update(dt) {
 function updateWatcher(dt, night) {
   const dread = dreadLevel();
   let safe = false;
-  for (const f of fires) { if (Math.hypot(f.x - camera.position.x, f.z - camera.position.z) < 11) { safe = true; break; } }
+  for (const f of fires) { if (Math.hypot(f.x - camera.position.x, f.z - camera.position.z) < (f.safeR || 11)) { safe = true; break; } }
   if (!watcher) {
     wCd -= dt;
     if (wCd <= 0) {
@@ -1224,7 +1261,7 @@ function updateAnimals(dt) {
     if (a.atkCd > 0) a.atkCd -= dt;
     if (a.type === "jaguar") {
       if (a.group.userData.mixer) a.group.userData.mixer.update(dt);   // GLB animasyon klibi
-      let fearFire = false; for (const f of fires) if (Math.hypot(a.x - f.x, a.z - f.z) < 7) fearFire = true;
+      let fearFire = false; for (const f of fires) if (Math.hypot(a.x - f.x, a.z - f.z) < (f.safeR ? f.safeR - 4 : 7)) fearFire = true;
       if (fearFire && fires.length) { const f = fires[0]; a.dir = Math.atan2(a.z - f.z, a.x - f.x); }
       else if (d < 38) a.dir = Math.atan2(pz - a.z, px - a.x);
       let sp = d < 38 && !fearFire ? 7 : 3;
@@ -1236,7 +1273,7 @@ function updateAnimals(dt) {
       if (a.bite > 0) a.bite -= dt;
       if (!isNight() && d > 45) { scene.remove(a.group); animals.splice(i, 1); continue; }
     } else if (a.type === "crawler") {                         // SÜRÜNEN — hızlı gece avcısı, ateşten korkar
-      let fearFire = false; for (const f of fires) if (Math.hypot(a.x - f.x, a.z - f.z) < 8) fearFire = true;
+      let fearFire = false; for (const f of fires) if (Math.hypot(a.x - f.x, a.z - f.z) < (f.safeR ? f.safeR - 3 : 8)) fearFire = true;
       if (fearFire && fires.length) { const f = fires[0]; a.dir = Math.atan2(a.z - f.z, a.x - f.x); }
       else a.dir = Math.atan2(pz - a.z, px - a.x);
       const sp = fearFire ? 5 : 8 + dreadLevel() * 3;
@@ -1259,10 +1296,16 @@ function updateAnimals(dt) {
       const nd = Math.hypot(a.x - px, a.z - pz);
       if (nd < STOP) { const u = nd || 0.001; a.x = px + (a.x - px) / u * STOP; a.z = pz + (a.z - pz) / u * STOP; }
     }
+    // barikat duvarları canavarı da durdurur
+    for (const w of walls) { const dx = a.x - w.x, dz = a.z - w.z, rr = w.r + 0.4; if (dx * dx + dz * dz < rr * rr) { const dd = Math.hypot(dx, dz) || 0.001; a.x = w.x + dx / dd * rr; a.z = w.z + dz / dd * rr; } }
+    // çivili tuzak: üstünden geçen düşman yaralanır
+    if (a.hostile) for (const tr of traps) { if (tr.cd > 0) continue; if ((a.x - tr.x) ** 2 + (a.z - tr.z) ** 2 < 0.81) { a.hp -= 7; tr.cd = 1.5; S.shake = Math.max(S.shake, 0.2); Sound.chop(); if (a.hp <= 0) { scene.remove(a.group); animals.splice(i, 1); } break; } }
+    if (i >= animals.length || animals[i] !== a) continue;   // tuzakta öldüyse atla
     a.x = clamp(a.x, -CFG.WORLD, CFG.WORLD); a.z = clamp(a.z, -CFG.WORLD, CFG.WORLD);
     const leap = a.pounce > 0 ? Math.sin((1 - a.pounce / 0.42) * Math.PI) * 0.7 : 0;   // sıçrama yayı
     a.group.position.set(a.x, leap, a.z); a.group.rotation.y = -a.dir;
   }
+  for (const tr of traps) if (tr.cd > 0) tr.cd -= dt;   // tuzak bekleme süresi
 }
 
 /* ----------------------- TIME HELPERS ----------------------- */

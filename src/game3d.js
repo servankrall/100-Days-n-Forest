@@ -175,6 +175,7 @@ function updateBirds(dt) {
 
 /* ----- gerçek CC0 geyik + jaguar modelleri ----- */
 let deerProto = null, jaguarProto = null, jaguarClip = null, SkeletonUtilsMod = null;
+let watcherProto = null, mimicProto = null;   // necromorph (İzleyen) + devitalizer (Taklitçi) korku modelleri
 const animalProtos = {};   // boar/capybara/tapir GLB'leri — public/ içine konursa OTOMATİK kullanılır
 function groundModel(p, targetH) {   // modeli ~targetH birime ölçekle + ayaklarını yere koy
   const box = new THREE.Box3().setFromObject(p), size = new THREE.Vector3(); box.getSize(size);
@@ -197,6 +198,9 @@ async function setupAnimalModels() {
     for (const [type, file, h] of [["boar", "./Boar.glb", 0.95], ["capybara", "./Capybara.glb", 0.7], ["tapir", "./Tapir.glb", 1.1]]) {
       loader.load(file, (gltf) => { animalProtos[type] = { proto: groundModel(gltf.scene, h), clip: (gltf.animations && gltf.animations[0]) || null }; }, undefined, () => {});
     }
+    // Korku modelleri: necromorph → İzleyen, devitalizer → Taklitçi
+    loader.load("./necromorph.glb", (gltf) => { watcherProto = groundModel(gltf.scene, 4.2); }, undefined, () => {});
+    loader.load("./devitalizer.glb", (gltf) => { mimicProto = groundModel(gltf.scene, 2.0); }, undefined, () => {});
   } catch (e) { /* model yoksa kutu hayvanlar kullanılır */ }
 }
 
@@ -500,6 +504,13 @@ function makeAnimal(type) {
     scene.add(g); return g;
   }
   if (type === "mimic") {                                     // TAKLİTÇİ — uzaktan arkadaşa benzer, yaklaşınca saldırır
+    if (mimicProto) {                                         // gerçek devitalizer modeli
+      const m = mimicProto.clone(true); m.rotation.y = Math.PI / 2;   // önünü +X'e (rotation.y=-dir ile uyum)
+      if (shadowsOn) m.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+      g.add(m); g.userData.model = m;
+      g.add(new THREE.PointLight(0xbfe0ff, 0.5, 9, 1.6));     // arkadaş gibi ışık (tuzak)
+      scene.add(g); return g;
+    }
     const cloth = new THREE.MeshStandardMaterial({ color: 0x4f9be6, emissive: 0x0a1626, emissiveIntensity: 0.4, roughness: 1 });
     const skin = new THREE.MeshStandardMaterial({ color: 0xccc2ad, roughness: 1 });
     const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.36, 1.05, 4, 8), cloth); body.position.y = 1.05; g.add(body);
@@ -633,6 +644,13 @@ function placeInFront(dist) { camera.getWorldDirection(_fwd); _fwd.y = 0; _fwd.n
 /* ----- İzleyen modeli ----- */
 function makeWatcher() {
   const g = new THREE.Group();
+  if (watcherProto) {                                          // gerçek necromorph modeli
+    const m = watcherProto.clone(true); m.rotation.y = Math.PI;   // ön yüzünü +Z'ye (oyuncuya bakar)
+    if (shadowsOn) m.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    g.add(m);
+    const rl = new THREE.PointLight(0xff1010, 0.7, 7, 2); rl.position.set(0, 3.3, 0.3); g.add(rl);   // kızıl parıltı
+    scene.add(g); g.visible = false; return g;
+  }
   const skin = new THREE.MeshStandardMaterial({ color: 0xb9a892, roughness: 0.9 });             // solgun/hasta ten (kanlı insansı)
   const pale = new THREE.MeshStandardMaterial({ color: 0xcfc7b8, emissive: 0x2c241c, emissiveIntensity: 0.35, roughness: 1 });
   const blood = new THREE.MeshStandardMaterial({ color: 0x5e0000, emissive: 0x300000, emissiveIntensity: 0.4, roughness: 0.6 });
@@ -1574,6 +1592,9 @@ function startGame() {
   if (wantMobile) $("mobile").classList.remove("hidden");
   else { $("mobile").classList.add("hidden"); threeCanvas.requestPointerLock && threeCanvas.requestPointerLock(); }
   goFullscreen();                                  // BAŞLA ile tam ekran (F11)
+  // KAMERA KORKUSU — oyun başında OTOMATİK izin iste (BAŞLA tıklaması bir kullanıcı hareketidir).
+  // İzin verirsen ara sıra görüntünü gösterir + ağaca asar; reddedersen sessizce kapalı kalır.
+  if (!camEnabled) enableCamScare().then(() => toast("📷 Kamera korkusu açık — iyi şanslar 😈", "bad")).catch(() => {});
   toast("🌴 Amazon'a hoş geldin. Ateşi besle, geceye hazırlan...", "good");
   setTimeout(() => toast("🪓 Ağaç kes → 🔥'e odun at (çok odun = uzun yanar). ⚙️ hurda + 📦 sandık topla.", "good"), 2600);
   setTimeout(() => toast(isTouch ? "🛠️ Üret · 🩹 bandaj · KOŞ" : "🛠️ C: tezgah · 🩹 B: bandaj · ⛺ T: çadırda uyu · V: konuş", "good"), 5600);
@@ -1584,11 +1605,7 @@ $("retryBtn").addEventListener("click", startGame);
 $("winBtn").addEventListener("click", startGame);
 let audioOn = true;
 $("audioToggleStart").addEventListener("click", () => { audioOn = !audioOn; Sound.setOn(audioOn); $("audioToggleStart").textContent = audioOn ? "🔊 Ses: AÇIK" : "🔇 Ses: KAPALI"; });
-$("camToggleStart").addEventListener("click", async () => {
-  const b = $("camToggleStart");
-  if (camEnabled) { try { camStream && camStream.getTracks().forEach((t) => t.stop()); } catch (e) {} camEnabled = false; camStream = null; b.textContent = "📷 Kamera korkusu: KAPALI"; return; }
-  b.textContent = "📷 İzin isteniyor..."; try { await enableCamScare(); b.textContent = "📷 Kamera korkusu: AÇIK 😈"; } catch (e) { b.textContent = "📷 Kamera açılamadı (izin yok)"; }
-});
+// Kamera korkusu artık oyun başında OTOMATİK sorulur (startGame içinde) — manuel düğme yok.
 $("cr-close").addEventListener("click", () => closeCraft());
 const pauseBtn = $("pauseBtn");
 pauseBtn.addEventListener("click", () => togglePause());

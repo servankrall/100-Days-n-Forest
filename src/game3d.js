@@ -22,6 +22,19 @@ const threeCanvas = $("three");
 const fx = $("fx"), fxc = fx.getContext("2d");
 const toastsEl = $("toasts"), whisperEl = $("whisper"), promptEl = $("prompt"), crosshair = $("crosshair");
 
+/* ----------------------- AYARLAR (kalıcı) ----------------------- */
+const Settings = {
+  lookSens: 1, volume: 0.85, brightness: 1, fov: 72, camScare: true,
+  load() { try { Object.assign(this, JSON.parse(localStorage.getItem("orm_settings") || "{}")); } catch (e) {} },
+  save() { try { localStorage.setItem("orm_settings", JSON.stringify({ lookSens: this.lookSens, volume: this.volume, brightness: this.brightness, fov: this.fov, camScare: this.camScare })); } catch (e) {} },
+};
+Settings.load();
+function applySettings() {
+  Sound.setVol(Settings.volume);
+  if (renderer) renderer.toneMappingExposure = 1.12 * Settings.brightness;
+  if (camera) { camera.fov = Settings.fov; camera.updateProjectionMatrix(); }
+}
+
 function toast(text, cls) {
   const d = document.createElement("div");
   d.className = "toast" + (cls ? " " + cls : ""); d.textContent = text;
@@ -32,16 +45,19 @@ function whisperText(t) { whisperEl.textContent = t; whisperT = 2.2; }
 
 /* ----------------------- SOUND (prosedürel) ----------------------- */
 const Sound = {
-  ctx: null, master: null, on: true,
+  ctx: null, master: null, on: true, vol: 0.85,
   init() {
     if (this.ctx) return;
     const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
     this.ctx = new AC(); this.master = this.ctx.createGain();
-    this.master.gain.value = this.on ? 0.85 : 0; this.master.connect(this.ctx.destination);
+    this.master.gain.value = this.on ? this.vol : 0; this.master.connect(this.ctx.destination);
     this._ambient();
   },
   resume() { if (this.ctx && this.ctx.state === "suspended") this.ctx.resume(); },
-  setOn(v) { this.on = v; if (this.master) this.master.gain.value = v ? 0.85 : 0; },
+  setOn(v) { this.on = v; if (this.master) this.master.gain.value = v ? this.vol : 0; },
+  setVol(v) { this.vol = v; if (this.master && this.on) this.master.gain.value = v; },
+  thunder() { if (!this.ctx) return; const c = this.ctx, t = c.currentTime; this._burst(1.4, "lowpass", 260, 0.9); const o = c.createOscillator(), g = c.createGain(); o.type = "sine"; o.frequency.setValueAtTime(60, t); o.frequency.exponentialRampToValueAtTime(24, t + 1.0); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.8, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.3); o.connect(g); g.connect(this.master); o.start(); o.stop(t + 1.35); },
+  rainTick() { this._burst(0.05, "highpass", 4000, 0.04); },
   _noise(dur) { const n = (this.ctx.sampleRate * dur) | 0, b = this.ctx.createBuffer(1, n, this.ctx.sampleRate), d = b.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1; return b; },
   _ambient() {
     const c = this.ctx;
@@ -87,7 +103,7 @@ const Sound = {
 };
 
 /* ----------------------- THREE setup ----------------------- */
-let renderer, scene, camera, sun, hemi, amb, headlamp, moon, fireflies;
+let renderer, scene, camera, sun, hemi, amb, headlamp, moon, fireflies, rain;
 let shadowsOn = false;
 let composer = null, postOn = false, postTried = false, grainPass = null;
 const clock = new THREE.Clock();
@@ -98,7 +114,7 @@ function buildScene() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;   // sinematik renk
-  renderer.toneMappingExposure = 1.12;
+  renderer.toneMappingExposure = 1.12 * Settings.brightness;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   // gölgeler ağır olduğundan yalnızca dokunmatik olmayan (masaüstü) cihazlarda
   shadowsOn = !("ontouchstart" in window) && !(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
@@ -108,7 +124,7 @@ function buildScene() {
   scene.background = new THREE.Color(0x9fb7a0);
   scene.fog = new THREE.FogExp2(0x9fb7a0, 0.014);
 
-  camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 600);
+  camera = new THREE.PerspectiveCamera(Settings.fov, window.innerWidth / window.innerHeight, 0.1, 600);
   camera.rotation.order = "YXZ";
 
   hemi = new THREE.HemisphereLight(0xbfd8c0, 0x1a2814, 0.9); scene.add(hemi);
@@ -135,6 +151,7 @@ function buildScene() {
   buildScatter();
   buildStructures();              // metal hurda + sandık + kulübeler
   buildFireflies();
+  buildRain();                    // yağmur sistemi (hava durumu)
   setupBirds();                   // gerçek CC0 model kuşlar (animasyonlu)
   setupAnimalModels();            // gerçek CC0 geyik + jaguar modeli
   if (shadowsOn) setupPostFX();   // sinematik post-fx (masaüstü)
@@ -236,6 +253,22 @@ async function setupPostFX() {
     comp.setSize(w, h); comp.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     composer = comp; postOn = true;
   } catch (e) { console.warn("[postfx] yüklenemedi, düz render:", e); postOn = false; }
+}
+
+/* ----- yağmur (Points) ----- */
+function buildRain() {
+  const N = 1000, pos = new Float32Array(N * 3), vel = new Float32Array(N);
+  for (let i = 0; i < N; i++) { pos[i * 3] = rnd(-40, 40); pos[i * 3 + 1] = rnd(0, 34); pos[i * 3 + 2] = rnd(-40, 40); vel[i] = rnd(30, 46); }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.PointsMaterial({ color: 0x9fb0c8, size: 0.13, transparent: true, opacity: 0.5, depthWrite: false });
+  rain = new THREE.Points(geo, mat); rain.frustumCulled = false; rain.visible = false; rain.userData.vel = vel; scene.add(rain);
+}
+function updateRain(dt) {
+  if (!rain || !rain.visible) return;
+  rain.position.set(camera.position.x, 0, camera.position.z);
+  const ar = rain.geometry.attributes.position.array, vel = rain.userData.vel;
+  for (let i = 0; i < vel.length; i++) { ar[i * 3 + 1] -= vel[i] * dt; if (ar[i * 3 + 1] < 0) { ar[i * 3] = rnd(-40, 40); ar[i * 3 + 1] = rnd(22, 36); ar[i * 3 + 2] = rnd(-40, 40); } }
+  rain.geometry.attributes.position.needsUpdate = true;
 }
 
 /* ----- ateş böcekleri / gece parıltıları (Points) ----- */
@@ -449,6 +482,8 @@ function newState() {
     shake: 0,
     downed: false, bleed: 0, reviveT: 0,   // co-op: yere düşme / kan kaybı / diriltme ilerlemesi
     sleeping: 0,                            // çadırda uyuma animasyonu
+    weather: "clear", weatherT: rnd(25, 55), lightT: null, flash: 0, rainSndT: 0,  // hava durumu / şimşek
+    notes: [],                              // bulunan günlük notları
   };
 }
 
@@ -722,7 +757,7 @@ threeCanvas.addEventListener("mousedown", (e) => {
   if (e.button === 0) inp.action = true;
 });
 document.addEventListener("pointerlockchange", () => { locked = (document.pointerLockElement === threeCanvas); });
-document.addEventListener("mousemove", (e) => { if (locked) { yaw -= e.movementX * 0.0022; pitch = clamp(pitch - e.movementY * 0.0022, -1.45, 1.45); } });
+document.addEventListener("mousemove", (e) => { if (locked) { const s = 0.0022 * Settings.lookSens; yaw -= e.movementX * s; pitch = clamp(pitch - e.movementY * s, -1.45, 1.45); } });
 
 /* mobil joystick (sol) */
 const joyZone = $("joy-zone"), joyBase = $("joy-base"), joyStick = $("joy-stick");
@@ -735,7 +770,7 @@ joyZone.addEventListener("touchend", joyEnd); joyZone.addEventListener("touchcan
 /* mobil bakış (sağ ekran sürükle) */
 const lookZone = $("look-zone"); let lookId = null, lookX = 0, lookY = 0;
 lookZone.addEventListener("touchstart", (e) => { isTouch = true; const t = e.changedTouches[0]; lookId = t.identifier; lookX = t.clientX; lookY = t.clientY; e.preventDefault(); }, { passive: false });
-lookZone.addEventListener("touchmove", (e) => { for (const t of e.changedTouches) if (t.identifier === lookId) { yaw -= (t.clientX - lookX) * 0.005; pitch = clamp(pitch - (t.clientY - lookY) * 0.005, -1.45, 1.45); lookX = t.clientX; lookY = t.clientY; } e.preventDefault(); }, { passive: false });
+lookZone.addEventListener("touchmove", (e) => { const s = 0.005 * Settings.lookSens; for (const t of e.changedTouches) if (t.identifier === lookId) { yaw -= (t.clientX - lookX) * s; pitch = clamp(pitch - (t.clientY - lookY) * s, -1.45, 1.45); lookX = t.clientX; lookY = t.clientY; } e.preventDefault(); }, { passive: false });
 function lookEnd(e) { for (const t of e.changedTouches) if (t.identifier === lookId) lookId = null; }
 lookZone.addEventListener("touchend", lookEnd); lookZone.addEventListener("touchcancel", lookEnd);
 
@@ -797,6 +832,7 @@ function doAction() {
     if (Math.random() < 0.6) { const b = rndi(1, 2); S.inv.bandage += b; loot.push("🩹" + b); }
     if (Math.random() < 0.5) { const f = rndi(1, 3); S.inv.cooked += f; loot.push("🍗" + f); }
     if (Math.random() < 0.35) { const p = rndi(1, 2); S.inv.pelt += p; loot.push("🧵" + p); }
+    if (Math.random() < 0.45) { const note = choice(NOTE_POOL); if (!S.notes.includes(note)) { S.notes.push(note); loot.push("📓"); toast("📓 Bir günlük buldun (Duraklat → Günlükler)", "good"); } }
     toast("📦 Sandık: " + loot.join("  "), "good");
     return;
   }
@@ -1102,10 +1138,37 @@ function reviveSelf() {
 }
 function die(reason) {
   if (S.over) return; S.over = true; S.running = false; S.deathReason = reason; S.downed = false; $("downed").classList.add("hidden"); Sound.screech();
+  clearSave();   // ölünce kayıt silinir
   document.exitPointerLock && document.exitPointerLock();
   setTimeout(() => { $("deathReason").textContent = "Sebep: " + reason; $("daysSurvived").textContent = S.day; $("gameover").classList.remove("hidden"); }, 700);
 }
-function winGame() { S.won = true; S.running = false; document.exitPointerLock && document.exitPointerLock(); $("win").classList.remove("hidden"); }
+function winGame() { S.won = true; S.running = false; clearSave(); document.exitPointerLock && document.exitPointerLock(); $("win").classList.remove("hidden"); }
+
+/* ----------------------- KAYDET / DEVAM ET ----------------------- */
+function saveProgress() {
+  if (!S || !S.running || S.over) return;
+  try {
+    localStorage.setItem("orm_save", JSON.stringify({
+      day: S.day, time: S.time, inv: S.inv, tools: S.tools, notes: S.notes,
+      health: S.health, hunger: S.hunger, warmth: S.warmth, sanity: S.sanity,
+      x: camera.position.x, z: camera.position.z, ts: Date.now(),
+    }));
+  } catch (e) {}
+}
+function hasSave() { try { return !!localStorage.getItem("orm_save"); } catch (e) { return false; } }
+function clearSave() { try { localStorage.removeItem("orm_save"); } catch (e) {} }
+function applySave() {
+  let sv = null; try { sv = JSON.parse(localStorage.getItem("orm_save") || "null"); } catch (e) {}
+  if (!sv) return false;
+  S.day = sv.day || 1; S.time = sv.time != null ? sv.time : 0.18;
+  if (sv.inv) Object.assign(S.inv, sv.inv);
+  if (sv.tools) Object.assign(S.tools, sv.tools);
+  if (sv.notes) S.notes = sv.notes;
+  S.health = sv.health != null ? sv.health : 100; S.hunger = sv.hunger != null ? sv.hunger : 100;
+  S.warmth = sv.warmth != null ? sv.warmth : 100; S.sanity = sv.sanity != null ? sv.sanity : 100;
+  if (sv.x != null) camera.position.set(sv.x, CFG.EYE, sv.z);
+  toast("💾 Devam ediliyor — GÜN " + S.day, "good"); return true;
+}
 
 /* ----------------------- UPDATE ----------------------- */
 function update(dt) {
@@ -1116,6 +1179,8 @@ function update(dt) {
     if (S.day > CFG.WIN_DAY) { winGame(); return; }
     S.bloodMoon = S.day >= 6 && Math.random() < (0.12 + S.day / 100 * 0.4);   // ilerledikçe daha sık KANLI AY
     toast("☀️ GÜN " + S.day + " başladı" + (S.bloodMoon ? " — bu gece KANLI AY 🔴" : ""), S.bloodMoon ? "bad" : "good");
+    if ([5, 10, 25, 50, 75, 90].includes(S.day)) { toast("🏆 " + S.day + " GÜN HAYATTA KALDIN!", "good"); whisperText(choice(["hâlâ buradasın...", "neden bırakmıyorsun", "o izliyor"])); }
+    saveProgress();   // her yeni gün otomatik kaydet
   }
   const night = isNight();
   const dread = dreadLevel();
@@ -1181,10 +1246,26 @@ function update(dt) {
   if (inp.bandage) { inp.bandage = false; useBandage(); }
   if (inp.sleep) { inp.sleep = false; doSleep(); }
 
+  // HAVA DURUMU + ŞİMŞEK
+  S.weatherT -= dt;
+  if (S.weatherT <= 0) {
+    const was = S.weather; S.weather = Math.random() < ((night ? 0.42 : 0.18) + (S.bloodMoon ? 0.2 : 0)) ? "rain" : "clear"; S.weatherT = rnd(40, 95);
+    if (rain) rain.visible = (S.weather === "rain");
+    if (S.weather === "rain" && was !== "rain") toast("🌧️ Yağmur başladı — ateş çabuk söner, üşürsün", "bad");
+    else if (S.weather === "clear" && was === "rain") toast("🌤️ Yağmur dindi", "good");
+  }
+  if (S.weather === "rain") {
+    updateRain(dt);
+    S.rainSndT -= dt; if (S.rainSndT <= 0) { Sound.rainTick(); S.rainSndT = rnd(0.04, 0.12); }
+    S.lightT = (S.lightT == null ? rnd(6, 16) : S.lightT) - dt;
+    if (S.lightT <= 0) { S.flash = 1; Sound.thunder(); S.lightT = rnd(9, 24); S.sanity = clamp(S.sanity - 2, 0, 100); if (night && !watcher && Math.random() < 0.45) spawnWatcher(true); }   // şimşek bazen İzleyen'i gösterir
+  } else if (rain && rain.visible) rain.visible = false;
+  if (S.flash > 0) S.flash = Math.max(0, S.flash - dt * 2.6);
+
   // ateşler
   let nearFire = false, fireDist = 1e9;
   for (let i = fires.length - 1; i >= 0; i--) {
-    const f = fires[i]; f.fuel -= dt * (night ? 2.4 : 3.2) * (f.big ? 0.5 : 1);   // şenlik ateşi yavaş yanar
+    const f = fires[i]; f.fuel -= dt * (night ? 2.4 : 3.2) * (f.big ? 0.5 : 1) * (S.weather === "rain" ? 1.7 : 1);   // şenlik ateşi yavaş yanar; yağmur hızlandırır
     if (f.fuel <= 0) { scene.remove(f.group); fires.splice(i, 1); toast("🪵 Ateş söndü", "bad"); continue; }
     const flick = 0.85 + Math.sin(performance.now() / 70 + i) * 0.15 + Math.random() * 0.1, bs = f.big ? 1.7 : 1;
     f.light.intensity = map(f.fuel, 0, f.max, 0.8, 2.6) * flick * (f.big ? 1.5 : 1);
@@ -1204,6 +1285,7 @@ function update(dt) {
   if (nearFire) S.warmth = clamp(S.warmth + 9 * dt, 0, 100);
   else if (night) S.warmth = clamp(S.warmth - 1.25 * dt, 0, 100);
   else S.warmth = clamp(S.warmth - 0.18 * dt, 0, 100);
+  if (S.weather === "rain" && !nearFire) S.warmth = clamp(S.warmth - 0.9 * dt, 0, 100);   // yağmurda üşürsün
   if (nearFire) S.sanity = clamp(S.sanity + (night ? 1.0 : 2.2) * dt, 0, 100);
   else if (night) S.sanity = clamp(S.sanity - 0.85 * dt, 0, 100);
   else S.sanity = clamp(S.sanity + 0.3 * dt, 0, 100);
@@ -1234,7 +1316,7 @@ function update(dt) {
       S.dreadT = rnd(7, 16) * (1 - dread * 0.5);
       if (Math.random() < 0.35 + dread * 0.5) {
         const ev = rndi(0, 3);
-        if (ev === 0) { whisperText(choice(["arkanda", "seni görüyorum", "kaç", "100 gün... hayır", "yaklaşıyor", "ışığı söndür"])); Sound.whisper(); }
+        if (ev === 0) { const nm = (account && account.user) ? account.user : ""; whisperText(choice(["arkanda", "seni görüyorum", "kaç", "100 gün... hayır", nm ? nm + "..." : "yaklaşıyor", nm ? nm + ", ışığı söndürme" : "ışığı söndür"])); Sound.whisper(); }
         else if (ev === 1) Sound.growl();
         else if (ev === 2) { S.heartLevel = Math.max(S.heartLevel, 0.9); Sound.thump(); }
         else { S.shake = Math.max(S.shake, 0.25); Sound.whoosh(); }
@@ -1273,15 +1355,18 @@ function update(dt) {
   sun.position.set(camera.position.x + sdx * 70, sdy * 90 + 18, camera.position.z + 40); // gölge kamerası oyuncuyu takip etsin
   sun.target.position.copy(camera.position);
   moon.intensity = dk * 0.16;                                 // gece neredeyse zifiri — sadece soluk silüet
-  hemi.intensity = lerp(0.012, 0.95, dayK); amb.intensity = lerp(0.012, 0.5, dayK);
+  hemi.intensity = lerp(0.012, 0.95, dayK) * (S.weather === "rain" ? 0.6 : 1) + S.flash * 1.6; // yağmur karartır, şimşek aydınlatır
+  amb.intensity = lerp(0.012, 0.5, dayK) * (S.weather === "rain" ? 0.7 : 1) + S.flash * 1.3;
   headlamp.intensity = lerp(0.0, 1.0, dk); headlamp.position.copy(camera.position); // meşale/fenerin dar ışığı
   const dayCol = new THREE.Color(0x9fb7a0), nightCol = new THREE.Color(0x05080f);
   const skyCol = nightCol.clone().lerp(dayCol, dayK);
   const golden = Math.max(0, 1 - Math.abs(S.time - 0.16) / 0.10) + Math.max(0, 1 - Math.abs(S.time - 0.63) / 0.08);
   if (golden > 0) skyCol.lerp(new THREE.Color(0xd98a4a), Math.min(golden, 1) * 0.5);  // şafak/akşam altın tonu
   if (S.bloodMoon && dk > 0.4) skyCol.lerp(new THREE.Color(0x3a0608), 0.6);   // KANLI AY -> kırmızı sis/gökyüzü
+  if (S.weather === "rain") skyCol.lerp(new THREE.Color(0x2a3038), 0.5);      // yağmurda gri-mavi
+  if (S.flash > 0) skyCol.lerp(new THREE.Color(0xcdd6e6), S.flash * 0.7);     // şimşek beyazı
   scene.background = skyCol; scene.fog.color = skyCol;
-  scene.fog.density = lerp(0.013, 0.12, dk);   // gece yoğun sis → dar görüş, klostrofobi
+  scene.fog.density = lerp(0.013, 0.12, dk) * (S.weather === "rain" ? 1.5 : 1);   // gece yoğun sis; yağmur daha da kapatır
   // ateş böcekleri (gece görünür, hafif salınır)
   if (fireflies) {
     fireflies.material.opacity = dk * 0.9; fireflies.position.set(camera.position.x, 0, camera.position.z);
@@ -1531,6 +1616,7 @@ function loop() {
     if (watcher) { const d = Math.hypot(watcher.x - camera.position.x, watcher.z - camera.position.z); const a = map(d, 4, 30, 0.45, 0); if (a > 0.02) { fxc.fillStyle = "rgba(40,0,0," + a + ")"; fxc.fillRect(0, 0, w, h); } }
     if (S.downed) { const p = 0.4 + Math.sin(performance.now() / 300) * 0.12; fxc.fillStyle = "rgba(90,0,0," + p + ")"; fxc.fillRect(0, 0, w, h); }   // yerde, kanlı kırmızı
     if (S.sleeping > 0) { fxc.fillStyle = "rgba(0,0,0," + clamp(1 - Math.abs(S.sleeping - 1) , 0, 1) * 0.96 + ")"; fxc.fillRect(0, 0, w, h); }  // uyku karartması
+    if (S.flash > 0) { fxc.fillStyle = "rgba(225,232,255," + S.flash * 0.55 + ")"; fxc.fillRect(0, 0, w, h); }   // şimşek çakması
   }
   if (jumpT > 0 && !glitch) { fxc.fillStyle = Math.random() > 0.5 ? "#120000" : "#3a0000"; fxc.fillRect(0, 0, w, h); drawScaryFace(w, h, jumpFace); }
   if (glitch) drawGlitchScare(w, h, glitch, dt);
@@ -1569,18 +1655,21 @@ function stopTalk() {
 }
 
 /* ----------------------- BOOT / MENU ----------------------- */
-function startGame() {
+function startGame(continueSave) {
   if (!built) { try { buildScene(); built = true; } catch (e) { $("loadNote").textContent = "3B başlatılamadı: " + e.message + " — 'npm install' yaptın mı?"; throw e; } }
+  applySettings();
   S = newState();
   glitch = null; jumpT = 0;
   // dünyayı sıfırla
   for (let i = 0; i < trees.length; i++) { trees[i].alive = true; trees[i].hp = 4; trees[i].regrow = 0; }
   refreshTrees();
   clearDynamic(); watcherGroup = null; wCd = 8; wEnc = 0;
+  if (rain) rain.visible = false;
   for (let i = 0; i < 16; i++) spawnPrey();
   camera.position.set(0, CFG.EYE, 0); yaw = 0; pitch = 0;
   // başlangıç kamp ateşi (üs): büyük yakıt deposu — odun atıp uzun yakabilirsin
   const base = makeFire(0, -3); base.max = 600; base.fuel = 150;
+  if (continueSave === true) applySave();   // kayıttan devam (gün/eşya/can geri yüklenir)
   Sound.init(); Sound.resume();
   S.running = true;
   craftOpen = false; pauseOpen = false;
@@ -1594,15 +1683,16 @@ function startGame() {
   goFullscreen();                                  // BAŞLA ile tam ekran (F11)
   // KAMERA KORKUSU — oyun başında OTOMATİK izin iste (BAŞLA tıklaması bir kullanıcı hareketidir).
   // İzin verirsen ara sıra görüntünü gösterir + ağaca asar; reddedersen sessizce kapalı kalır.
-  if (!camEnabled) enableCamScare().then(() => toast("📷 Kamera korkusu açık — iyi şanslar 😈", "bad")).catch(() => {});
+  if (Settings.camScare && !camEnabled) enableCamScare().then(() => toast("📷 Kamera korkusu açık — iyi şanslar 😈", "bad")).catch(() => {});
   toast("🌴 Amazon'a hoş geldin. Ateşi besle, geceye hazırlan...", "good");
   setTimeout(() => toast("🪓 Ağaç kes → 🔥'e odun at (çok odun = uzun yanar). ⚙️ hurda + 📦 sandık topla.", "good"), 2600);
   setTimeout(() => toast(isTouch ? "🛠️ Üret · 🩹 bandaj · KOŞ" : "🛠️ C: tezgah · 🩹 B: bandaj · ⛺ T: çadırda uyu · V: konuş", "good"), 5600);
 }
 
-$("startBtn").addEventListener("click", startGame);
-$("retryBtn").addEventListener("click", startGame);
-$("winBtn").addEventListener("click", startGame);
+$("startBtn").addEventListener("click", () => startGame(false));
+$("retryBtn").addEventListener("click", () => startGame(false));
+$("winBtn").addEventListener("click", () => startGame(false));
+$("continueBtn").addEventListener("click", () => startGame(true));
 let audioOn = true;
 $("audioToggleStart").addEventListener("click", () => { audioOn = !audioOn; Sound.setOn(audioOn); $("audioToggleStart").textContent = audioOn ? "🔊 Ses: AÇIK" : "🔇 Ses: KAPALI"; });
 // Kamera korkusu artık oyun başında OTOMATİK sorulur (startGame içinde) — manuel düğme yok.
@@ -1610,7 +1700,7 @@ $("cr-close").addEventListener("click", () => closeCraft());
 const pauseBtn = $("pauseBtn");
 pauseBtn.addEventListener("click", () => togglePause());
 pauseBtn.addEventListener("touchstart", (e) => { isTouch = true; togglePause(); e.preventDefault(); }, { passive: false });
-addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); if (craftOpen) closeCraft(); else togglePause(); } });
+addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); if (settingsOpen) closeSettings(); else if (notesOpen) closeNotes(); else if (craftOpen) closeCraft(); else togglePause(); } });
 document.addEventListener("visibilitychange", () => { if (document.hidden && S && S.running) { S.paused = true; pauseBtn.textContent = "▶"; } });
 addEventListener("touchstart", () => { isTouch = true; }, { once: true, passive: true });
 const vBtn = $("btn-voice");
@@ -1652,6 +1742,7 @@ $("ac-copy").addEventListener("click", () => { if (account && navigator.clipboar
 $("ac-continue").addEventListener("click", () => {
   if (!account) { account = { email: "", user: "Gezgin" + Math.floor(Math.random() * 900 + 100), pass: "", id: genFriendId() }; saveAccount(); }
   $("account").classList.add("hidden"); $("start").classList.remove("hidden");
+  $("continueBtn").style.display = hasSave() ? "" : "none";   // kayıt varsa DEVAM ET göster
 });
 
 /* uzak oyuncu avatarları */
@@ -1750,7 +1841,7 @@ function openPause() {
   if (!multi) S.paused = true;                       // tek oyunculu -> oyunu durdur
   $("pauseStatus").textContent = multi ? "👥 Co-op sürüyor — oyun ARKA PLANDA devam ediyor" : "Oyun duraklatıldı";
   $("mp-myid").textContent = net.id || (account && account.id) || "—";
-  renderFriends();
+  renderFriends(); saveProgress();   // duraklatınca kaydet
   $("pause").classList.remove("hidden");
   if (document.exitPointerLock) document.exitPointerLock();
 }
@@ -1759,6 +1850,53 @@ function closePause() {
   if (!isTouch && S && S.running && threeCanvas.requestPointerLock) threeCanvas.requestPointerLock();
 }
 function togglePause() { if (pauseOpen) closePause(); else openPause(); }
+
+/* ----------------------- AYARLAR menüsü ----------------------- */
+let settingsOpen = false, notesOpen = false;
+function syncSettingsUI() {
+  $("set-sens").value = Settings.lookSens; $("set-sens-v").textContent = (+Settings.lookSens).toFixed(2);
+  $("set-vol").value = Settings.volume; $("set-vol-v").textContent = Math.round(Settings.volume * 100);
+  $("set-bri").value = Settings.brightness; $("set-bri-v").textContent = (+Settings.brightness).toFixed(2);
+  $("set-fov").value = Settings.fov; $("set-fov-v").textContent = Settings.fov;
+  $("set-cam").checked = !!Settings.camScare;
+}
+function openSettings() { settingsOpen = true; syncSettingsUI(); $("settings").classList.remove("hidden"); if (document.exitPointerLock) document.exitPointerLock(); }
+function closeSettings() { settingsOpen = false; $("settings").classList.add("hidden"); }
+$("set-close").addEventListener("click", closeSettings);
+$("set-sens").addEventListener("input", (e) => { Settings.lookSens = +e.target.value; $("set-sens-v").textContent = Settings.lookSens.toFixed(2); Settings.save(); });
+$("set-vol").addEventListener("input", (e) => { Settings.volume = +e.target.value; $("set-vol-v").textContent = Math.round(Settings.volume * 100); Sound.setVol(Settings.volume); Settings.save(); });
+$("set-bri").addEventListener("input", (e) => { Settings.brightness = +e.target.value; $("set-bri-v").textContent = Settings.brightness.toFixed(2); if (renderer) renderer.toneMappingExposure = 1.12 * Settings.brightness; Settings.save(); });
+$("set-fov").addEventListener("input", (e) => { Settings.fov = +e.target.value; $("set-fov-v").textContent = Settings.fov; if (camera) { camera.fov = Settings.fov; camera.updateProjectionMatrix(); } Settings.save(); });
+$("set-cam").addEventListener("change", (e) => {
+  Settings.camScare = e.target.checked; Settings.save();
+  if (!Settings.camScare) { try { camStream && camStream.getTracks().forEach((t) => t.stop()); } catch (er) {} camEnabled = false; camStream = null; toast("📷 Kamera korkusu kapatıldı", "good"); }
+  else if (!camEnabled && S && S.running) enableCamScare().then(() => toast("📷 Kamera korkusu açıldı 😈", "bad")).catch(() => toast("📷 Kamera izni verilmedi", "bad"));
+});
+
+/* ----------------------- NOTLAR (günlükler) ----------------------- */
+const NOTE_POOL = [
+  "3. gün. Ateşi asla söndürme. Karanlıkta bir şey var ve ışıktan nefret ediyor.",
+  "Ona baktığımda kayboluyor. Ama bakmadığımda... yaklaşıyor. Sakın arkanı dönme.",
+  "Arkadaşım 'buraya gel' diye seslendi. Sesi onundu. Ama o, o değildi. Yaklaşma.",
+  "Ağaçların arasındaki o uzun şey her gece daha yakın. 40 gün dayandım. Sen daha çok dayan.",
+  "Metalden mızrak yap, tuzak kur, duvar dik. Yalnızsan ölürsün — birini bul.",
+  "Kanlı ay gecesi dışarı çıkma. O gece hepsi uyanır.",
+  "Fotoğraflarımı ağaçlara asıyor. Beni izliyor. Kamerayı kapatmalıydım.",
+  "Yağmurda ateş çabuk söner, fazladan odun biriktir. Şimşek çakınca ona BAKMA.",
+  "Bu son notum. 67. gün. Bunu okuyorsan hâlâ bir şansın var. KOŞ.",
+  "Sürünenler kalabalık gelir ama ateşten korkarlar. Şenlik ateşini büyüt.",
+];
+function renderNotes() {
+  const list = $("notesList"); if (!list) return; list.innerHTML = "";
+  const ns = (S && S.notes) || [];
+  if (!ns.length) { list.innerHTML = '<div class="note-empty">Henüz günlük bulmadın. Sandıkları ve kulübeleri ara…</div>'; return; }
+  ns.forEach((n) => { const d = document.createElement("div"); d.className = "note-item"; d.textContent = "“" + n + "”"; list.appendChild(d); });
+}
+function openNotes() { notesOpen = true; renderNotes(); $("notes").classList.remove("hidden"); if (document.exitPointerLock) document.exitPointerLock(); }
+function closeNotes() { notesOpen = false; $("notes").classList.add("hidden"); }
+$("notes-close").addEventListener("click", closeNotes);
+$("pz-settings").addEventListener("click", openSettings);
+$("pz-notes").addEventListener("click", openNotes);
 
 resize();
 // Render döngüsü: sahne kurulmadan da (menüde) FX katmanını temiz tutar; START ile sahne kurulur.

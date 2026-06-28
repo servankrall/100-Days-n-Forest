@@ -129,7 +129,8 @@
       <div class="goal">🎯 <b>100 gün</b> hayatta kal. Ağaç kes, <b>ateşi besle</b> (çok odun = uzun yanar), avlan, et pişir,
         ⚙️ metal & 📦 sandık topla, 🛠️ tezgahta üret (kazma, çadır, bandaj). Geceleri seni izleyen
         <b>uzun kanlı bir şey</b> ve <b>sürünen yaratıklar</b> gelir — co-op'ta düşersen arkadaşın <b>bandajla</b> diriltir.</div>
-      <button id="startBtn" class="bigbtn">🌙 BAŞLA</button>
+      <button id="continueBtn" class="bigbtn" style="display:none;background:rgba(20,60,30,.5)">💾 DEVAM ET</button>
+      <button id="startBtn" class="bigbtn">🌙 YENİ OYUN</button>
       <button id="audioToggleStart" class="minibtn">🔊 Ses: AÇIK</button>
       <div class="warn" style="font-size:12px">📷 <b>BAŞLA'ya basınca oyun kamera izni isteyecek.</b> İzin verirsen oyun ara sıra <b>kendi görüntünü</b> korku amaçlı ekranda gösterir ve bir ağaca asar. <b>İzin vermezsen</b> (Engelle dersen) kamera hiç açılmaz. Gizli erişim yok; hiçbir görüntü kaydedilmez/gönderilmez.</div>
       <div id="loadNote" class="loadnote"></div>
@@ -163,6 +164,31 @@
     </div>
   </div>
 
+  <!-- ======================= AYARLAR ======================= -->
+  <div id="settings" class="overlay hidden">
+    <div class="panel craftp">
+      <h1 class="title-creep" style="font-size:clamp(24px,7vw,44px)">⚙️ AYARLAR</h1>
+      <div class="set-list">
+        <label class="set-row">Bakış hassasiyeti <input id="set-sens" type="range" min="0.3" max="2.5" step="0.05"><span id="set-sens-v"></span></label>
+        <label class="set-row">Ses <input id="set-vol" type="range" min="0" max="1" step="0.05"><span id="set-vol-v"></span></label>
+        <label class="set-row">Parlaklık <input id="set-bri" type="range" min="0.6" max="1.7" step="0.05"><span id="set-bri-v"></span></label>
+        <label class="set-row">Görüş açısı (FOV) <input id="set-fov" type="range" min="60" max="95" step="1"><span id="set-fov-v"></span></label>
+        <label class="set-row">📷 Kamera korkusu <input id="set-cam" type="checkbox"></label>
+      </div>
+      <button id="set-close" class="bigbtn">▶ KAPAT</button>
+    </div>
+  </div>
+
+  <!-- ======================= NOTLAR (günlükler) ======================= -->
+  <div id="notes" class="overlay hidden">
+    <div class="panel craftp">
+      <h1 class="title-creep" style="font-size:clamp(24px,7vw,44px)">📓 GÜNLÜKLER</h1>
+      <p class="subtitle">Ormanda bulduğun notlar — senden önce gelenlerden.</p>
+      <div id="notesList" class="notes-list"></div>
+      <button id="notes-close" class="bigbtn">▶ KAPAT</button>
+    </div>
+  </div>
+
   <!-- ======================= ESC: DURDU / SOSYAL MERKEZ ======================= -->
   <div id="pause" class="overlay hidden">
     <div class="panel social">
@@ -192,6 +218,8 @@
       </div>
       <div class="pause-btns">
         <button id="pz-resume" class="bigbtn">▶ DEVAM ET</button>
+        <button id="pz-settings" class="minibtn">⚙️ Ayarlar</button>
+        <button id="pz-notes" class="minibtn">📓 Günlükler</button>
         <button id="pz-menu" class="minibtn">🏠 Ana Menü</button>
       </div>
     </div>

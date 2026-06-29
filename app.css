@@ -124,6 +124,15 @@ canvas#fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-eve
 .craft-row .ci small { display: block; color: #a39; font-size: 12px; color: #b6a98c; }
 .craft-row button { padding: 7px 14px; font-size: 14px; }
 .craft-row button:disabled { opacity: .4; }
+.craft-sec { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: #b6a98c; margin: 6px 2px 2px; }
+
+/* yerleştirme çubuğu — üret → ateş yanına KUR */
+#placeBar { position: absolute; left: 50%; bottom: 86px; transform: translateX(-50%); z-index: 16; display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: rgba(18,22,14,.82); border: 1px solid rgba(120,255,150,.4); border-radius: 12px; pointer-events: auto; backdrop-filter: blur(3px); }
+#placeBar.hidden { display: none; }
+#placeName { color: #d8f5cf; font-size: 14px; min-width: 90px; }
+#placeBar button { font-family: inherit; font-size: 14px; padding: 8px 14px; border-radius: 9px; cursor: pointer; border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.08); color: #eee; touch-action: none; }
+#placeOk { background: rgba(70,180,90,.5); border-color: rgba(120,255,150,.6); color: #eaffe6; }
+#placeCancel { background: rgba(180,70,70,.4); border-color: rgba(255,140,140,.5); }
 
 /* ===== ayarlar ===== */
 .set-list { display: flex; flex-direction: column; gap: 12px; margin: 14px 0 18px; text-align: left; }

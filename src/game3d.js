@@ -683,6 +683,7 @@ function newState() {
     inv: { wood: 10, raw: 0, cooked: 2, metal: 0, pelt: 0, bandage: 1 },
     tools: { pickaxe: false, tent: false, spear: false },
     benchTier: 1, hasMap: false, hasCompass: false, hasLightningRod: false, hasCrockpot: false, farms: 0, oilDrills: 0,
+    placeables: {},  // tezgahta üretilen ama henüz kurulmamış yapılar {kind:adet}
     fireFed: 0,   // ateşe atılan toplam odun (seviye için)
     swingCd: 0, stepT: 0, sick: 0, hurt: 0, bob: 0,
     cookT: 0, fireCrackleT: 0, deathReason: "",
@@ -1045,6 +1046,9 @@ bindBtn("btn-eat", () => (inp.eat = true));
 bindBtn("btn-bandage", () => (inp.bandage = true));
 const sprintBtn = bindBtn("btn-sprint", null, true);
 { const cb = $("btn-craft"); if (cb) { cb.addEventListener("touchstart", (e) => { isTouch = true; toggleCraft(); e.preventDefault(); }, { passive: false }); cb.addEventListener("click", () => toggleCraft()); } }
+{ const ok = $("placeOk"), cc = $("placeCancel");
+  if (ok) { ok.addEventListener("click", () => confirmPlace()); ok.addEventListener("touchstart", (e) => { isTouch = true; confirmPlace(); e.preventDefault(); }, { passive: false }); }
+  if (cc) { cc.addEventListener("click", () => exitPlace()); cc.addEventListener("touchstart", (e) => { isTouch = true; exitPlace(); e.preventDefault(); }, { passive: false }); } }
 
 /* ----------------------- INTERACTION ----------------------- */
 const _fwd = new THREE.Vector3();
@@ -1147,31 +1151,85 @@ function makeTorch(x, z) { const g = new THREE.Group(); g.position.set(x, 0, z);
 function makeGate(x, z, rot) { const w = makeWall(x, z, rot); w.gate = true; return w; }
 function makeFlag(x, z) { const g = new THREE.Group(); g.position.set(x, 0, z); const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.4, 6), new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.5 })); pole.position.y = 1.2; g.add(pole); const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.5), new THREE.MeshStandardMaterial({ color: 0xd83030, side: THREE.DoubleSide })); cloth.position.set(0.42, 2.0, 0); g.add(cloth); scene.add(g); flags.push({ x, z, group: g }); }
 
+/* --- KURULACAK YAPILAR: üret → envantere düşer → ateş yanına yerleştir (hayalet önizleme) --- */
+const PLACE = {
+  bed:   { label: "🛏️ Yatak",         build: makeBed,       dist: 2.6, size: [1.1, 0.6, 2.1], onPlace: () => { S.tools.tent = true; } },
+  farm:  { label: "🌱 Tarla",          build: makeFarm,      dist: 2.9, size: [2.1, 0.4, 2.1], onPlace: () => { S.farms++; } },
+  trap:  { label: "🪤 Ayı Tuzağı",     build: makeSpikeTrap, dist: 2.6, size: [1.3, 0.3, 1.3] },
+  wall:  { label: "🧱 Tomruk Duvar",   build: makeWall,      dist: 2.5, size: [2.4, 1.8, 0.5], rot: true },
+  gate:  { label: "🚪 Tomruk Kapı",    build: makeGate,      dist: 2.5, size: [2.4, 1.8, 0.5], rot: true },
+  torch: { label: "🔦 Meşale",         build: makeTorch,     dist: 2.6, size: [0.5, 2.0, 0.5] },
+  drill: { label: "🛢️ Petrol Sondajı", build: makeFlag,      dist: 3.0, size: [0.9, 2.4, 0.9], onPlace: () => { S.oilDrills++; } },
+  flag:  { label: "🚩 Bayrak",          build: makeFlag,      dist: 2.6, size: [0.7, 2.4, 0.7] },
+};
+const placeBar = $("placeBar"), placeName = $("placeName");
+function addPlaceable(kind) { S.placeables[kind] = (S.placeables[kind] || 0) + 1; }
+function placeablesCount() { let n = 0; for (const k in (S.placeables || {})) n += S.placeables[k]; return n; }
+
+let placeMode = null;   // { kind, ghost }
+const CAMP_R = () => Math.max(22, (baseFire ? baseFire.safeR : 12) + 14);   // ateş çevresinde kurulum yarıçapı
+function enterPlace(kind) {
+  if (!S || !S.running || !(S.placeables[kind] > 0)) return;
+  exitPlace(); closeCraft();
+  const sz = PLACE[kind].size;
+  const ghost = new THREE.Mesh(new THREE.BoxGeometry(sz[0], sz[1], sz[2]), new THREE.MeshBasicMaterial({ color: 0x55ff88, transparent: true, opacity: 0.45, depthWrite: false }));
+  scene.add(ghost); placeMode = { kind, ghost };
+  if (placeBar) placeBar.classList.remove("hidden");
+  if (placeName) placeName.textContent = PLACE[kind].label + " ×" + S.placeables[kind];
+  toast("📐 Yeri seç — ateşe yakın YERLEŞTİR", "good");
+}
+function exitPlace() { if (placeMode) { scene.remove(placeMode.ghost); placeMode = null; } if (placeBar) placeBar.classList.add("hidden"); }
+function confirmPlace() {
+  if (!placeMode) return;
+  const k = placeMode.kind, spec = PLACE[k];
+  if (!(S.placeables[k] > 0)) { exitPlace(); return; }
+  const [x, z] = placeInFront(spec.dist);
+  if (baseFire && Math.hypot(x - baseFire.x, z - baseFire.z) > CAMP_R()) { toast("🔥 Daha yakın kur — kamp ateşi alanı", "bad"); return; }
+  camera.getWorldDirection(_fwd); _fwd.y = 0; _fwd.normalize();
+  spec.build(x, z, Math.atan2(-_fwd.x, -_fwd.z));
+  if (spec.onPlace) spec.onPlace();
+  S.placeables[k]--; if (S.placeables[k] <= 0) delete S.placeables[k];
+  Sound.chop(); toast("✅ Kuruldu: " + spec.label, "good");
+  if (S.placeables[k] > 0) { if (placeName) placeName.textContent = spec.label + " ×" + S.placeables[k]; }
+  else exitPlace();
+}
+// hayalet önizlemeyi her karede oyuncunun baktığı yere taşı (yeşil=geçerli, kırmızı=ateşe uzak)
+function updateGhost() {
+  if (!placeMode) return;
+  const spec = PLACE[placeMode.kind], [x, z] = placeInFront(spec.dist), g = placeMode.ghost;
+  g.position.set(x, spec.size[1] / 2, z);
+  camera.getWorldDirection(_fwd); _fwd.y = 0; _fwd.normalize();
+  if (spec.rot) g.rotation.y = Math.atan2(-_fwd.x, -_fwd.z);
+  const ok = !baseFire || Math.hypot(x - baseFire.x, z - baseFire.z) <= CAMP_R();
+  const gc = g.material && g.material.color;
+  if (gc && gc.setHex) gc.setHex(ok ? 0x55ff88 : 0xff4d4d);
+}
+
 const RECIPES = [
   // ---- Tier 1 ----
   { tier: 1, name: "🩹 Bandaj", desc: "Can doldurur / düşen arkadaşı diriltir", cost: { pelt: 2, wood: 1 }, make: (s) => s.inv.bandage++ },
   { tier: 1, name: "🗺️ Harita", desc: "M ile tüm haritayı aç", cost: { wood: 3 }, once: () => S.hasMap, make: (s) => s.hasMap = true },
-  { tier: 1, name: "🛏️ Eski Yatak", desc: "Önüne kurulur; güvendeyken T ile uyu, sabaha atla", cost: { wood: 18 }, make: () => { placeFront(makeBed, 2.4); S.tools.tent = true; } },
-  { tier: 1, name: "🌱 Tarla", desc: "Önüne kurulur; zamanla 🍗 yiyecek üretir (maks 6)", cost: { wood: 10 }, once: () => S.farms >= 6, make: (s) => { placeFront(makeFarm, 2.6); s.farms++; } },
+  { tier: 1, name: "🛏️ Eski Yatak", desc: "Üretilir, ateş yanına KUR; güvendeyken T ile uyu", cost: { wood: 18 }, make: () => addPlaceable("bed") },
+  { tier: 1, name: "🌱 Tarla", desc: "Üretilir, ateş yanına KUR; zamanla 🍗 üretir (maks 6)", cost: { wood: 10 }, once: () => (S.farms + (S.placeables.farm || 0)) >= 6, make: () => addPlaceable("farm") },
   { tier: 1, name: "⛏️ Kazma", desc: "Metali hızlı toplar, daha sert vurur", cost: { metal: 3, wood: 3 }, once: () => S.tools.pickaxe, make: (s) => s.tools.pickaxe = true },
   { tier: 1, name: "🗡️ Mızrak", desc: "Avı/canavarı daha çok yaralar", cost: { metal: 2, wood: 4 }, once: () => S.tools.spear, make: (s) => s.tools.spear = true },
   { tier: 1, up: 2, name: "⬆️ Tezgah Tier 2", desc: "2. seviye tarifleri açar", cost: { metal: 1, wood: 5 }, once: () => S.benchTier >= 2, make: (s) => s.benchTier = 2 },
   // ---- Tier 2 ----
   { tier: 2, name: "🧭 Pusula", desc: "Baktığın yönü HUD'da gösterir", cost: { metal: 3 }, once: () => S.hasCompass, make: (s) => s.hasCompass = true },
-  { tier: 2, name: "🪤 Ayı Tuzağı", desc: "Önüne kurulur; üstünden geçen düşmanı yaralar", cost: { metal: 3, wood: 1 }, make: () => placeFront(makeSpikeTrap, 2.6) },
-  { tier: 2, name: "🧱 Tomruk Duvar", desc: "Önüne sağlam ahşap duvar diker", cost: { wood: 12 }, make: () => placeFront(makeWall, 2.2) },
-  { tier: 2, name: "🚪 Tomruk Kapı", desc: "Üs girişine ahşap kapı/bariyer", cost: { wood: 12 }, make: () => placeFront(makeGate, 2.2) },
+  { tier: 2, name: "🪤 Ayı Tuzağı", desc: "Üretilir, KUR; üstünden geçen düşmanı yaralar", cost: { metal: 3, wood: 1 }, make: () => addPlaceable("trap") },
+  { tier: 2, name: "🧱 Tomruk Duvar", desc: "Üretilir, KUR; sağlam ahşap duvar", cost: { wood: 12 }, make: () => addPlaceable("wall") },
+  { tier: 2, name: "🚪 Tomruk Kapı", desc: "Üretilir, KUR; üs girişine ahşap kapı", cost: { wood: 12 }, make: () => addPlaceable("gate") },
   { tier: 2, up: 3, name: "⬆️ Tezgah Tier 3", desc: "3. seviye tarifleri açar", cost: { metal: 8, wood: 10 }, once: () => S.benchTier >= 3, make: (s) => s.benchTier = 3 },
   // ---- Tier 3 ----
-  { tier: 3, name: "🔦 Meşale", desc: "Önüne kurulur; etrafı aydınlatır, güvenli alanı genişletir", cost: { metal: 4, wood: 4 }, make: () => placeFront(makeTorch, 2.4) },
+  { tier: 3, name: "🔦 Meşale", desc: "Üretilir, KUR; etrafı aydınlatır, güvenli alanı genişletir", cost: { metal: 4, wood: 4 }, make: () => addPlaceable("torch") },
   { tier: 3, name: "⚡ Paratoner", desc: "Şimşeğin akıl/sağlık etkisini engeller (üs)", cost: { metal: 8 }, once: () => S.hasLightningRod, make: (s) => s.hasLightningRod = true },
   { tier: 3, name: "🍲 Güveç Tenceresi", desc: "Pişmiş et açlığı çok daha iyi giderir", cost: { metal: 8, wood: 8 }, once: () => S.hasCrockpot, make: (s) => s.hasCrockpot = true },
   { tier: 3, up: 4, name: "⬆️ Tezgah Tier 4", desc: "4. seviye tarifleri açar", cost: { metal: 15, wood: 20 }, once: () => S.benchTier >= 4, make: (s) => s.benchTier = 4 },
   // ---- Tier 4 ----
-  { tier: 4, name: "🛢️ Petrol Sondajı", desc: "Kamp ateşini zamanla otomatik besler", cost: { metal: 18, wood: 25 }, once: () => S.oilDrills >= 3, make: (s) => { placeFront(makeFlag, 3); s.oilDrills++; } },
+  { tier: 4, name: "🛢️ Petrol Sondajı", desc: "Üretilir, KUR; kamp ateşini otomatik besler (maks 3)", cost: { metal: 18, wood: 25 }, once: () => (S.oilDrills + (S.placeables.drill || 0)) >= 3, make: () => addPlaceable("drill") },
   { tier: 4, up: 5, name: "⬆️ Tezgah Tier 5", desc: "5. seviye tarifleri açar", cost: { metal: 40, wood: 50 }, once: () => S.benchTier >= 5, make: (s) => s.benchTier = 5 },
   // ---- Tier 5 ----
-  { tier: 5, name: "🚩 Bayrak", desc: "Mini haritada kalıcı işaret bırakır", cost: { metal: 6, wood: 6 }, make: () => placeFront(makeFlag, 2.4) },
+  { tier: 5, name: "🚩 Bayrak", desc: "Üretilir, KUR; mini haritada kalıcı işaret bırakır", cost: { metal: 6, wood: 6 }, make: () => addPlaceable("flag") },
 ];
 function canAfford(r) { for (const k in r.cost) if ((S.inv[k] || 0) < r.cost[k]) return false; return !(r.once && r.once()); }
 function craft(r) {
@@ -1188,6 +1246,19 @@ function renderCraft() {
   const list = $("craftList"); if (!list) return;
   $("craftInv").textContent = `🪵${S.inv.wood}  ⚙️${S.inv.metal}  🧵${S.inv.pelt}  🩹${S.inv.bandage}  ·  Tezgah Tier ${S.benchTier}`;
   list.innerHTML = "";
+  // --- envanterdeki kurulacak yapılar (üret → KUR) ---
+  if (placeablesCount() > 0) {
+    const hdr = document.createElement("div"); hdr.className = "craft-sec"; hdr.textContent = "🎒 Kurulacaklar — ateş yanına yerleştir";
+    list.appendChild(hdr);
+    for (const k in S.placeables) {
+      if (!(S.placeables[k] > 0)) continue;
+      const row = document.createElement("div"); row.className = "craft-row";
+      row.innerHTML = `<div class="ci">${PLACE[k].label} <small>×${S.placeables[k]} · envanterde, kurulmayı bekliyor</small></div>`;
+      const b = document.createElement("button"); b.className = "minibtn"; b.textContent = "KUR";
+      b.addEventListener("click", () => enterPlace(k)); row.appendChild(b); list.appendChild(row);
+    }
+    const sep = document.createElement("div"); sep.className = "craft-sec"; sep.textContent = "🛠️ Tarifler"; list.appendChild(sep);
+  }
   for (const r of RECIPES) {
     if (r.tier > S.benchTier + 1) continue;                  // sadece mevcut + bir sonraki seviye görünür
     const locked = r.tier > S.benchTier, owned = r.once && r.once();
@@ -1225,7 +1296,7 @@ function useBandage() {
 
 /* ----------------------- ÇADIR: güvendeyken uyu, sabaha atla ----------------------- */
 function doSleep() {
-  if (!S.tools.tent) { toast("Önce ⛺ çadır üret (tezgah / C)", "bad"); return; }
+  if (!S.tools.tent) { toast("Önce 🛏️ Yatak üret ve ateş yanına KUR (tezgah)", "bad"); return; }
   if (S.sleeping > 0) return;
   if (!inCampSafe()) { toast("Sadece yanan ateşin/meşalenin yanında uyuyabilirsin 🔥", "bad"); return; }
   if (watcher || animals.some((a) => a.hostile && Math.hypot(a.x - camera.position.x, a.z - camera.position.z) < 22)) { toast("Tehlike yakın — uyuyamazsın!", "bad"); return; }
@@ -1523,7 +1594,8 @@ function update(dt) {
   if (S.hurt > 0) S.hurt -= dt;
 
   // aksiyon kenar tetikleri
-  if (inp.action) { inp.action = false; doAction(); }
+  if (placeMode) updateGhost();
+  if (inp.action) { inp.action = false; if (placeMode) confirmPlace(); else doAction(); }
   if (inp.fire) { inp.fire = false; doFire(); }
   if (inp.eat) { inp.eat = false; doEat(); }
   if (inp.bandage) { inp.bandage = false; useBandage(); }
@@ -2009,7 +2081,7 @@ $("cr-close").addEventListener("click", () => closeCraft());
 const pauseBtn = $("pauseBtn");
 pauseBtn.addEventListener("click", () => togglePause());
 pauseBtn.addEventListener("touchstart", (e) => { isTouch = true; togglePause(); e.preventDefault(); }, { passive: false });
-addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); if (settingsOpen) closeSettings(); else if (notesOpen) closeNotes(); else if (craftOpen) closeCraft(); else togglePause(); } });
+addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); if (placeMode) exitPlace(); else if (settingsOpen) closeSettings(); else if (notesOpen) closeNotes(); else if (craftOpen) closeCraft(); else togglePause(); } });
 document.addEventListener("visibilitychange", () => { if (document.hidden && S && S.running) { S.paused = true; pauseBtn.textContent = "▶"; } });
 addEventListener("touchstart", () => { isTouch = true; }, { once: true, passive: true });
 const vBtn = $("btn-voice");

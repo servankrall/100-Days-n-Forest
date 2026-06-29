@@ -104,6 +104,8 @@ const Sound = {
 
 /* ----------------------- THREE setup ----------------------- */
 let renderer, scene, camera, sun, hemi, amb, headlamp, moon, fireflies, rain;
+let skyDome, stars, moonMesh, motes;            // gökyüzü kubbesi + yıldız + ay + toz zerreleri
+const windU = { value: 0 };                     // bitki rüzgâr salınımı için paylaşılan zaman uniform'u
 let shadowsOn = false;
 let composer = null, postOn = false, postTried = false, grainPass = null;
 const clock = new THREE.Clock();
@@ -150,6 +152,8 @@ function buildScene() {
   setupTreeModel();               // gerçek GLB ağaç paketi (low-poly) — prosedürel ağaçların yerini alır
   buildScatter();
   buildStructures();              // metal hurda + sandık + kulübeler
+  buildSky();                     // gradyan gökyüzü + yıldız + ay + güneş parıltısı
+  buildMotes();                   // gündüz toz/polen zerreleri
   buildFireflies();
   buildRain();                    // yağmur sistemi (hava durumu)
   setupBirds();                   // gerçek CC0 model kuşlar (animasyonlu)
@@ -235,18 +239,22 @@ async function setupPostFX() {
     const w = window.innerWidth, h = window.innerHeight;
     const comp = new EC.EffectComposer(renderer);
     comp.addPass(new RP.RenderPass(scene, camera));
-    const bloom = new BLOOM.UnrealBloomPass(new THREE.Vector2(w, h), 0.7, 0.55, 0.8); comp.addPass(bloom); // ateş/gözler/ay parlar
-    // film grain + vignette
+    const bloom = new BLOOM.UnrealBloomPass(new THREE.Vector2(w, h), 0.95, 0.62, 0.72); comp.addPass(bloom); // ateş/gözler/ay parlar (daha güçlü)
+    // sinematik: kromatik sapma + renk derecelendirme (teal-turuncu) + güçlü vignette + film grain
     grainPass = new SP.ShaderPass({
-      uniforms: { tDiffuse: { value: null }, t: { value: 0 }, vig: { value: 1.05 }, grain: { value: 0.07 } },
+      uniforms: { tDiffuse: { value: null }, t: { value: 0 }, vig: { value: 1.15 }, grain: { value: 0.06 }, ca: { value: 1.0 } },
       vertexShader: "varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }",
       fragmentShader:
-        "uniform sampler2D tDiffuse; uniform float t, vig, grain; varying vec2 vUv;" +
+        "uniform sampler2D tDiffuse; uniform float t, vig, grain, ca; varying vec2 vUv;" +
         "float rand(vec2 c){return fract(sin(dot(c,vec2(12.9898,78.233)))*43758.5453);}" +
-        "void main(){ vec4 col=texture2D(tDiffuse,vUv);" +
-        " vec2 q=vUv-0.5; float v=smoothstep(0.9,0.25,length(q)*vig); col.rgb*=mix(0.55,1.0,v);" +  // vignette
-        " float g=(rand(vUv*vec2(t*60.0+1.0, t*37.0+1.0))-0.5)*grain; col.rgb+=g;" +                 // grain
-        " gl_FragColor=col; }",
+        "void main(){ vec2 q=vUv-0.5; float r2=dot(q,q);" +
+        " vec2 off = q * r2 * 0.012 * ca;" +                                                          // kromatik sapma (kenarlarda)
+        " vec3 col; col.r=texture2D(tDiffuse,vUv+off).r; col.g=texture2D(tDiffuse,vUv).g; col.b=texture2D(tDiffuse,vUv-off).b;" +
+        " float l=dot(col,vec3(0.299,0.587,0.114)); col=mix(vec3(l),col,1.12);" +                     // hafif doygunluk
+        " col.rgb*=vec3(1.03,1.0,0.97); col.rgb+=vec3(0.015,0.01,-0.01)*(1.0-l);" +                    // sıcak ışık / soğuk gölge (sinematik)
+        " float v=smoothstep(0.95,0.28,length(q)*vig); col.rgb*=mix(0.42,1.0,v);" +                   // güçlü vignette
+        " float g=(rand(vUv*vec2(t*60.0+1.0, t*37.0+1.0))-0.5)*grain; col.rgb+=g;" +                   // film grain
+        " gl_FragColor=vec4(clamp(col,0.0,1.0),1.0); }",
     });
     comp.addPass(grainPass);
     comp.addPass(new OUT.OutputPass());
@@ -269,6 +277,66 @@ function updateRain(dt) {
   const ar = rain.geometry.attributes.position.array, vel = rain.userData.vel;
   for (let i = 0; i < vel.length; i++) { ar[i * 3 + 1] -= vel[i] * dt; if (ar[i * 3 + 1] < 0) { ar[i * 3] = rnd(-40, 40); ar[i * 3 + 1] = rnd(22, 36); ar[i * 3 + 2] = rnd(-40, 40); } }
   rain.geometry.attributes.position.needsUpdate = true;
+}
+
+/* ----- gökyüzü kubbesi + yıldız + ay (gradyan + güneş parıltısı) ----- */
+function buildSky() {
+  const skyMat = new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms: { top: { value: new THREE.Color(0x2f6aa6) }, bottom: { value: new THREE.Color(0x9fb7a0) }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunCol: { value: new THREE.Color(0xffe6b0) }, sunI: { value: 1 } },
+    vertexShader: "varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
+    fragmentShader:
+      "uniform vec3 top,bottom,sunCol,sunDir; uniform float sunI; varying vec3 vDir;" +
+      "void main(){ float h = clamp(vDir.y*0.5+0.5,0.0,1.0); vec3 col = mix(bottom, top, pow(h,0.55));" +
+      " float s = max(dot(normalize(vDir), normalize(sunDir)),0.0);" +
+      " col += sunCol * (pow(s,120.0)*1.8 + pow(s,16.0)*0.4 + pow(s,4.0)*0.12) * sunI;" +
+      " gl_FragColor = vec4(col,1.0); }",
+  });
+  skyDome = new THREE.Mesh(new THREE.SphereGeometry(500, 24, 16), skyMat);
+  skyDome.renderOrder = -2; skyDome.frustumCulled = false; scene.add(skyDome);
+  // yıldızlar (üst yarımküre)
+  const SN = 1300, sp = new Float32Array(SN * 3);
+  for (let i = 0; i < SN; i++) { const a = rnd(0, 6.283), r = 470, y = rnd(0.05, 1); const s2 = Math.sqrt(1 - y * y); sp[i * 3] = r * s2 * Math.cos(a); sp[i * 3 + 1] = r * y + 30; sp[i * 3 + 2] = r * s2 * Math.sin(a); }
+  const sgeo = new THREE.BufferGeometry(); sgeo.setAttribute("position", new THREE.BufferAttribute(sp, 3));
+  stars = new THREE.Points(sgeo, new THREE.PointsMaterial({ color: 0xcfe0ff, size: 1.7, sizeAttenuation: false, transparent: true, opacity: 0, depthWrite: false, fog: false }));
+  stars.frustumCulled = false; stars.renderOrder = -1; scene.add(stars);
+  // ay
+  moonMesh = new THREE.Mesh(new THREE.CircleGeometry(24, 28), new THREE.MeshBasicMaterial({ color: 0xe6ecf2, transparent: true, opacity: 0, fog: false, depthWrite: false }));
+  moonMesh.frustumCulled = false; moonMesh.renderOrder = -1; scene.add(moonMesh);
+}
+const _skyTop = new THREE.Color(), _skyNight = new THREE.Color(0x0a1124), _skyDay = new THREE.Color(0x2f6aa6);
+function updateSky(dk, dayK, horiz, sunAng) {
+  if (skyDome) {
+    skyDome.position.copy(camera.position);
+    const u = skyDome.material.uniforms;
+    _skyTop.copy(_skyNight).lerp(_skyDay, dayK); if (S.bloodMoon && dk > 0.3) _skyTop.lerp(new THREE.Color(0x2a0608), 0.5);
+    u.top.value.copy(_skyTop); u.bottom.value.copy(horiz);
+    u.sunDir.value.set(Math.cos(sunAng), Math.max(Math.sin(sunAng), -0.15), 0.35).normalize();
+    u.sunI.value = 0.25 + dayK;
+  }
+  if (stars) { stars.material.opacity = dk * 0.95; stars.position.copy(camera.position); }
+  if (moonMesh) { moonMesh.material.opacity = dk * 0.95; const mA = sunAng + Math.PI; moonMesh.position.set(camera.position.x + Math.cos(mA) * 280, camera.position.y + 120 + Math.sin(mA) * 60, camera.position.z - 260); moonMesh.lookAt(camera.position); }
+}
+
+/* ----- toz/polen zerreleri (gündüz havada süzülür) ----- */
+function buildMotes() {
+  const N = 240, p = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) { p[i * 3] = rnd(-42, 42); p[i * 3 + 1] = rnd(0.5, 10); p[i * 3 + 2] = rnd(-42, 42); }
+  const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(p, 3));
+  motes = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xfff0c0, size: 0.09, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+  motes.frustumCulled = false; motes.userData.ph = new Float32Array(N).map(() => rnd(0, 6.28)); scene.add(motes);
+}
+
+/* ----- bitki rüzgâr salınımı (shader enjeksiyonu) ----- */
+function applyWind(mat, amount) {
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = windU;
+    shader.vertexShader = "uniform float uTime;\n" + shader.vertexShader.replace(
+      "#include <begin_vertex>",
+      "#include <begin_vertex>\n vec4 _wp = instanceMatrix * vec4(transformed,1.0); float _ph=_wp.x*0.35+_wp.z*0.35; float _sw=clamp(position.y,0.0,4.0)*" + amount.toFixed(3) + "; transformed.x += sin(uTime*1.6+_ph)*_sw; transformed.z += cos(uTime*1.25+_ph)*_sw;"
+    );
+  };
+  mat.needsUpdate = true;
 }
 
 /* ----- ateş böcekleri / gece parıltıları (Points) ----- */
@@ -404,6 +472,7 @@ function buildScatter() {
   // çalılar (renk çeşitliliğiyle)
   const bushGeo = new THREE.IcosahedronGeometry(0.95, 0);
   const bushMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true });
+  applyWind(bushMat, 0.07);
   const bushIM = new THREE.InstancedMesh(bushGeo, bushMat, CFG.BUSHES);
   bushIM.frustumCulled = false; if (shadowsOn) { bushIM.castShadow = true; bushIM.receiveShadow = true; }
   for (let i = 0; i < CFG.BUSHES; i++) { _d.position.set(rnd(-CFG.WORLD, CFG.WORLD), 0.5, rnd(-CFG.WORLD, CFG.WORLD)); _d.rotation.set(0, rnd(0, 6.3), 0); _d.scale.setScalar(rnd(0.7, 1.7)); _d.updateMatrix(); bushIM.setMatrixAt(i, _d.matrix); col.setHSL(rnd(0.26, 0.34), rnd(0.45, 0.65), rnd(0.16, 0.28)); bushIM.setColorAt(i, col); }
@@ -418,6 +487,7 @@ function buildScatter() {
   // çimen/eğrelti otu tutamları (zemine canlılık)
   const grassGeo = new THREE.ConeGeometry(0.16, 1.0, 4);
   const grassMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, flatShading: true });
+  applyWind(grassMat, 0.16);
   const grassIM = new THREE.InstancedMesh(grassGeo, grassMat, CFG.GRASS);
   grassIM.frustumCulled = false;
   for (let i = 0; i < CFG.GRASS; i++) { _d.position.set(rnd(-CFG.WORLD, CFG.WORLD), 0.45, rnd(-CFG.WORLD, CFG.WORLD)); _d.rotation.set(rnd(-0.15, 0.15), rnd(0, 6.3), rnd(-0.15, 0.15)); _d.scale.set(rnd(0.7, 1.5), rnd(0.8, 1.8), rnd(0.7, 1.5)); _d.updateMatrix(); grassIM.setMatrixAt(i, _d.matrix); col.setHSL(rnd(0.24, 0.33), rnd(0.5, 0.7), rnd(0.20, 0.32)); grassIM.setColorAt(i, col); }
@@ -1367,6 +1437,15 @@ function update(dt) {
   if (S.flash > 0) skyCol.lerp(new THREE.Color(0xcdd6e6), S.flash * 0.7);     // şimşek beyazı
   scene.background = skyCol; scene.fog.color = skyCol;
   scene.fog.density = lerp(0.013, 0.12, dk) * (S.weather === "rain" ? 1.5 : 1);   // gece yoğun sis; yağmur daha da kapatır
+  updateSky(dk, dayK, skyCol, sunAng);          // gradyan gökyüzü + yıldız + ay + güneş parıltısı
+  windU.value = performance.now() / 1000;        // bitki rüzgârı
+  // toz/polen zerreleri (gündüz)
+  if (motes) {
+    motes.material.opacity = dayK * (S.weather === "rain" ? 0.05 : 0.5); motes.position.set(camera.position.x, 0, camera.position.z);
+    const ph = motes.userData.ph, ar = motes.geometry.attributes.position.array, tt = windU.value;
+    for (let k = 0; k < ph.length; k++) { ar[k * 3] += Math.sin(tt * 0.3 + ph[k]) * 0.004; ar[k * 3 + 1] += Math.cos(tt * 0.2 + ph[k]) * 0.003; }
+    motes.geometry.attributes.position.needsUpdate = true;
+  }
   // ateş böcekleri (gece görünür, hafif salınır)
   if (fireflies) {
     fireflies.material.opacity = dk * 0.9; fireflies.position.set(camera.position.x, 0, camera.position.z);

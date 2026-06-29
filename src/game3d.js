@@ -78,6 +78,9 @@ const Sound = {
   thump() { if (!this.ctx) return; const c = this.ctx, o = c.createOscillator(), g = c.createGain(), t = c.currentTime; o.type = "sine"; o.frequency.setValueAtTime(70, t); o.frequency.exponentialRampToValueAtTime(38, t + 0.18); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35); o.connect(g); g.connect(this.master); o.start(); o.stop(t + 0.4); },
   step() { this._burst(0.08, "lowpass", 900, 0.1); },
   chop() { this._burst(0.12, "bandpass", 1600, 0.25); },
+  gun() { if (!this.ctx) return; const c = this.ctx, t = c.currentTime; this._burst(0.18, "highpass", 1800, 0.9); const o = c.createOscillator(), g = c.createGain(); o.type = "square"; o.frequency.setValueAtTime(180, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.12); g.gain.setValueAtTime(0.9, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18); o.connect(g); g.connect(this.master); o.start(); o.stop(t + 0.2); },
+  bow() { if (!this.ctx) return; const c = this.ctx, t = c.currentTime, o = c.createOscillator(), g = c.createGain(); o.type = "triangle"; o.frequency.setValueAtTime(420, t); o.frequency.exponentialRampToValueAtTime(120, t + 0.12); g.gain.setValueAtTime(0.4, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14); o.connect(g); g.connect(this.master); o.start(); o.stop(t + 0.16); },
+  reload() { this._burst(0.06, "bandpass", 800, 0.3); },
   punch() { if (!this.ctx) return; const c = this.ctx, t = c.currentTime; this._burst(0.2, "lowpass", 320, 0.95); const o = c.createOscillator(), g = c.createGain(); o.type = "sine"; o.frequency.setValueAtTime(95, t); o.frequency.exponentialRampToValueAtTime(38, t + 0.16); g.gain.setValueAtTime(0.95, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2); o.connect(g); g.connect(this.master); o.start(); o.stop(t + 0.22); },
   glitchNoise() { if (!this.ctx) return; this._burst(0.5, "highpass", 1200, 0.8); this._burst(0.5, "lowpass", 200, 0.6); },
   crackle() { this._burst(0.05, "highpass", 2200, 0.06); },
@@ -716,8 +719,10 @@ function newState() {
     running: false, paused: false, over: false, won: false,
     time: 0.16, day: 1,
     health: 100, hunger: 100, warmth: 100, sanity: 100, stamina: 100,
-    inv: { wood: 10, raw: 0, cooked: 2, metal: 0, pelt: 0, bandage: 1, gem: 0, cloth: 0, rope: 0, medkit: 0, pills: 0, canned: 0, choco: 0 },
+    inv: { wood: 10, raw: 0, cooked: 2, metal: 0, pelt: 0, bandage: 1, gem: 0, cloth: 0, rope: 0, medkit: 0, pills: 0, canned: 0, choco: 0, pistolAmmo: 0, shells: 0, rifleAmmo: 0, arrows: 0 },
     tools: { pickaxe: false, tent: false, spear: false, axe: 0, chainsaw: false },   // axe: 0 eski / 1 iyi / 2 güçlü
+    weapons: { pistol: false, shotgun: false, rifle: false, bow: false, crossbow: false },   // sahip olunan menzilli silahlar
+    equip: null, shootCd: 0,   // kuşanılı menzilli silah (null=yakın dövüş)
     benchTier: 1, hasMap: false, hasCompass: false, hasLightningRod: false, hasCrockpot: false, farms: 0, oilDrills: 0,
     placeables: {},  // tezgahta üretilen ama henüz kurulmamış yapılar {kind:adet}
     fireFed: 0,   // ateşe atılan toplam odun (seviye için)
@@ -1030,8 +1035,9 @@ function vanishWatcher(quiet) { if (watcherGroup) watcherGroup.visible = false; 
 /* ----------------------- INPUT ----------------------- */
 const keys = {};
 let yaw = 0, pitch = 0, locked = false, isTouch = false;
-const inp = { jx: 0, jy: 0, joy: false, sprint: false, action: false, fire: false, eat: false, bandage: false, sleep: false };
+const inp = { jx: 0, jy: 0, joy: false, sprint: false, action: false, fire: false, eat: false, bandage: false, sleep: false, shoot: false };
 let actionDown = false;   // aksiyon basılı mı (motorlu testere ile sürekli kesim için)
+let shootDown = false;    // ateş basılı mı (menzilli silahla sürekli ateş)
 
 const typingInField = (e) => { const t = e.target; return t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable); };
 addEventListener("keydown", (e) => {
@@ -1041,20 +1047,25 @@ addEventListener("keydown", (e) => {
   if (k === "e" || k === " ") inp.action = true;
   if (k === "f") inp.fire = true;
   if (k === "g") inp.eat = true;
+  if (k === "r") { inp.shoot = true; shootDown = true; }   // ateş et (menzilli silah)
+  if (first && k === "q") cycleWeapon();                    // silah değiştir
+  if (first && k === "h") inp.shoot = true;                 // alternatif ateş tuşu
   if (k === "v") startTalk();           // bas-konuş (sesli sohbet)
   if (first && k === "c") toggleCraft();   // tezgah (kısayol; ana yol: tezgaha yaklaş)
   if (first && k === "b") inp.bandage = true;  // bandaj (can / dirilt)
   if (first && k === "t") inp.sleep = true;    // çadır/yatakta uyu
   if (first && k === "m") { if (S && S.hasMap) { S.bigMap = !S.bigMap; toast(S.bigMap ? "🗺️ Geniş harita AÇIK" : "🗺️ Harita kapandı", "good"); } else if (S && S.running) toast("Önce 🗺️ Harita üret (tezgah)", "bad"); }
 });
-addEventListener("keyup", (e) => { if (typingInField(e)) return; const k = e.key.toLowerCase(); keys[k] = false; if (k === "v") stopTalk(); });
+addEventListener("keyup", (e) => { if (typingInField(e)) return; const k = e.key.toLowerCase(); keys[k] = false; if (k === "v") stopTalk(); if (k === "r") shootDown = false; });
 
 threeCanvas.addEventListener("mousedown", (e) => {
   if (!S || !S.running) return;
   if (!isTouch && !locked) { threeCanvas.requestPointerLock && threeCanvas.requestPointerLock(); return; }
   if (e.button === 0) { inp.action = true; actionDown = true; }
+  if (e.button === 2) { inp.shoot = true; shootDown = true; }   // sağ tık → ateş
 });
-document.addEventListener("mouseup", (e) => { if (e.button === 0) actionDown = false; });
+document.addEventListener("mouseup", (e) => { if (e.button === 0) actionDown = false; if (e.button === 2) shootDown = false; });
+threeCanvas.addEventListener("contextmenu", (e) => e.preventDefault());
 document.addEventListener("pointerlockchange", () => { locked = (document.pointerLockElement === threeCanvas); });
 document.addEventListener("mousemove", (e) => { if (locked) { const s = 0.0022 * Settings.lookSens; yaw -= e.movementX * s; pitch = clamp(pitch - e.movementY * s, -1.45, 1.45); } });
 
@@ -1086,6 +1097,9 @@ bindBtn("btn-action", () => (inp.action = true));
 bindBtn("btn-fire", () => (inp.fire = true));
 bindBtn("btn-eat", () => (inp.eat = true));
 bindBtn("btn-bandage", () => (inp.bandage = true));
+bindBtn("btn-shoot", () => (inp.shoot = true));
+{ const bs = $("btn-shoot"); if (bs) { const d = () => { shootDown = true; }, u = () => { shootDown = false; }; bs.addEventListener("touchstart", d, { passive: false }); bs.addEventListener("touchend", u); bs.addEventListener("touchcancel", u); bs.addEventListener("mousedown", d); bs.addEventListener("mouseup", u); } }
+{ const bw = $("btn-weapon"); if (bw) { bw.addEventListener("touchstart", (e) => { isTouch = true; cycleWeapon(); e.preventDefault(); }, { passive: false }); bw.addEventListener("click", () => cycleWeapon()); } }
 const sprintBtn = bindBtn("btn-sprint", null, true);
 { const cb = $("btn-craft"); if (cb) { cb.addEventListener("touchstart", (e) => { isTouch = true; toggleCraft(); e.preventDefault(); }, { passive: false }); cb.addEventListener("click", () => toggleCraft()); } }
 { const ok = $("placeOk"), cc = $("placeCancel");
@@ -1170,6 +1184,15 @@ function doAction() {
     else if (S.tools.axe < 2 && Math.random() < 0.04) { S.tools.axe = 2; loot.push("🪓 Güçlü Balta!"); }
     if (!S.tools.chainsaw && Math.random() < 0.025) { S.tools.chainsaw = true; loot.push("🪚 Motorlu Testere!"); }
     if (!S.tools.pickaxe && Math.random() < 0.08) { S.tools.pickaxe = true; loot.push("⛏️ Kazma!"); }
+    // mühimmat (sık) + menzilli silah (nadir, sahip değilsen)
+    if (Math.random() < 0.3) { const a = rndi(4, 10); S.inv.pistolAmmo += a; loot.push("🔫" + a); }
+    if (Math.random() < 0.22) { const a = rndi(2, 6); S.inv.shells += a; loot.push("💥" + a); }
+    if (Math.random() < 0.18) { const a = rndi(2, 6); S.inv.rifleAmmo += a; loot.push("🎯" + a); }
+    if (Math.random() < 0.25) { const a = rndi(3, 8); S.inv.arrows += a; loot.push("🏹" + a); }
+    if (!S.weapons.pistol && Math.random() < 0.08) { S.weapons.pistol = true; S.inv.pistolAmmo += 8; loot.push("🔫 TABANCA!"); }
+    else if (!S.weapons.shotgun && Math.random() < 0.05) { S.weapons.shotgun = true; S.inv.shells += 6; loot.push("💥 POMPALI!"); }
+    else if (!S.weapons.rifle && Math.random() < 0.03) { S.weapons.rifle = true; S.inv.rifleAmmo += 6; loot.push("🎯 TÜFEK!"); }
+    if (!S.weapons.crossbow && Math.random() < 0.04) { S.weapons.crossbow = true; loot.push("🏹 ARBALET!"); }
     if (Math.random() < 0.45) { const note = choice(NOTE_POOL); if (!S.notes.includes(note)) { S.notes.push(note); loot.push("📓"); toast("📓 Bir günlük buldun (Duraklat → Günlükler)", "good"); } }
     toast("📦 Sandık: " + loot.join("  "), "good");
     return;
@@ -1189,6 +1212,59 @@ function killAnimal(a) {
   if (a.type !== "jaguar") setTimeout(() => { if (S.running && animals.length < 18) spawnPrey(); }, 9000);
 }
 const nameTR = (t) => ({ capybara: "kapibara", deer: "geyik", tapir: "tapir", boar: "yaban domuzu", jaguar: "jaguar" }[t] || t);
+
+/* ----------------------- MENZİLLİ SİLAHLAR (Faz 2) ----------------------- */
+const RANGED = {
+  pistol:   { label: "🔫 Tabanca", ammo: "pistolAmmo", dmg: 6,  range: 45,  cd: 0.34, pellets: 1, cone: 0.985, silent: false },
+  shotgun:  { label: "💥 Pompalı", ammo: "shells",     dmg: 5,  range: 18,  cd: 0.85, pellets: 6, cone: 0.93,  silent: false },
+  rifle:    { label: "🎯 Tüfek",   ammo: "rifleAmmo",  dmg: 22, range: 130, cd: 1.1,  pellets: 1, cone: 0.997, silent: false },
+  bow:      { label: "🏹 Yay",     ammo: "arrows",     dmg: 10, range: 42,  cd: 0.9,  pellets: 1, cone: 0.985, silent: true  },
+  crossbow: { label: "🏹 Arbalet", ammo: "arrows",     dmg: 17, range: 60,  cd: 1.3,  pellets: 1, cone: 0.99,  silent: true  },
+};
+const RANGED_ORDER = ["pistol", "shotgun", "rifle", "bow", "crossbow"];
+const ownedRanged = () => RANGED_ORDER.filter((k) => S.weapons[k]);
+function cycleWeapon() {
+  const owned = ownedRanged();
+  if (!owned.length) { toast("Menzilli silah yok (sandıklardan bul / yay üret) 🔫", "bad"); return; }
+  const list = [null, ...owned]; let i = list.indexOf(S.equip); S.equip = list[(i + 1) % list.length];
+  toast(S.equip ? "Kuşanıldı: " + RANGED[S.equip].label + " · " + (S.inv[RANGED[S.equip].ammo] || 0) + " mermi" : "🪓 Yakın dövüş", "good");
+}
+let muzzle = null, muzzleT = 0;
+function muzzleFlash() {
+  if (!muzzle) { muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffd66a, transparent: true, opacity: 0.9 })); muzzle.frustumCulled = false; scene.add(muzzle); }
+  muzzle.visible = true; muzzleT = 0.06;
+}
+function doShoot() {
+  if (S.downed || S.sleeping > 0) return;
+  if (!S.equip) { if (ownedRanged().length) cycleWeapon(); else toast("Menzilli silah yok (sandıklardan bul / yay üret) 🔫", "bad"); return; }
+  const spec = RANGED[S.equip];
+  if (S.shootCd > 0) return;
+  if ((S.inv[spec.ammo] || 0) <= 0) { toast("Mermi bitti: " + spec.label + " (Q ile değiştir)", "bad"); return; }
+  S.shootCd = spec.cd; S.inv[spec.ammo]--;
+  if (spec.silent) Sound.bow(); else Sound.gun();
+  muzzleFlash();
+  pitch = clamp(pitch + (spec.pellets > 1 ? 0.05 : 0.03), -1.45, 1.45);   // geri tepme
+  S.shake = Math.max(S.shake, spec.silent ? 0.05 : 0.18);
+  camera.getWorldDirection(_fwd); _fwd.y = 0; _fwd.normalize();
+  const px = camera.position.x, pz = camera.position.z;
+  let hits = 0, kills = 0;
+  for (let p = 0; p < spec.pellets; p++) {
+    let best = null, bestScore = -2;
+    for (const a of animals) { const dx = a.x - px, dz = a.z - pz, d = Math.hypot(dx, dz); if (d > spec.range || d < 0.001) continue; const dot = (dx / d) * _fwd.x + (dz / d) * _fwd.z; if (dot < spec.cone) continue; const score = dot - d * 0.003 - (spec.pellets > 1 ? Math.random() * 0.02 : 0); if (score > bestScore) { bestScore = score; best = a; } }
+    let wHit = false;
+    if (watcher) { const dx = watcher.x - px, dz = watcher.z - pz, d = Math.hypot(dx, dz); if (d <= spec.range) { const dot = (dx / d) * _fwd.x + (dz / d) * _fwd.z; if (dot >= spec.cone && (dot - d * 0.003) > bestScore) { wHit = true; best = null; } } }
+    if (wHit) { hits++; vanishWatcher(false); S.sanity = clamp(S.sanity + 6, 0, 100); toast("👁️ İzleyen'i kovaladın!", "good"); continue; }
+    if (best) {
+      hits++; best.hp -= spec.dmg;
+      if (spec.silent) { if (!best.hostile) { best.state = "flee"; best.dir = Math.atan2(best.z - pz, best.x - px); } }
+      else if (best.type === "boar" || best.type === "jaguar" || best.hostile) { best.hostile = true; best.state = "chase"; }
+      if (best.hp <= 0) { killAnimal(best); kills++; }
+    }
+  }
+  if (kills) toast(spec.label + " 🎯 avı düşürdün!", "good");
+  else if (hits) toast(spec.label + " 🩸 isabet", "good");
+  if (!spec.silent) for (const a of animals) { if ((a.type === "boar" || a.type === "jaguar") && Math.hypot(a.x - px, a.z - pz) < 30) { a.hostile = true; a.state = "chase"; } }   // silah sesi avcıları çeker
+}
 
 function doFire() {
   // Tek bir KAMP ATEŞİ var (üs). En yakınına odun atılır; yeni ateş kurulamaz.
@@ -1306,6 +1382,8 @@ const RECIPES = [
   // ---- Tier 2 ----
   { tier: 2, name: "🪓 İyi Balta", desc: "Ağaçları 2 vuruşta keser (eski baltadan hızlı)", cost: { metal: 6, wood: 4 }, once: () => S.tools.axe >= 1, make: (s) => s.tools.axe = Math.max(s.tools.axe, 1) },
   { tier: 2, name: "🧰 Sağlık Çantası", desc: "+75 can (🩹 butonu önce bunu kullanır)", cost: { cloth: 3, metal: 2 }, make: (s) => s.inv.medkit++ },
+  { tier: 2, name: "🏹 Yay", desc: "Sessiz menzilli silah; Q ile kuşan, R / sağ tık ile ateş", cost: { wood: 8, rope: 2 }, once: () => S.weapons.bow, make: (s) => { s.weapons.bow = true; if (!s.equip) s.equip = "bow"; } },
+  { tier: 2, name: "🎯 Ok ×10", desc: "Yay/arbalet için ok", cost: { rope: 1, wood: 2, metal: 1 }, make: (s) => s.inv.arrows += 10 },
   // ---- Tier 2 ----
   { tier: 2, name: "🧭 Pusula", desc: "Baktığın yönü HUD'da gösterir", cost: { metal: 3 }, once: () => S.hasCompass, make: (s) => s.hasCompass = true },
   { tier: 2, name: "🪤 Ayı Tuzağı", desc: "Üretilir, KUR; üstünden geçen düşmanı yaralar", cost: { metal: 3, wood: 1 }, make: () => addPlaceable("trap") },
@@ -1699,6 +1777,11 @@ function update(dt) {
   if (inp.eat) { inp.eat = false; doEat(); }
   if (inp.bandage) { inp.bandage = false; useBandage(); }
   if (inp.sleep) { inp.sleep = false; doSleep(); }
+  // menzilli silah: cooldown + basılı tut seri ateş + namlu parlaması
+  if (S.shootCd > 0) S.shootCd -= dt;
+  if (S.equip && shootDown && !placeMode && S.shootCd <= 0) inp.shoot = true;
+  if (inp.shoot) { inp.shoot = false; if (!placeMode) doShoot(); }
+  if (muzzle && muzzle.visible) { muzzleT -= dt; if (muzzleT <= 0) muzzle.visible = false; else { camera.getWorldDirection(_fwd); muzzle.position.set(camera.position.x + _fwd.x * 0.7, camera.position.y + _fwd.y * 0.7 - 0.12, camera.position.z + _fwd.z * 0.7); } }
 
   // HAVA DURUMU + ŞİMŞEK
   S.weatherT -= dt;
@@ -2058,6 +2141,8 @@ function updateHUD(night) {
   bars.health.style.width = S.health + "%"; bars.hunger.style.width = S.hunger + "%"; bars.warmth.style.width = S.warmth + "%"; bars.sanity.style.width = S.sanity + "%"; bars.stamina.style.width = S.stamina + "%";
   invEl.wood.textContent = S.inv.wood; invEl.raw.textContent = S.inv.raw; invEl.cooked.textContent = S.inv.cooked;
   invEl.metal.textContent = S.inv.metal; invEl.pelt.textContent = S.inv.pelt; invEl.bandage.textContent = S.inv.bandage; if (invEl.gem) invEl.gem.textContent = S.inv.gem;
+  const wh = $("weaponHud");
+  if (wh) { if (S.equip && RANGED[S.equip]) { const sp = RANGED[S.equip]; wh.textContent = sp.label + " · " + (S.inv[sp.ammo] || 0) + " 🔸"; wh.classList.remove("hidden"); } else wh.classList.add("hidden"); }
   const t = findTarget();
   if (t) {
     const key = isTouch ? "VUR" : "[Sol tık / E]";

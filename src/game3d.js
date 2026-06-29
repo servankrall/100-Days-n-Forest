@@ -543,6 +543,7 @@ function buildScatter() {
 /* ----- yapılar: metal hurda + sandık + terk edilmiş kulübeler (99 Nights tarzı) ----- */
 const scraps = [];   // {x,z,group,taken}
 const chests = [];   // {x,z,group,lid,opened}
+const crystals = []; // {x,z,group,hp,mined,shards[]} — kazma ile kazılır → 💎
 const houses = [];   // {x,z,group}
 function farFromSpawn(min) { let x, z; do { x = rnd(-CFG.WORLD + 6, CFG.WORLD - 6); z = rnd(-CFG.WORLD + 6, CFG.WORLD - 6); } while (Math.hypot(x, z) < min); return [x, z]; }
 function makeScrap(x, z) {
@@ -552,6 +553,17 @@ function makeScrap(x, z) {
   for (let i = 0; i < 3; i++) { const p = new THREE.Mesh(new THREE.BoxGeometry(rnd(0.3, 0.6), rnd(0.1, 0.25), rnd(0.3, 0.6)), i ? mat : rust); p.position.set(rnd(-0.25, 0.25), 0.12 + i * 0.12, rnd(-0.25, 0.25)); p.rotation.y = rnd(0, 6.3); g.add(p); }
   if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   scene.add(g); const s = { x, z, group: g, taken: false }; scraps.push(s); return s;
+}
+function makeCrystal(x, z) {
+  const g = new THREE.Group(); g.position.set(x, 0, z);
+  const rock = new THREE.MeshStandardMaterial({ color: 0x3a3640, roughness: 1, flatShading: true });
+  const base = new THREE.Mesh(new THREE.DodecahedronGeometry(0.7, 0), rock); base.position.y = 0.3; base.scale.y = 0.6; g.add(base);
+  const gemMat = new THREE.MeshStandardMaterial({ color: 0x7fe9ff, emissive: 0x36b6d8, emissiveIntensity: 0.9, roughness: 0.2, metalness: 0.3, flatShading: true, transparent: true, opacity: 0.92 });
+  const shards = [];
+  for (let i = 0; i < 5; i++) { const h = rnd(0.6, 1.4); const s = new THREE.Mesh(new THREE.ConeGeometry(rnd(0.12, 0.22), h, 5), gemMat); s.position.set(rnd(-0.35, 0.35), 0.3 + h / 2, rnd(-0.35, 0.35)); s.rotation.set(rnd(-0.3, 0.3), rnd(0, 6.3), rnd(-0.3, 0.3)); g.add(s); shards.push(s); }
+  g.add(Object.assign(new THREE.PointLight(0x6fe6ff, 0.7, 6, 2), { position: new THREE.Vector3(0, 0.9, 0) }));
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  scene.add(g); const c = { x, z, group: g, hp: 3, mined: false, mat: gemMat }; crystals.push(c); return c;
 }
 function makeChest(x, z) {
   const g = new THREE.Group(); g.position.set(x, 0, z);
@@ -661,16 +673,40 @@ function makeScavenger(x, z) {
   if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   scene.add(g); scav = { x, z: z + 2 };
 }
+function makeCampsite(x, z) {   // terk edilmiş kamp: sönmüş ateş + barınak + sandık
+  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rnd(0, 6.3);
+  const ash = new THREE.Mesh(new THREE.CircleGeometry(0.9, 12), new THREE.MeshStandardMaterial({ color: 0x2a2622, roughness: 1 })); ash.rotation.x = -Math.PI / 2; ash.position.y = 0.02; g.add(ash);
+  const charM = new THREE.MeshStandardMaterial({ color: 0x1c1814, roughness: 1, flatShading: true });
+  for (let i = 0; i < 4; i++) { const a = (i / 4) * 6.28; const log = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.9, 5), charM); log.position.set(Math.cos(a) * 0.3, 0.1, Math.sin(a) * 0.3); log.rotation.z = Math.PI / 2; log.rotation.y = a; g.add(log); }
+  // eğik barınak (lean-to)
+  const poleM = new THREE.MeshStandardMaterial({ color: 0x5a4326, roughness: 1 });
+  const tarp = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 2.0), new THREE.MeshStandardMaterial({ color: 0x586247, roughness: 1, side: THREE.DoubleSide })); tarp.position.set(0, 1.0, -1.6); tarp.rotation.x = -1.0; g.add(tarp);
+  for (const sx of [-1, 1]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.9, 5), poleM); p.position.set(sx * 1.1, 0.9, -1.0); p.rotation.x = 0.3; g.add(p); }
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  scene.add(g); makeChest(x + Math.cos(g.rotation.y) * 1.6, z + Math.sin(g.rotation.y) * 1.6); houses.push({ x, z, group: g });
+}
+function makeShacks(x, z) {     // terk edilmiş kulübe kümesi (3 harap kulübe + sandıklar)
+  for (let i = 0; i < 3; i++) { const a = (i / 3) * 6.28 + rnd(-0.3, 0.3), r = rnd(4, 7); makeHouse(x + Math.cos(a) * r, z + Math.sin(a) * r); }
+  makeChest(x, z);
+}
 function buildPOIs() {
   let p;
   p = farFromSpawn(70); makeStonehenge(p[0], p[1]);
   p = farFromSpawn(60); makeChurch(p[0], p[1]);
   p = farFromSpawn(45); makeWatchtower(p[0], p[1]);
   p = farFromSpawn(45); makeWatchtower(p[0], p[1]);
-  p = farFromSpawn(55); makeCave(p[0], p[1]);
-  p = farFromSpawn(80); makeCave(p[0], p[1]);
   p = farFromSpawn(40); makeBridge(p[0], p[1]);
   p = farFromSpawn(30); makeScavenger(p[0], p[1]);
+  p = farFromSpawn(50); makeCampsite(p[0], p[1]);
+  p = farFromSpawn(65); makeCampsite(p[0], p[1]);
+  p = farFromSpawn(75); makeShacks(p[0], p[1]);
+  // mağaralar — çevrelerine kristal damarları kümelenir (💎 kaynağı)
+  for (const cd of [55, 80, 100]) {
+    p = farFromSpawn(cd); makeCave(p[0], p[1]);
+    const n = rndi(2, 4); for (let i = 0; i < n; i++) { const a = rnd(0, 6.28), r = rnd(3, 9); makeCrystal(p[0] + Math.cos(a) * r, p[1] + Math.sin(a) * r); }
+  }
+  // haritaya serpiştirilmiş yalnız kristaller
+  for (let i = 0; i < 7; i++) { p = farFromSpawn(45); makeCrystal(p[0], p[1]); }
 }
 
 /* ----------------------- GAME STATE ----------------------- */
@@ -680,7 +716,7 @@ function newState() {
     running: false, paused: false, over: false, won: false,
     time: 0.16, day: 1,
     health: 100, hunger: 100, warmth: 100, sanity: 100, stamina: 100,
-    inv: { wood: 10, raw: 0, cooked: 2, metal: 0, pelt: 0, bandage: 1 },
+    inv: { wood: 10, raw: 0, cooked: 2, metal: 0, pelt: 0, bandage: 1, gem: 0 },
     tools: { pickaxe: false, tent: false, spear: false },
     benchTier: 1, hasMap: false, hasCompass: false, hasLightningRod: false, hasCrockpot: false, farms: 0, oilDrills: 0,
     placeables: {},  // tezgahta üretilen ama henüz kurulmamış yapılar {kind:adet}
@@ -703,6 +739,7 @@ const walls = [];     // {x,z,group,r} — oyuncunun diktiği barikatlar/kapıla
 const traps = [];     // {x,z,group,cd} — çivili/ayı tuzakları
 const photos = [];    // {mesh,mat,t} — kamera korkusunda ağaca asılan fotoğraflar
 const torches = [];   // {x,z,group,safeR} — meşaleler (güvenli alan + ışık)
+const totems = [];    // {x,z,group,r} — koruyucu totem (sanity aurası + güvenli alan)
 const props = [];     // {x,z,group,kind} — yatak/tarla/diğer yapılar
 const farms = [];     // {x,z,group,t,sprouts} — otomatik yiyecek üreten tarlalar
 const flags = [];     // {x,z,group} — mini harita işaretleri
@@ -717,12 +754,14 @@ function clearDynamic() {
   for (const t of traps) scene.remove(t.group); traps.length = 0;
   for (const p of photos) scene.remove(p.mesh); photos.length = 0;
   for (const t of torches) scene.remove(t.group); torches.length = 0;
+  for (const t of totems) scene.remove(t.group); totems.length = 0;
   for (const p of props) scene.remove(p.group); props.length = 0; farms.length = 0;
   for (const fl of flags) scene.remove(fl.group); flags.length = 0;
   baseFire = null;
   if (watcher) { scene.remove(watcher.group); watcher = null; }
   // sandıkları kapat (yeniden oyun)
   for (const c of chests) { c.opened = false; if (c.lid) c.lid.rotation.x = 0; }
+  for (const c of crystals) { c.hp = 3; c.mined = false; if (c.group) c.group.visible = true; }
 }
 
 /* ----- hayvan modeli ----- */
@@ -1069,6 +1108,7 @@ function findTarget() {
   for (const t of trees) if (t.alive) consider(t.x, t.z, 4.2, "tree", t);
   for (const a of animals) consider(a.x, a.z, 4.4, "animal", a);
   for (const s of scraps) if (!s.taken) consider(s.x, s.z, 3.4, "scrap", s);
+  for (const c of crystals) if (!c.mined) consider(c.x, c.z, 3.6, "crystal", c);
   for (const c of chests) if (!c.opened) consider(c.x, c.z, 3.6, "chest", c);
   return best;
 }
@@ -1094,6 +1134,14 @@ function doAction() {
     else toast("⚙️ Hurda... (kazma işi hızlandırır)");
     return;
   }
+  if (t.kind === "crystal") {                                 // kristal kaz → 💎 (kazma şart)
+    const c = t.obj;
+    if (!S.tools.pickaxe) { toast("💎 Kristal için ⛏️ Kazma gerekli", "bad"); return; }
+    Sound.chop(); c.hp--;
+    if (c.hp <= 0) { c.mined = true; c.group.visible = false; const gn = rndi(1, 2); S.inv.gem += gn; toast("💎 +" + gn + " mücevher!", "good"); }
+    else toast("💎 Kristal kırılıyor...", "good");
+    return;
+  }
   if (t.kind === "chest") {                                   // sandık aç → ganimet
     const c = t.obj; c.opened = true; if (c.lid) c.lid.rotation.x = -1.2; Sound.crackle();
     const loot = [];
@@ -1103,6 +1151,7 @@ function doAction() {
     if (Math.random() < 0.6) { const b = rndi(1, 2); S.inv.bandage += b; loot.push("🩹" + b); }
     if (Math.random() < 0.5) { const f = rndi(1, 3); S.inv.cooked += f; loot.push("🍗" + f); }
     if (Math.random() < 0.35) { const p = rndi(1, 2); S.inv.pelt += p; loot.push("🧵" + p); }
+    if (Math.random() < 0.12) { S.inv.gem += 1; loot.push("💎1"); }   // nadir mücevher
     if (Math.random() < 0.45) { const note = choice(NOTE_POOL); if (!S.notes.includes(note)) { S.notes.push(note); loot.push("📓"); toast("📓 Bir günlük buldun (Duraklat → Günlükler)", "good"); } }
     toast("📦 Sandık: " + loot.join("  "), "good");
     return;
@@ -1149,6 +1198,24 @@ function makeBed(x, z) { const g = new THREE.Group(); g.position.set(x, 0, z); c
 function makeFarm(x, z) { const g = new THREE.Group(); g.position.set(x, 0, z); const soil = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.18, 2.0), new THREE.MeshStandardMaterial({ color: 0x4a3526, roughness: 1 })); soil.position.y = 0.09; g.add(soil); const f = { x, z, group: g, kind: "farm", t: 0, sprouts: [] }; for (let i = 0; i < 9; i++) { const sp = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.3, 5), new THREE.MeshStandardMaterial({ color: 0x4f8a3a, flatShading: true })); sp.position.set(((i % 3) - 1) * 0.6, 0.3, ((i / 3 | 0) - 1) * 0.6); g.add(sp); f.sprouts.push(sp); } if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; }); scene.add(g); props.push(f); farms.push(f); }
 function makeTorch(x, z) { const g = new THREE.Group(); g.position.set(x, 0, z); const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 1.8, 6), new THREE.MeshStandardMaterial({ color: 0x4a3420, roughness: 1 })); pole.position.y = 0.9; g.add(pole); const fl = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.5, 7), new THREE.MeshBasicMaterial({ color: 0xff9a3c, transparent: true, opacity: 0.95 })); fl.position.y = 1.95; g.add(fl); g.add(Object.assign(new THREE.PointLight(0xffa850, 1.4, 11, 1.6), { position: new THREE.Vector3(0, 2, 0) })); if (shadowsOn) pole.castShadow = true; scene.add(g); torches.push({ x, z, group: g, safeR: 7, flame: fl }); }
 function makeGate(x, z, rot) { const w = makeWall(x, z, rot); w.gate = true; return w; }
+function makeLantern(x, z) {   // kristal fener: güçlü kalıcı ışık + geniş güvenli alan (meşale+)
+  const g = new THREE.Group(); g.position.set(x, 0, z);
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 2.2, 6), new THREE.MeshStandardMaterial({ color: 0x40464e, metalness: 0.5, roughness: 0.6 })); post.position.y = 1.1; g.add(post);
+  const orb = new THREE.Mesh(new THREE.IcosahedronGeometry(0.32, 0), new THREE.MeshStandardMaterial({ color: 0x9ff0ff, emissive: 0x55d6f0, emissiveIntensity: 1.4, roughness: 0.2, transparent: true, opacity: 0.95, flatShading: true })); orb.position.y = 2.3; g.add(orb);
+  g.add(Object.assign(new THREE.PointLight(0x8fe8ff, 2.0, 16, 1.5), { position: new THREE.Vector3(0, 2.3, 0) }));
+  if (shadowsOn) post.castShadow = true; scene.add(g);
+  torches.push({ x, z, group: g, safeR: 11, flame: orb });   // meşale gibi ama daha geniş güvenli alan
+}
+function makeTotem(x, z) {     // koruyucu totem: çevresinde sanity yenilenir + İzleyen yaklaşmaz
+  const g = new THREE.Group(); g.position.set(x, 0, z);
+  const woodM = new THREE.MeshStandardMaterial({ color: 0x6b4a26, roughness: 1, flatShading: true });
+  for (let i = 0; i < 3; i++) { const seg = new THREE.Mesh(new THREE.CylinderGeometry(0.34 - i * 0.04, 0.38 - i * 0.04, 0.8, 6), woodM); seg.position.y = 0.4 + i * 0.8; seg.rotation.y = i * 0.5; g.add(seg); }
+  const gemMat = new THREE.MeshStandardMaterial({ color: 0x9ff0ff, emissive: 0x52c8e6, emissiveIntensity: 1.0, roughness: 0.2, flatShading: true, transparent: true, opacity: 0.95 });
+  const top = new THREE.Mesh(new THREE.IcosahedronGeometry(0.36, 0), gemMat); top.position.y = 2.9; g.add(top);
+  g.add(Object.assign(new THREE.PointLight(0x7fe6ff, 1.0, 9, 2), { position: new THREE.Vector3(0, 2.9, 0) }));
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  scene.add(g); totems.push({ x, z, group: g, r: 13 });
+}
 function makeFlag(x, z) { const g = new THREE.Group(); g.position.set(x, 0, z); const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.4, 6), new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.5 })); pole.position.y = 1.2; g.add(pole); const cloth = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.5), new THREE.MeshStandardMaterial({ color: 0xd83030, side: THREE.DoubleSide })); cloth.position.set(0.42, 2.0, 0); g.add(cloth); scene.add(g); flags.push({ x, z, group: g }); }
 
 /* --- KURULACAK YAPILAR: üret → envantere düşer → ateş yanına yerleştir (hayalet önizleme) --- */
@@ -1161,6 +1228,8 @@ const PLACE = {
   torch: { label: "🔦 Meşale",         build: makeTorch,     dist: 2.6, size: [0.5, 2.0, 0.5] },
   drill: { label: "🛢️ Petrol Sondajı", build: makeFlag,      dist: 3.0, size: [0.9, 2.4, 0.9], onPlace: () => { S.oilDrills++; } },
   flag:  { label: "🚩 Bayrak",          build: makeFlag,      dist: 2.6, size: [0.7, 2.4, 0.7] },
+  lantern:{ label: "💠 Kristal Fener",  build: makeLantern,   dist: 2.6, size: [0.6, 2.6, 0.6] },
+  totem: { label: "🔮 Koruyucu Totem",  build: makeTotem,     dist: 2.8, size: [0.8, 3.2, 0.8] },
 };
 const placeBar = $("placeBar"), placeName = $("placeName");
 function addPlaceable(kind) { S.placeables[kind] = (S.placeables[kind] || 0) + 1; }
@@ -1230,6 +1299,8 @@ const RECIPES = [
   { tier: 4, up: 5, name: "⬆️ Tezgah Tier 5", desc: "5. seviye tarifleri açar", cost: { metal: 40, wood: 50 }, once: () => S.benchTier >= 5, make: (s) => s.benchTier = 5 },
   // ---- Tier 5 ----
   { tier: 5, name: "🚩 Bayrak", desc: "Üretilir, KUR; mini haritada kalıcı işaret bırakır", cost: { metal: 6, wood: 6 }, make: () => addPlaceable("flag") },
+  { tier: 5, name: "💠 Kristal Fener", desc: "Üretilir, KUR; güçlü kalıcı ışık + geniş güvenli alan", cost: { gem: 1, metal: 6 }, make: () => addPlaceable("lantern") },
+  { tier: 5, name: "🔮 Koruyucu Totem", desc: "Üretilir, KUR; çevrende akıl yenilenir + İzleyen yaklaşmaz", cost: { gem: 2, metal: 8, wood: 10 }, make: () => addPlaceable("totem") },
 ];
 function canAfford(r) { for (const k in r.cost) if ((S.inv[k] || 0) < r.cost[k]) return false; return !(r.once && r.once()); }
 function craft(r) {
@@ -1241,10 +1312,10 @@ function craft(r) {
   if (ok === false) { for (const k in r.cost) S.inv[k] += r.cost[k]; renderCraft(); return; }
   Sound.chop(); toast("🛠️ Üretildi: " + r.name, "good"); renderCraft();
 }
-const costStr = (c) => Object.entries(c).map(([k, v]) => ({ wood: "🪵", metal: "⚙️", pelt: "🧵", bandage: "🩹" }[k] + v)).join(" ");
+const costStr = (c) => Object.entries(c).map(([k, v]) => ({ wood: "🪵", metal: "⚙️", pelt: "🧵", bandage: "🩹", gem: "💎" }[k] + v)).join(" ");
 function renderCraft() {
   const list = $("craftList"); if (!list) return;
-  $("craftInv").textContent = `🪵${S.inv.wood}  ⚙️${S.inv.metal}  🧵${S.inv.pelt}  🩹${S.inv.bandage}  ·  Tezgah Tier ${S.benchTier}`;
+  $("craftInv").textContent = `🪵${S.inv.wood}  ⚙️${S.inv.metal}  🧵${S.inv.pelt}  🩹${S.inv.bandage}  💎${S.inv.gem}  ·  Tezgah Tier ${S.benchTier}`;
   list.innerHTML = "";
   // --- envanterdeki kurulacak yapılar (üret → KUR) ---
   if (placeablesCount() > 0) {
@@ -1621,6 +1692,9 @@ function update(dt) {
   for (const fm of farms) { fm.t += dt; if (fm.t >= 95) { fm.t = 0; S.inv.cooked++; toast("🌱 Tarladan +1 🍗 yiyecek", "good"); for (const sp of fm.sprouts) sp.scale.setScalar(0.4); } else { const gr = 0.4 + (fm.t / 95) * 0.9; for (const sp of fm.sprouts) sp.scale.setScalar(gr); } }
   if (S.oilDrills > 0 && baseFire) baseFire.fuel = Math.min(baseFire.fuel + S.oilDrills * 2.2 * dt, baseFire.max);
   for (const tr of torches) if (tr.flame) tr.flame.scale.setScalar(0.85 + Math.random() * 0.25);
+  // kristal parıltısı (nabız) + koruyucu totem aurası (sanity yenileme)
+  { const pulse = 0.6 + Math.sin(performance.now() / 380) * 0.35; for (const c of crystals) if (!c.mined && c.mat) c.mat.emissiveIntensity = pulse; }
+  for (const tm of totems) { if (Math.hypot(tm.x - camera.position.x, tm.z - camera.position.z) < tm.r) { S.sanity = clamp(S.sanity + 2.2 * dt, 0, 100); break; } }
 
   // ateşler (üs ateşi KALICI — sönse bile odun/taşlar kalır, yeniden beslenir)
   let nearFire = false, fireDist = 1e9;
@@ -1770,6 +1844,7 @@ function inCampSafe() {   // yanan ateş VEYA meşale güvenli alanı içinde mi
   const px = camera.position.x, pz = camera.position.z;
   for (const f of fires) { if (f.fuel > 0 && Math.hypot(f.x - px, f.z - pz) < (f.safeR || 11)) return true; }
   for (const t of torches) { if (Math.hypot(t.x - px, t.z - pz) < t.safeR) return true; }
+  for (const t of totems) { if (Math.hypot(t.x - px, t.z - pz) < t.r) return true; }
   return false;
 }
 function updateWatcher(dt, night) {
@@ -1928,7 +2003,7 @@ function phaseInfo(t) { if (t < 0.07) return ["🌑", "Gece"]; if (t < 0.20) ret
 
 /* ----------------------- HUD ----------------------- */
 const bars = { health: $("bar-health"), hunger: $("bar-hunger"), warmth: $("bar-warmth"), sanity: $("bar-sanity"), stamina: $("bar-stamina") };
-const invEl = { wood: $("inv-wood"), raw: $("inv-raw"), cooked: $("inv-cooked"), metal: $("inv-metal"), pelt: $("inv-pelt"), bandage: $("inv-bandage") };
+const invEl = { wood: $("inv-wood"), raw: $("inv-raw"), cooked: $("inv-cooked"), metal: $("inv-metal"), pelt: $("inv-pelt"), bandage: $("inv-bandage"), gem: $("inv-gem") };
 const mmCanvas = $("minimap"), mmctx = mmCanvas.getContext("2d");
 function drawMinimap() {
   const W = mmCanvas.width, H = mmCanvas.height, cx = W / 2, cy = H / 2, R = (S && S.bigMap) ? CFG.WORLD + 10 : 55, sc = (W / 2 - 6) / R;
@@ -1941,6 +2016,7 @@ function drawMinimap() {
   for (const a of animals) { const dx = a.x - px, dz = a.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillStyle = a.hostile ? "#ff5a4d" : "#d8c060"; mmctx.fillRect(cx + dx * sc - 1.5, cy + dz * sc - 1.5, 3, 3); }
   mmctx.fillStyle = "#9aa0a6"; for (const s of scraps) { if (s.taken) continue; const dx = s.x - px, dz = s.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillRect(cx + dx * sc - 1, cy + dz * sc - 1, 2, 2); }
   mmctx.fillStyle = "#e0b14a"; for (const c of chests) { if (c.opened) continue; const dx = c.x - px, dz = c.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillRect(cx + dx * sc - 1.5, cy + dz * sc - 1.5, 3, 3); }
+  mmctx.fillStyle = "#7fe9ff"; for (const c of crystals) { if (c.mined) continue; const dx = c.x - px, dz = c.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillRect(cx + dx * sc - 1.5, cy + dz * sc - 1.5, 3, 3); }
   for (const f of fires) { const dx = f.x - px, dz = f.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillStyle = "#ff9a3c"; mmctx.beginPath(); mmctx.arc(cx + dx * sc, cy + dz * sc, 3, 0, 6.3); mmctx.fill(); }
   for (const id in remotes) { const r = remotes[id]; if (!r.g) continue; const dx = r.g.position.x - px, dz = r.g.position.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillStyle = "#6fa3d6"; mmctx.beginPath(); mmctx.arc(cx + dx * sc, cy + dz * sc, 2.5, 0, 6.3); mmctx.fill(); }
   if (watcher) { const dx = watcher.x - px, dz = watcher.z - pz; if (dx * dx + dz * dz <= R * R) { mmctx.fillStyle = "#ff1010"; mmctx.beginPath(); mmctx.arc(cx + dx * sc, cy + dz * sc, 3.6, 0, 6.3); mmctx.fill(); } }
@@ -1953,11 +2029,11 @@ function updateHUD(night) {
   const [ic, tx] = phaseInfo(S.time); $("phaseIcon").textContent = ic; $("phaseText").textContent = tx;
   bars.health.style.width = S.health + "%"; bars.hunger.style.width = S.hunger + "%"; bars.warmth.style.width = S.warmth + "%"; bars.sanity.style.width = S.sanity + "%"; bars.stamina.style.width = S.stamina + "%";
   invEl.wood.textContent = S.inv.wood; invEl.raw.textContent = S.inv.raw; invEl.cooked.textContent = S.inv.cooked;
-  invEl.metal.textContent = S.inv.metal; invEl.pelt.textContent = S.inv.pelt; invEl.bandage.textContent = S.inv.bandage;
+  invEl.metal.textContent = S.inv.metal; invEl.pelt.textContent = S.inv.pelt; invEl.bandage.textContent = S.inv.bandage; if (invEl.gem) invEl.gem.textContent = S.inv.gem;
   const t = findTarget();
   if (t) {
     const key = isTouch ? "VUR" : "[Sol tık / E]";
-    const txt = t.kind === "bench" ? "🛠️ Tezgah " : t.kind === "scav" ? "🤝 Takas (5⚙️) " : t.kind === "tree" ? "🪓 Odun kes " : t.kind === "scrap" ? "⚙️ Metal topla " : t.kind === "chest" ? "📦 Sandığı aç " : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ");
+    const txt = t.kind === "bench" ? "🛠️ Tezgah " : t.kind === "scav" ? "🤝 Takas (5⚙️) " : t.kind === "tree" ? "🪓 Odun kes " : t.kind === "scrap" ? "⚙️ Metal topla " : t.kind === "crystal" ? (S.tools.pickaxe ? "💎 Kristal kaz " : "💎 Kristal (⛏️ gerek) ") : t.kind === "chest" ? "📦 Sandığı aç " : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ");
     promptEl.textContent = txt + key; promptEl.classList.remove("hidden");
   } else promptEl.classList.add("hidden");
   // pusula / ateşe dönüş

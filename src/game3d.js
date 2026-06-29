@@ -716,8 +716,8 @@ function newState() {
     running: false, paused: false, over: false, won: false,
     time: 0.16, day: 1,
     health: 100, hunger: 100, warmth: 100, sanity: 100, stamina: 100,
-    inv: { wood: 10, raw: 0, cooked: 2, metal: 0, pelt: 0, bandage: 1, gem: 0 },
-    tools: { pickaxe: false, tent: false, spear: false },
+    inv: { wood: 10, raw: 0, cooked: 2, metal: 0, pelt: 0, bandage: 1, gem: 0, cloth: 0, rope: 0, medkit: 0, pills: 0, canned: 0, choco: 0 },
+    tools: { pickaxe: false, tent: false, spear: false, axe: 0, chainsaw: false },   // axe: 0 eski / 1 iyi / 2 güçlü
     benchTier: 1, hasMap: false, hasCompass: false, hasLightningRod: false, hasCrockpot: false, farms: 0, oilDrills: 0,
     placeables: {},  // tezgahta üretilen ama henüz kurulmamış yapılar {kind:adet}
     fireFed: 0,   // ateşe atılan toplam odun (seviye için)
@@ -1031,6 +1031,7 @@ function vanishWatcher(quiet) { if (watcherGroup) watcherGroup.visible = false; 
 const keys = {};
 let yaw = 0, pitch = 0, locked = false, isTouch = false;
 const inp = { jx: 0, jy: 0, joy: false, sprint: false, action: false, fire: false, eat: false, bandage: false, sleep: false };
+let actionDown = false;   // aksiyon basılı mı (motorlu testere ile sürekli kesim için)
 
 const typingInField = (e) => { const t = e.target; return t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable); };
 addEventListener("keydown", (e) => {
@@ -1051,8 +1052,9 @@ addEventListener("keyup", (e) => { if (typingInField(e)) return; const k = e.key
 threeCanvas.addEventListener("mousedown", (e) => {
   if (!S || !S.running) return;
   if (!isTouch && !locked) { threeCanvas.requestPointerLock && threeCanvas.requestPointerLock(); return; }
-  if (e.button === 0) inp.action = true;
+  if (e.button === 0) { inp.action = true; actionDown = true; }
 });
+document.addEventListener("mouseup", (e) => { if (e.button === 0) actionDown = false; });
 document.addEventListener("pointerlockchange", () => { locked = (document.pointerLockElement === threeCanvas); });
 document.addEventListener("mousemove", (e) => { if (locked) { const s = 0.0022 * Settings.lookSens; yaw -= e.movementX * s; pitch = clamp(pitch - e.movementY * s, -1.45, 1.45); } });
 
@@ -1080,6 +1082,7 @@ function bindBtn(id, onDown, hold) {
   return el;
 }
 bindBtn("btn-action", () => (inp.action = true));
+{ const ba = $("btn-action"); if (ba) { const d = () => { actionDown = true; }, u = () => { actionDown = false; }; ba.addEventListener("touchstart", d, { passive: false }); ba.addEventListener("touchend", u); ba.addEventListener("touchcancel", u); ba.addEventListener("mousedown", d); ba.addEventListener("mouseup", u); } }
 bindBtn("btn-fire", () => (inp.fire = true));
 bindBtn("btn-eat", () => (inp.eat = true));
 bindBtn("btn-bandage", () => (inp.bandage = true));
@@ -1124,8 +1127,11 @@ function doAction() {
   }
   S.swingCd = 0.4; S.stamina = clamp(S.stamina - 4, 0, 100);
   if (t.kind === "tree") {
-    Sound.chop(); const tr = t.obj; tr.hp--; S.inv.wood++;
-    if (tr.hp <= 0) { tr.alive = false; tr.regrow = 95; S.inv.wood += 2; writeTree(trees.indexOf(tr)); treesNeedUpdate(); toast("🪵 Ağaç devrildi (+3)", "good"); }
+    Sound.chop(); const tr = t.obj;
+    const dmg = S.tools.chainsaw ? 4 : [1, 2, 4][S.tools.axe || 0];   // eski/iyi/güçlü balta
+    if (S.tools.chainsaw) S.swingCd = 0.12;                            // motorlu testere: basılı tut → sürekli kesim
+    tr.hp -= dmg; S.inv.wood++;
+    if (tr.hp <= 0) { tr.alive = false; tr.regrow = 95; const bonus = S.tools.chainsaw ? 3 : 2; S.inv.wood += bonus; writeTree(trees.indexOf(tr)); treesNeedUpdate(); toast("🪵 Ağaç devrildi (+" + (bonus + 1) + ")", "good"); }
     return;
   }
   if (t.kind === "scrap") {                                   // metal hurda topla (kazma daha hızlı)
@@ -1152,6 +1158,18 @@ function doAction() {
     if (Math.random() < 0.5) { const f = rndi(1, 3); S.inv.cooked += f; loot.push("🍗" + f); }
     if (Math.random() < 0.35) { const p = rndi(1, 2); S.inv.pelt += p; loot.push("🧵" + p); }
     if (Math.random() < 0.12) { S.inv.gem += 1; loot.push("💎1"); }   // nadir mücevher
+    // yeni materyaller + tüketilebilirler
+    if (Math.random() < 0.5) { const c = rndi(1, 3); S.inv.cloth += c; loot.push("🧶" + c); }
+    if (Math.random() < 0.3) { const r = rndi(1, 2); S.inv.rope += r; loot.push("🪢" + r); }
+    if (Math.random() < 0.35) { const f = rndi(1, 2); S.inv.canned += f; loot.push("🥫" + f); }
+    if (Math.random() < 0.3) { S.inv.choco += 1; loot.push("🍫1"); }
+    if (Math.random() < 0.22) { const p = rndi(1, 2); S.inv.pills += p; loot.push("💊" + p); }
+    if (Math.random() < 0.12) { S.inv.medkit += 1; loot.push("🧰1"); }
+    // nadir alet yükseltmesi (sandıktan): iyi/güçlü balta, motorlu testere, kazma
+    if (S.tools.axe < 1 && Math.random() < 0.10) { S.tools.axe = 1; loot.push("🪓 İyi Balta!"); }
+    else if (S.tools.axe < 2 && Math.random() < 0.04) { S.tools.axe = 2; loot.push("🪓 Güçlü Balta!"); }
+    if (!S.tools.chainsaw && Math.random() < 0.025) { S.tools.chainsaw = true; loot.push("🪚 Motorlu Testere!"); }
+    if (!S.tools.pickaxe && Math.random() < 0.08) { S.tools.pickaxe = true; loot.push("⛏️ Kazma!"); }
     if (Math.random() < 0.45) { const note = choice(NOTE_POOL); if (!S.notes.includes(note)) { S.notes.push(note); loot.push("📓"); toast("📓 Bir günlük buldun (Duraklat → Günlükler)", "good"); } }
     toast("📦 Sandık: " + loot.join("  "), "good");
     return;
@@ -1187,7 +1205,9 @@ function doFire() {
 }
 function doEat() {
   const inv = S.inv;
-  if (inv.cooked > 0) { inv.cooked--; const amt = S.hasCrockpot ? 65 : 45; S.hunger = clamp(S.hunger + amt, 0, 100); if (S.hasCrockpot) S.health = clamp(S.health + 5, 0, 100); toast("🍗 " + (S.hasCrockpot ? "Güveç" : "Pişmiş et") + " yedin (+" + amt + ")", "good"); }
+  if (inv.canned > 0) { inv.canned--; S.hunger = clamp(S.hunger + 60, 0, 100); toast("🥫 Konserve yedin (+60 açlık)", "good"); }
+  else if (inv.choco > 0) { inv.choco--; S.hunger = clamp(S.hunger + 30, 0, 100); S.stamina = clamp(S.stamina + 25, 0, 100); toast("🍫 Çikolata (+30 açlık, +25 enerji)", "good"); }
+  else if (inv.cooked > 0) { inv.cooked--; const amt = S.hasCrockpot ? 65 : 45; S.hunger = clamp(S.hunger + amt, 0, 100); if (S.hasCrockpot) S.health = clamp(S.health + 5, 0, 100); toast("🍗 " + (S.hasCrockpot ? "Güveç" : "Pişmiş et") + " yedin (+" + amt + ")", "good"); }
   else if (inv.raw > 0) { inv.raw--; S.hunger = clamp(S.hunger + 18, 0, 100); if (Math.random() < 0.45) { S.health = clamp(S.health - 12, 0, 100); S.sanity = clamp(S.sanity - 4, 0, 100); S.sick = 3; toast("🤢 Çiğ et seni hasta etti!", "bad"); } else toast("🥩 Çiğ et yedin (+18)", "good"); }
   else toast("Yiyecek yok!", "bad");
 }
@@ -1284,6 +1304,9 @@ const RECIPES = [
   { tier: 1, name: "🗡️ Mızrak", desc: "Avı/canavarı daha çok yaralar", cost: { metal: 2, wood: 4 }, once: () => S.tools.spear, make: (s) => s.tools.spear = true },
   { tier: 1, up: 2, name: "⬆️ Tezgah Tier 2", desc: "2. seviye tarifleri açar", cost: { metal: 1, wood: 5 }, once: () => S.benchTier >= 2, make: (s) => s.benchTier = 2 },
   // ---- Tier 2 ----
+  { tier: 2, name: "🪓 İyi Balta", desc: "Ağaçları 2 vuruşta keser (eski baltadan hızlı)", cost: { metal: 6, wood: 4 }, once: () => S.tools.axe >= 1, make: (s) => s.tools.axe = Math.max(s.tools.axe, 1) },
+  { tier: 2, name: "🧰 Sağlık Çantası", desc: "+75 can (🩹 butonu önce bunu kullanır)", cost: { cloth: 3, metal: 2 }, make: (s) => s.inv.medkit++ },
+  // ---- Tier 2 ----
   { tier: 2, name: "🧭 Pusula", desc: "Baktığın yönü HUD'da gösterir", cost: { metal: 3 }, once: () => S.hasCompass, make: (s) => s.hasCompass = true },
   { tier: 2, name: "🪤 Ayı Tuzağı", desc: "Üretilir, KUR; üstünden geçen düşmanı yaralar", cost: { metal: 3, wood: 1 }, make: () => addPlaceable("trap") },
   { tier: 2, name: "🧱 Tomruk Duvar", desc: "Üretilir, KUR; sağlam ahşap duvar", cost: { wood: 12 }, make: () => addPlaceable("wall") },
@@ -1293,9 +1316,11 @@ const RECIPES = [
   { tier: 3, name: "🔦 Meşale", desc: "Üretilir, KUR; etrafı aydınlatır, güvenli alanı genişletir", cost: { metal: 4, wood: 4 }, make: () => addPlaceable("torch") },
   { tier: 3, name: "⚡ Paratoner", desc: "Şimşeğin akıl/sağlık etkisini engeller (üs)", cost: { metal: 8 }, once: () => S.hasLightningRod, make: (s) => s.hasLightningRod = true },
   { tier: 3, name: "🍲 Güveç Tenceresi", desc: "Pişmiş et açlığı çok daha iyi giderir", cost: { metal: 8, wood: 8 }, once: () => S.hasCrockpot, make: (s) => s.hasCrockpot = true },
+  { tier: 3, name: "🪓 Güçlü Balta", desc: "Normal ağacı tek vuruşta devirir", cost: { metal: 14, gem: 1 }, once: () => S.tools.axe >= 2, make: (s) => s.tools.axe = 2 },
   { tier: 3, up: 4, name: "⬆️ Tezgah Tier 4", desc: "4. seviye tarifleri açar", cost: { metal: 15, wood: 20 }, once: () => S.benchTier >= 4, make: (s) => s.benchTier = 4 },
   // ---- Tier 4 ----
   { tier: 4, name: "🛢️ Petrol Sondajı", desc: "Üretilir, KUR; kamp ateşini otomatik besler (maks 3)", cost: { metal: 18, wood: 25 }, once: () => (S.oilDrills + (S.placeables.drill || 0)) >= 3, make: () => addPlaceable("drill") },
+  { tier: 4, name: "🪚 Motorlu Testere", desc: "Aksiyonu BASILI tut → ağaçları sürekli ve hızlı kes", cost: { metal: 20, gem: 2 }, once: () => S.tools.chainsaw, make: (s) => s.tools.chainsaw = true },
   { tier: 4, up: 5, name: "⬆️ Tezgah Tier 5", desc: "5. seviye tarifleri açar", cost: { metal: 40, wood: 50 }, once: () => S.benchTier >= 5, make: (s) => s.benchTier = 5 },
   // ---- Tier 5 ----
   { tier: 5, name: "🚩 Bayrak", desc: "Üretilir, KUR; mini haritada kalıcı işaret bırakır", cost: { metal: 6, wood: 6 }, make: () => addPlaceable("flag") },
@@ -1312,10 +1337,10 @@ function craft(r) {
   if (ok === false) { for (const k in r.cost) S.inv[k] += r.cost[k]; renderCraft(); return; }
   Sound.chop(); toast("🛠️ Üretildi: " + r.name, "good"); renderCraft();
 }
-const costStr = (c) => Object.entries(c).map(([k, v]) => ({ wood: "🪵", metal: "⚙️", pelt: "🧵", bandage: "🩹", gem: "💎" }[k] + v)).join(" ");
+const costStr = (c) => Object.entries(c).map(([k, v]) => ({ wood: "🪵", metal: "⚙️", pelt: "🧵", bandage: "🩹", gem: "💎", cloth: "🧶", rope: "🪢" }[k] + v)).join(" ");
 function renderCraft() {
   const list = $("craftList"); if (!list) return;
-  $("craftInv").textContent = `🪵${S.inv.wood}  ⚙️${S.inv.metal}  🧵${S.inv.pelt}  🩹${S.inv.bandage}  💎${S.inv.gem}  ·  Tezgah Tier ${S.benchTier}`;
+  $("craftInv").textContent = `🪵${S.inv.wood} ⚙️${S.inv.metal} 🧶${S.inv.cloth} 🪢${S.inv.rope} 🧵${S.inv.pelt} 💎${S.inv.gem} · 🩹${S.inv.bandage} 🧰${S.inv.medkit} 💊${S.inv.pills} 🥫${S.inv.canned} · Tezgah T${S.benchTier}`;
   list.innerHTML = "";
   // --- envanterdeki kurulacak yapılar (üret → KUR) ---
   if (placeablesCount() > 0) {
@@ -1360,8 +1385,10 @@ function useBandage() {
     try { net.broadcast({ t: "revived", id: downedId }); } catch (e) {}
     toast("🩹 Arkadaşını dirilttin!", "good"); return;
   }
-  if (S.inv.bandage <= 0) { toast("Bandaj yok 🩹 (tezgahta üret)", "bad"); return; }
   if (S.health >= 100) { toast("Canın zaten dolu.", "bad"); return; }
+  if (S.inv.medkit > 0) { S.inv.medkit--; S.health = clamp(S.health + 75, 0, 100); S.sick = 0; S.bleed = 0; toast("🧰 Sağlık çantası: +75 can", "good"); return; }
+  if (S.inv.pills > 0) { S.inv.pills--; S.health = clamp(S.health + 30, 0, 100); S.stamina = clamp(S.stamina + 40, 0, 100); S.sick = 0; toast("💊 Ağrı kesici: +30 can, +40 enerji", "good"); return; }
+  if (S.inv.bandage <= 0) { toast("Tıbbi malzeme yok 🩹🧰💊 (sandık/tezgah)", "bad"); return; }
   S.inv.bandage--; S.health = clamp(S.health + 35, 0, 100); S.sick = 0; toast("🩹 Bandaj: +35 can", "good");
 }
 
@@ -1666,6 +1693,7 @@ function update(dt) {
 
   // aksiyon kenar tetikleri
   if (placeMode) updateGhost();
+  if (S.tools.chainsaw && actionDown && !placeMode && S.swingCd <= 0) inp.action = true;   // motorlu testere: basılı tutunca sürekli kes
   if (inp.action) { inp.action = false; if (placeMode) confirmPlace(); else doAction(); }
   if (inp.fire) { inp.fire = false; doFire(); }
   if (inp.eat) { inp.eat = false; doEat(); }
@@ -2033,7 +2061,8 @@ function updateHUD(night) {
   const t = findTarget();
   if (t) {
     const key = isTouch ? "VUR" : "[Sol tık / E]";
-    const txt = t.kind === "bench" ? "🛠️ Tezgah " : t.kind === "scav" ? "🤝 Takas (5⚙️) " : t.kind === "tree" ? "🪓 Odun kes " : t.kind === "scrap" ? "⚙️ Metal topla " : t.kind === "crystal" ? (S.tools.pickaxe ? "💎 Kristal kaz " : "💎 Kristal (⛏️ gerek) ") : t.kind === "chest" ? "📦 Sandığı aç " : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ");
+    const axeTxt = S.tools.chainsaw ? "🪚 Kes (basılı tut) " : ["🪓 Odun kes ", "🪓 Odun kes (iyi) ", "🪓 Odun kes (güçlü) "][S.tools.axe || 0];
+    const txt = t.kind === "bench" ? "🛠️ Tezgah " : t.kind === "scav" ? "🤝 Takas (5⚙️) " : t.kind === "tree" ? axeTxt : t.kind === "scrap" ? "⚙️ Metal topla " : t.kind === "crystal" ? (S.tools.pickaxe ? "💎 Kristal kaz " : "💎 Kristal (⛏️ gerek) ") : t.kind === "chest" ? "📦 Sandığı aç " : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ");
     promptEl.textContent = txt + key; promptEl.classList.remove("hidden");
   } else promptEl.classList.add("hidden");
   // pusula / ateşe dönüş

@@ -192,7 +192,8 @@ function updateBirds(dt) {
   for (const b of birds) {
     b.a += b.sp * dt;
     b.root.position.set(cx + Math.cos(b.a) * b.R, b.cy + Math.sin(tt + b.bob) * 2.2, cz + Math.sin(b.a) * b.R);
-    b.root.rotation.y = -b.a + (b.sp > 0 ? Math.PI : 0);
+    // uçuş yönüne dön (model +Z burunlu): hız teğeti = (-sin a, cos a)*sp → atan2 ile (ters uçma fix)
+    b.root.rotation.y = Math.atan2(-Math.sin(b.a) * b.sp, Math.cos(b.a) * b.sp);
     b.mixer.update(dt);
   }
 }
@@ -699,28 +700,44 @@ function makeAnimal(type) {
     if (src.clip) { const mixer = new THREE.AnimationMixer(m); mixer.clipAction(src.clip).play(); g.userData.mixer = mixer; }
     scene.add(g); return g;
   }
-  const col = { capybara: 0x8a6a44, deer: 0x9a7a52, tapir: 0x5a4a44, boar: 0x4a3a30, jaguar: 0xc8902c }[type] || 0x8a6a44;
-  const big = type === "jaguar" || type === "tapir";
-  const mat = new THREE.MeshStandardMaterial({ color: col, roughness: 1, flatShading: true });
-  const body = new THREE.Mesh(new THREE.BoxGeometry(big ? 1.6 : 1.1, 0.7, 0.6), mat);
-  body.position.y = 0.55; g.add(body);
-  // boyun + kafa (ileriye, +X)
-  const headY = type === "deer" ? 1.05 : 0.72, headFwd = big ? 0.9 : 0.66;
-  if (type === "deer") { const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 0.6, 6), mat); neck.position.set(0.45, 0.95, 0); neck.rotation.z = -0.7; g.add(neck); }
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.42, 0.42), mat); head.position.set(headFwd, headY, 0); g.add(head);
-  // snout / namlu
-  const snout = new THREE.Mesh(new THREE.BoxGeometry(type === "tapir" ? 0.45 : 0.28, 0.22, 0.26), mat); snout.position.set(headFwd + (type === "tapir" ? 0.3 : 0.24), headY - 0.05, 0); g.add(snout);
-  // bacaklar
+  // ----- organik prosedürel hayvan (kapsül gövde + küre kafa) — kutu görünümü kalktı -----
+  const P = ({
+    capybara: { col: 0x8a6a44, len: 1.0, rad: 0.4, legH: 0.34, headR: 0.32, headFwd: 0.66, headY: 0.62, snout: "blunt", ears: "round" },
+    boar: { col: 0x4a3a30, len: 1.05, rad: 0.42, legH: 0.42, headR: 0.3, headFwd: 0.66, headY: 0.6, snout: "snout", ears: "point", tusks: true, bristle: true },
+    tapir: { col: 0x4a4248, len: 1.45, rad: 0.44, legH: 0.5, headR: 0.32, headFwd: 0.92, headY: 0.74, snout: "trunk", ears: "round" },
+    deer: { col: 0x9a7a52, len: 1.0, rad: 0.3, legH: 0.62, headR: 0.24, headFwd: 0.66, headY: 1.1, snout: "blunt", ears: "point", neck: true, antlers: true },
+    jaguar: { col: 0xc8902c, len: 1.4, rad: 0.36, legH: 0.5, headR: 0.3, headFwd: 0.95, headY: 0.72, snout: "blunt", ears: "point", eyes: true },
+  })[type] || { col: 0x8a6a44, len: 1.0, rad: 0.38, legH: 0.4, headR: 0.3, headFwd: 0.66, headY: 0.62, snout: "blunt", ears: "round" };
+  const mat = new THREE.MeshStandardMaterial({ color: P.col, roughness: 0.95 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 1 });
+  const bodyY = P.legH + P.rad * 0.7;
+  // gövde (yatay kapsül)
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(P.rad, P.len, 6, 12), mat); body.rotation.z = Math.PI / 2; body.position.set(0.1, bodyY, 0); g.add(body);
+  const rump = new THREE.Mesh(new THREE.SphereGeometry(P.rad * 1.05, 10, 10), mat); rump.position.set(-P.len * 0.5, bodyY, 0); g.add(rump);
+  // boyun (geyik/jaguar) + kafa
+  if (P.neck) { const neck = new THREE.Mesh(new THREE.CapsuleGeometry(P.rad * 0.45, 0.5, 4, 8), mat); neck.position.set(P.headFwd - 0.18, bodyY + 0.32, 0); neck.rotation.z = -0.8; g.add(neck); }
+  const head = new THREE.Mesh(new THREE.SphereGeometry(P.headR, 12, 12), mat); head.scale.set(1.15, 0.95, 0.92); head.position.set(P.headFwd, P.headY, 0); g.add(head);
+  // burun/namlu
+  if (P.snout === "trunk") { const tr = new THREE.Mesh(new THREE.CapsuleGeometry(0.09, 0.34, 4, 8), mat); tr.position.set(P.headFwd + P.headR + 0.12, P.headY - 0.12, 0); tr.rotation.z = 0.9; g.add(tr); }
+  else if (P.snout === "snout") { const sn = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.26, 8), mat); sn.rotation.z = Math.PI / 2; sn.position.set(P.headFwd + P.headR + 0.05, P.headY - 0.04, 0); g.add(sn); const nose = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), dark); nose.position.set(P.headFwd + P.headR + 0.2, P.headY - 0.04, 0); g.add(nose); }
+  else { const sn = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8), mat); sn.scale.set(1.2, 0.85, 0.85); sn.position.set(P.headFwd + P.headR * 0.7, P.headY - 0.08, 0); g.add(sn); }
+  // kulaklar
+  for (const sz of [-1, 1]) {
+    let ear;
+    if (P.ears === "point") { ear = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.18, 5), mat); ear.position.set(P.headFwd - 0.05, P.headY + P.headR * 0.9, sz * 0.16); }
+    else { ear = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), mat); ear.position.set(P.headFwd - 0.06, P.headY + P.headR * 0.8, sz * 0.18); }
+    g.add(ear);
+  }
+  // bacaklar (silindir)
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.16, type === "deer" ? 0.7 : 0.5, 0.16), new THREE.MeshStandardMaterial({ color: 0x2a2018 }));
-    leg.position.set(sx * (big ? 0.6 : 0.42), (type === "deer" ? 0.35 : 0.25), sz * 0.22); g.add(leg);
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.07, P.legH, 7), dark);
+    leg.position.set(P.len * 0.34 * sx, P.legH / 2, sz * (P.rad * 0.7)); g.add(leg);
   }
-  if (type === "deer") for (const sx of [-1, 1]) { const horn = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.5, 4), new THREE.MeshStandardMaterial({ color: 0x6a5436 })); horn.position.set(headFwd, headY + 0.4, sx * 0.12); horn.rotation.z = sx * 0.3; g.add(horn); }
-  if (type === "boar") for (const sx of [-1, 1]) { const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.22, 4), new THREE.MeshStandardMaterial({ color: 0xe8e0c8 })); tusk.position.set(headFwd + 0.22, headY - 0.12, sx * 0.1); tusk.rotation.z = 1.6; g.add(tusk); }
-  if (type === "jaguar") {
-    const em = new THREE.MeshStandardMaterial({ color: 0xffd83a, emissive: 0xffcc22, emissiveIntensity: 1.4 });
-    for (const sz of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 6), em); e.position.set((big ? 1.15 : 0.9), 0.78, sz * 0.13); g.add(e); }
-  }
+  // tür özellikleri
+  if (P.antlers) for (const sz of [-1, 1]) { const horn = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.55, 5), new THREE.MeshStandardMaterial({ color: 0x6a5436 })); horn.position.set(P.headFwd - 0.05, P.headY + 0.42, sz * 0.13); horn.rotation.z = sz * 0.35; g.add(horn); }
+  if (P.tusks) for (const sz of [-1, 1]) { const tusk = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.2, 5), new THREE.MeshStandardMaterial({ color: 0xe8e0c8 })); tusk.position.set(P.headFwd + P.headR + 0.16, P.headY - 0.14, sz * 0.1); tusk.rotation.z = 1.9; g.add(tusk); }
+  if (P.bristle) for (let i = 0; i < 5; i++) { const b = new THREE.Mesh(new THREE.ConeGeometry(0.03, 0.22, 4), dark); b.position.set(0.4 - i * 0.18, bodyY + P.rad * 0.9, 0); g.add(b); }
+  if (P.eyes) { const em = new THREE.MeshStandardMaterial({ color: 0xffd83a, emissive: 0xffcc22, emissiveIntensity: 1.4 }); for (const sz of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 6), em); e.position.set(P.headFwd + P.headR * 0.7, P.headY + 0.06, sz * 0.13); g.add(e); } }
   if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   scene.add(g); return g;
 }

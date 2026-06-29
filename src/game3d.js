@@ -152,6 +152,9 @@ function buildScene() {
   setupTreeModel();               // gerçek GLB ağaç paketi (low-poly) — prosedürel ağaçların yerini alır
   buildScatter();
   buildStructures();              // metal hurda + sandık + kulübeler
+  buildWater();                   // parıldayan su birikintileri
+  buildFlowers();                 // renkli çiçekler (zemin canlılığı)
+  buildTreeline();                // uzaktaki ağaç silüeti (ufuk derinliği)
   buildSky();                     // gradyan gökyüzü + yıldız + ay + güneş parıltısı
   buildMotes();                   // gündüz toz/polen zerreleri
   buildFireflies();
@@ -339,25 +342,67 @@ function applyWind(mat, amount) {
   mat.needsUpdate = true;
 }
 
+/* ----- su birikintileri (parıldayan, gökyüzü tonlu) ----- */
+let waterTex = null;
+function waterTexture() {
+  const c = document.createElement("canvas"); c.width = c.height = 256; const g = c.getContext("2d");
+  const grad = g.createLinearGradient(0, 0, 256, 256); grad.addColorStop(0, "#11364a"); grad.addColorStop(1, "#1c5066"); g.fillStyle = grad; g.fillRect(0, 0, 256, 256);
+  g.strokeStyle = "rgba(180,220,235,0.25)"; g.lineWidth = 2;
+  for (let i = 0; i < 40; i++) { g.beginPath(); const y = Math.random() * 256; g.moveTo(0, y); for (let x = 0; x <= 256; x += 16) g.lineTo(x, y + Math.sin(x * 0.1 + i) * 6); g.stroke(); }
+  waterTex = new THREE.CanvasTexture(c); waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping; waterTex.repeat.set(2, 2); return waterTex;
+}
+function buildWater() {
+  const tex = waterTexture();
+  const mat = new THREE.MeshStandardMaterial({ map: tex, color: 0x6fa6c8, transparent: true, opacity: 0.82, metalness: 0.6, roughness: 0.15, emissive: 0x0a2230, emissiveIntensity: 0.4 });
+  for (let i = 0; i < 5; i++) {
+    const [x, z] = farFromSpawn(30); const r = rnd(6, 13);
+    const m = new THREE.Mesh(new THREE.CircleGeometry(r, 28), mat); m.rotation.x = -Math.PI / 2; m.position.set(x, 0.06, z); m.receiveShadow = false; scene.add(m);
+  }
+}
+
+/* ----- renkli çiçekler + uzaktaki ağaç silüeti (derinlik) ----- */
+function buildFlowers() {
+  const headGeo = new THREE.IcosahedronGeometry(0.13, 0);
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, emissive: 0x111111, emissiveIntensity: 0.15, flatShading: true });
+  const N = 420, im = new THREE.InstancedMesh(headGeo, mat, N); im.frustumCulled = false; if (shadowsOn) im.castShadow = true;
+  const col = new THREE.Color(), hues = [0.0, 0.08, 0.13, 0.83, 0.6, 0.95];
+  for (let i = 0; i < N; i++) { _d.position.set(rnd(-CFG.WORLD, CFG.WORLD), rnd(0.25, 0.5), rnd(-CFG.WORLD, CFG.WORLD)); _d.rotation.set(0, rnd(0, 6.3), 0); _d.scale.setScalar(rnd(0.7, 1.6)); _d.updateMatrix(); im.setMatrixAt(i, _d.matrix); col.setHSL(choice(hues), rnd(0.6, 0.9), rnd(0.55, 0.7)); im.setColorAt(i, col); }
+  im.instanceColor.needsUpdate = true; scene.add(im);
+}
+function buildTreeline() {
+  // dünya kenarının hemen dışında koyu ağaç silüetleri — "orman devam ediyor" hissi + düz sınırı gizler
+  const geo = new THREE.ConeGeometry(4, 16, 6);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x0e1c12, roughness: 1, flatShading: true });
+  const N = 140, im = new THREE.InstancedMesh(geo, mat, N); im.frustumCulled = false;
+  for (let i = 0; i < N; i++) { const a = (i / N) * 6.283 + rnd(-0.02, 0.02), rad = CFG.WORLD + rnd(8, 55); _d.position.set(Math.cos(a) * rad, rnd(5, 9), Math.sin(a) * rad); _d.rotation.set(0, rnd(0, 6.3), 0); _d.scale.set(rnd(0.8, 1.8), rnd(0.9, 2.0), rnd(0.8, 1.8)); _d.updateMatrix(); im.setMatrixAt(i, _d.matrix); }
+  scene.add(im);
+}
+
 /* ----- ateş böcekleri / gece parıltıları (Points) ----- */
 function buildFireflies() {
-  const N = 150, pos = new Float32Array(N * 3);
+  const N = 260, pos = new Float32Array(N * 3);
   for (let i = 0; i < N; i++) { pos[i * 3] = rnd(-60, 60); pos[i * 3 + 1] = rnd(0.5, 6); pos[i * 3 + 2] = rnd(-60, 60); }
   const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  const mat = new THREE.PointsMaterial({ color: 0xbfff8a, size: 0.22, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+  const mat = new THREE.PointsMaterial({ color: 0xcaff8a, size: 0.26, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
   fireflies = new THREE.Points(geo, mat); fireflies.frustumCulled = false; fireflies.userData.phase = new Float32Array(N).map(() => rnd(0, 6.28));
   scene.add(fireflies);
 }
 
 function groundTexture() {
-  const c = document.createElement("canvas"); c.width = c.height = 256; const g = c.getContext("2d");
-  g.fillStyle = "#243a22"; g.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 2600; i++) {
-    g.fillStyle = choice(["#1d3018", "#2c4a26", "#34552c", "#3a3020", "#1a2614"]);
-    const x = Math.random() * 256, y = Math.random() * 256, r = Math.random() * 3 + 1;
+  const c = document.createElement("canvas"); c.width = c.height = 512; const g = c.getContext("2d");
+  // büyük ölçekli yumuşak renk dalgalanması (toprak/yosun lekeleri)
+  const base = g.createLinearGradient(0, 0, 512, 512); base.addColorStop(0, "#243a22"); base.addColorStop(0.5, "#2a4226"); base.addColorStop(1, "#20351d");
+  g.fillStyle = base; g.fillRect(0, 0, 512, 512);
+  for (let i = 0; i < 60; i++) { g.fillStyle = choice(["rgba(58,48,32,0.25)", "rgba(40,70,38,0.22)", "rgba(26,40,22,0.3)"]); const x = Math.random() * 512, y = Math.random() * 512, r = rnd(30, 90); g.beginPath(); g.arc(x, y, r, 0, 6.3); g.fill(); }
+  // ince çakıl/yaprak dokusu
+  for (let i = 0; i < 5200; i++) {
+    g.fillStyle = choice(["#1d3018", "#2c4a26", "#34552c", "#3a3020", "#1a2614", "#46582e", "#5a4a2c"]);
+    const x = Math.random() * 512, y = Math.random() * 512, r = Math.random() * 3 + 0.6;
     g.beginPath(); g.arc(x, y, r, 0, 6.3); g.fill();
   }
-  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(40, 40); return t;
+  // dağılmış küçük yapraklar
+  for (let i = 0; i < 240; i++) { g.save(); g.translate(Math.random() * 512, Math.random() * 512); g.rotate(rnd(0, 6.3)); g.fillStyle = choice(["#3c5a2a", "#4a6630", "#5a4326"]); g.beginPath(); g.ellipse(0, 0, rnd(2, 5), rnd(1, 2), 0, 0, 6.3); g.fill(); g.restore(); }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(36, 36); return t;
 }
 
 /* ----- ağaçlar (InstancedMesh) ----- */
@@ -714,9 +759,11 @@ function spawnPack() {                                         // sürü: 4-6 h�
 function makeFire(x, z) {
   const g = new THREE.Group(); g.position.set(x, 0, z);
   for (let i = 0; i < 5; i++) { const log = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1, 5), new THREE.MeshStandardMaterial({ color: 0x2a1c10 })); log.rotation.z = Math.PI / 2; log.rotation.y = i / 5 * Math.PI; log.position.y = 0.1; g.add(log); }
+  const halo = new THREE.Mesh(new THREE.ConeGeometry(0.6, 1.6, 10), new THREE.MeshBasicMaterial({ color: 0xff5a12, transparent: true, opacity: 0.28, depthWrite: false, blending: THREE.AdditiveBlending })); halo.position.y = 0.85; g.add(halo);  // sıcak parıltı (bloom yakalar)
   const flame = new THREE.Mesh(new THREE.ConeGeometry(0.35, 1.1, 7), new THREE.MeshBasicMaterial({ color: 0xff7a1a, transparent: true, opacity: 0.92 })); flame.position.y = 0.7; g.add(flame);
-  const flame2 = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.7, 6), new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.95 })); flame2.position.y = 0.55; g.add(flame2);
-  const light = new THREE.PointLight(0xff8a3c, 2.2, 16, 1.5); light.position.y = 1; g.add(light);
+  const flame2 = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.7, 6), new THREE.MeshBasicMaterial({ color: 0xffe06a, transparent: true, opacity: 0.96 })); flame2.position.y = 0.55; g.add(flame2);
+  const core = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.4, 6), new THREE.MeshBasicMaterial({ color: 0xfff2c0, transparent: true, opacity: 1 })); core.position.y = 0.42; g.add(core);  // beyaz-sıcak çekirdek
+  const light = new THREE.PointLight(0xff8a3c, 2.6, 18, 1.5); light.position.y = 1; g.add(light);
   // kıvılcımlar
   const EN = 26, ep = new Float32Array(EN * 3), ev = [];
   for (let i = 0; i < EN; i++) { ep[i * 3] = rnd(-0.2, 0.2); ep[i * 3 + 1] = rnd(0.2, 1.5); ep[i * 3 + 2] = rnd(-0.2, 0.2); ev.push(rnd(0.6, 1.8)); }
@@ -750,7 +797,7 @@ function placeInFront(dist) { camera.getWorldDirection(_fwd); _fwd.y = 0; _fwd.n
 function makeWatcher() {
   const g = new THREE.Group();
   if (watcherProto) {                                          // gerçek necromorph modeli
-    const m = watcherProto.clone(true); m.rotation.y = Math.PI;   // ön yüzünü +Z'ye (oyuncuya bakar)
+    const m = watcherProto.clone(true); m.rotation.y = -Math.PI / 2;   // modelin önü +X'te; İzleyen +Z yönüne bakar → -90° ile oyuncuya döner (yan koşma fix)
     if (shadowsOn) m.traverse((o) => { if (o.isMesh) o.castShadow = true; });
     g.add(m);
     const rl = new THREE.PointLight(0xff1010, 0.7, 7, 2); rl.position.set(0, 3.3, 0.3); g.add(rl);   // kızıl parıltı
@@ -1439,6 +1486,7 @@ function update(dt) {
   scene.fog.density = lerp(0.013, 0.12, dk) * (S.weather === "rain" ? 1.5 : 1);   // gece yoğun sis; yağmur daha da kapatır
   updateSky(dk, dayK, skyCol, sunAng);          // gradyan gökyüzü + yıldız + ay + güneş parıltısı
   windU.value = performance.now() / 1000;        // bitki rüzgârı
+  if (waterTex) { waterTex.offset.x = windU.value * 0.02; waterTex.offset.y = Math.sin(windU.value * 0.3) * 0.04; }   // su parıltısı
   // toz/polen zerreleri (gündüz)
   if (motes) {
     motes.material.opacity = dayK * (S.weather === "rain" ? 0.05 : 0.5); motes.position.set(camera.position.x, 0, camera.position.z);

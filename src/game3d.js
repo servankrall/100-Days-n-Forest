@@ -595,6 +595,82 @@ function buildStructures() {
   for (let i = 0; i < CFG.CHESTS; i++) { const [x, z] = farFromSpawn(16); makeChest(x, z); }
   for (let i = 0; i < CFG.SCRAP; i++) { const [x, z] = farFromSpawn(10); makeScrap(x, z); }
   makeBench();
+  buildPOIs();
+}
+
+/* ----- ÖNEMLİ NOKTALAR (POI): Stonehenge, Kilise, Gözcü Kulesi, Mağara, Köprü, Hurdacı ----- */
+let scav = null;   // hurdacı NPC konumu (takas)
+function makeStonehenge(x, z) {
+  const g = new THREE.Group(); g.position.set(x, 0, z);
+  const st = new THREE.MeshStandardMaterial({ color: 0x6b6660, roughness: 1, flatShading: true });
+  const N = 8, R = 5;
+  for (let i = 0; i < N; i++) { const a = (i / N) * 6.283; const p = new THREE.Mesh(new THREE.BoxGeometry(1.1, rnd(4, 5.5), 0.9), st); p.position.set(Math.cos(a) * R, 2.4, Math.sin(a) * R); p.rotation.y = -a; if (shadowsOn) p.castShadow = true; g.add(p); if (i % 2 === 0) { const lin = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.7, 0.9), st); lin.position.set(Math.cos(a) * R, 4.7, Math.sin(a) * R); lin.rotation.y = -a; g.add(lin); } }
+  const altar = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.6, 1.1), st); altar.position.y = 0.3; g.add(altar);
+  scene.add(g); makeChest(x + 1.4, z); houses.push({ x, z, group: g });
+}
+function makeChurch(x, z) {
+  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rnd(0, 6.3);
+  const stone = new THREE.MeshStandardMaterial({ color: 0x4a4640, roughness: 1 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x2a2620, roughness: 1, flatShading: true });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(6, 6, 10), stone); body.position.y = 3; g.add(body);
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(6.4, 2.4, 10.4), dark); roof.position.y = 7; roof.rotation.z = 0.0; g.add(roof);
+  const tower = new THREE.Mesh(new THREE.BoxGeometry(2.4, 11, 2.4), stone); tower.position.set(0, 5.5, -5.6); g.add(tower);
+  const spire = new THREE.Mesh(new THREE.ConeGeometry(1.8, 3.5, 4), dark); spire.position.set(0, 12.6, -5.6); g.add(spire);
+  for (const ax of ["x", "y"]) { const bar = new THREE.Mesh(new THREE.BoxGeometry(ax === "x" ? 1.4 : 0.35, ax === "x" ? 0.35 : 1.6, 0.35), new THREE.MeshStandardMaterial({ color: 0x8a8378 })); bar.position.set(0, 14.8, -4.3); g.add(bar); }
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  scene.add(g); makeChest(x + Math.cos(g.rotation.y) * 2, z + Math.sin(g.rotation.y) * 2); houses.push({ x, z, group: g });
+}
+function makeWatchtower(x, z) {
+  const g = new THREE.Group(); g.position.set(x, 0, z);
+  const wood = new THREE.MeshStandardMaterial({ color: 0x5a4326, roughness: 1 });
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) { const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 9, 6), wood); leg.position.set(sx * 1.6, 4.5, sz * 1.6); leg.rotation.x = sz * 0.05; leg.rotation.z = -sx * 0.05; g.add(leg); }
+  for (let y = 2.5; y < 9; y += 2.2) { for (const a of [0, 1]) { const br = new THREE.Mesh(new THREE.BoxGeometry(a ? 0.16 : 3.4, 0.16, a ? 3.4 : 0.16), wood); br.position.set(0, y, 0); g.add(br); } }
+  const plat = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.3, 3.8), wood); plat.position.y = 9; g.add(plat);
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(3, 1.8, 4), new THREE.MeshStandardMaterial({ color: 0x3a2c18, flatShading: true })); roof.position.y = 11; roof.rotation.y = Math.PI / 4; g.add(roof);
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  scene.add(g); makeChest(x, z + 2.4); makeChest(x + 0.6, z + 9.0); houses.push({ x, z, group: g });   // tepede kaliteli loot
+}
+function makeCave(x, z) {
+  const g = new THREE.Group(); g.position.set(x, 0, z);
+  const rock = new THREE.MeshStandardMaterial({ color: 0x474039, roughness: 1, flatShading: true });
+  const mound = new THREE.Mesh(new THREE.SphereGeometry(5, 12, 10, 0, 6.28, 0, Math.PI / 2), rock); mound.scale.set(1, 0.8, 1); g.add(mound);
+  const mouth = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.7, 2.6, 10, 1, true, 0, Math.PI), new THREE.MeshBasicMaterial({ color: 0x050403, side: THREE.DoubleSide })); mouth.rotation.x = Math.PI / 2; mouth.rotation.y = Math.PI; mouth.position.set(0, 1.3, 4); g.add(mouth);
+  const dark = new THREE.Mesh(new THREE.CircleGeometry(1.5, 12), new THREE.MeshBasicMaterial({ color: 0x000000 })); dark.position.set(0, 1.3, 4.05); g.add(dark);
+  if (shadowsOn) mound.castShadow = true;
+  scene.add(g); makeChest(x + 2.5, z + 4.5); houses.push({ x, z, group: g });
+}
+function makeBridge(x, z) {
+  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rnd(0, 6.3);
+  const wood = new THREE.MeshStandardMaterial({ color: 0x6b4a26, roughness: 1 });
+  for (let i = 0; i < 16; i++) { const plank = new THREE.Mesh(new THREE.BoxGeometry(4, 0.18, 0.7), wood); plank.position.set(0, 0.3, (i - 8) * 0.8); g.add(plank); }
+  for (const sx of [-1, 1]) { const rail = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.9, 13), wood); rail.position.set(sx * 1.9, 0.8, 0); g.add(rail); }
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  scene.add(g);
+}
+function makeScavenger(x, z) {
+  const g = new THREE.Group(); g.position.set(x, 0, z);
+  // küçük kulübe
+  const wall = new THREE.MeshStandardMaterial({ color: 0x4a3a28, roughness: 1 });
+  const hut = new THREE.Mesh(new THREE.BoxGeometry(3, 2.4, 3), wall); hut.position.y = 1.2; g.add(hut);
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(2.6, 1.4, 4), new THREE.MeshStandardMaterial({ color: 0x2e2418, flatShading: true })); roof.position.y = 3.1; roof.rotation.y = Math.PI / 4; g.add(roof);
+  // hurdacı figürü
+  const np = new THREE.Group(); np.position.set(0, 0, 2);
+  np.add(new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.9, 4, 8), new THREE.MeshStandardMaterial({ color: 0x6a5a3a }))); np.children[0].position.y = 1.0;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 10), new THREE.MeshStandardMaterial({ color: 0xc9b79a })); head.position.y = 1.7; np.add(head);
+  g.add(np);
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  scene.add(g); scav = { x, z: z + 2 };
+}
+function buildPOIs() {
+  let p;
+  p = farFromSpawn(70); makeStonehenge(p[0], p[1]);
+  p = farFromSpawn(60); makeChurch(p[0], p[1]);
+  p = farFromSpawn(45); makeWatchtower(p[0], p[1]);
+  p = farFromSpawn(45); makeWatchtower(p[0], p[1]);
+  p = farFromSpawn(55); makeCave(p[0], p[1]);
+  p = farFromSpawn(80); makeCave(p[0], p[1]);
+  p = farFromSpawn(40); makeBridge(p[0], p[1]);
+  p = farFromSpawn(30); makeScavenger(p[0], p[1]);
 }
 
 /* ----------------------- GAME STATE ----------------------- */
@@ -799,7 +875,8 @@ function spawnPack() {                                         // sürü: 4-6 h�
 /* ----- ateş modeli ----- */
 function makeFire(x, z) {
   const g = new THREE.Group(); g.position.set(x, 0, z);
-  for (let i = 0; i < 5; i++) { const log = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1, 5), new THREE.MeshStandardMaterial({ color: 0x2a1c10 })); log.rotation.z = Math.PI / 2; log.rotation.y = i / 5 * Math.PI; log.position.y = 0.1; g.add(log); }
+  const stoneRim = new THREE.Group(); g.add(stoneRim);   // taş ocak tabanı (seviye ile büyür)
+  const logPile = new THREE.Group(); g.add(logPile);     // çapraz tomruk yığını
   const halo = new THREE.Mesh(new THREE.ConeGeometry(0.6, 1.6, 10), new THREE.MeshBasicMaterial({ color: 0xff5a12, transparent: true, opacity: 0.28, depthWrite: false, blending: THREE.AdditiveBlending })); halo.position.y = 0.85; g.add(halo);  // sıcak parıltı (bloom yakalar)
   const flame = new THREE.Mesh(new THREE.ConeGeometry(0.35, 1.1, 7), new THREE.MeshBasicMaterial({ color: 0xff7a1a, transparent: true, opacity: 0.92 })); flame.position.y = 0.7; g.add(flame);
   const flame2 = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.7, 6), new THREE.MeshBasicMaterial({ color: 0xffe06a, transparent: true, opacity: 0.96 })); flame2.position.y = 0.55; g.add(flame2);
@@ -811,24 +888,29 @@ function makeFire(x, z) {
   const egeo = new THREE.BufferGeometry(); egeo.setAttribute("position", new THREE.BufferAttribute(ep, 3));
   const emat = new THREE.PointsMaterial({ color: 0xffb24a, size: 0.12, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
   const embers = new THREE.Points(egeo, emat); embers.frustumCulled = false; g.add(embers);
-  const stoneRing = new THREE.Group(); g.add(stoneRing);   // seviye arttıkça taş halka eklenir
   // yakıt barı (ateşin üstünde, kameraya döner)
   const bar = new THREE.Group(); bar.position.y = 2.4; g.add(bar);
   const barBg = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.2), new THREE.MeshBasicMaterial({ color: 0x100804, transparent: true, opacity: 0.7, depthTest: false })); bar.add(barBg);
   const barFill = new THREE.Mesh(new THREE.PlaneGeometry(1.42, 0.13), new THREE.MeshBasicMaterial({ color: 0xff8a2a, depthTest: false })); barFill.position.z = 0.01; bar.add(barFill);
   scene.add(g);
-  const f = { group: g, light, flame, flame2, halo, core, embers, ev, stoneRing, bar, barFill, x, z, fuel: 70, max: 140, safeR: 11, big: false, level: 1, base: false }; fires.push(f); return f;
+  const f = { group: g, light, flame, flame2, halo, core, embers, ev, stoneRim, logPile, bar, barFill, x, z, fuel: 70, max: 140, safeR: 11, level: 0, base: false }; fires.push(f); return f;
 }
-// ateş seviyesini ayarla (1-4): taş halka + güvenli alan + alev/ışık ölçeği
+// ateş seviyesi (1-4): taş ocak rimi + çapraz tomruk yığını + güvenli alan + alev (fotodaki gibi)
 function setFireLevel(f, lvl) {
-  lvl = clamp(lvl, 1, 4); if (lvl === f.level && f.stoneRing.children.length) return; f.level = lvl;
-  while (f.stoneRing.children.length) f.stoneRing.remove(f.stoneRing.children[0]);
-  const stoneN = [0, 0, 6, 10, 14][lvl], rr = 0.95 + lvl * 0.12;
-  const sMat = new THREE.MeshStandardMaterial({ color: 0x9a8f86, roughness: 1, flatShading: true });
-  for (let i = 0; i < stoneN; i++) { const a = (i / stoneN) * 6.283; const s = new THREE.Mesh(new THREE.DodecahedronGeometry(rnd(0.16, 0.26), 0), sMat); s.position.set(Math.cos(a) * rr, 0.1, Math.sin(a) * rr); s.rotation.set(rnd(0, 3), rnd(0, 3), rnd(0, 3)); if (shadowsOn) s.castShadow = true; f.stoneRing.add(s); }
+  lvl = clamp(lvl, 1, 4); if (lvl === f.level && f.logPile.children.length) return; f.level = lvl;
+  for (const grp of [f.stoneRim, f.logPile]) while (grp.children.length) grp.remove(grp.children[0]);
+  // taş ocak rimi (pembe-gri kayalar — referans görselindeki gibi)
+  const sMat = new THREE.MeshStandardMaterial({ color: 0xc7a8a4, roughness: 1, flatShading: true });
+  const ringR = 0.85 + lvl * 0.13, stoneN = 9 + lvl * 3;
+  for (let i = 0; i < stoneN; i++) { const a = (i / stoneN) * 6.283; const s = new THREE.Mesh(new THREE.DodecahedronGeometry(rnd(0.2, 0.34), 0), sMat); s.position.set(Math.cos(a) * ringR, 0.12, Math.sin(a) * ringR); s.scale.y = 0.7; s.rotation.set(rnd(0, 3), rnd(0, 3), rnd(0, 3)); if (shadowsOn) s.castShadow = true; f.stoneRim.add(s); }
+  // çapraz tomruk yığını (katman katman)
+  const logMat = new THREE.MeshStandardMaterial({ color: 0x8a5a2c, roughness: 0.95 });
+  const layers = 1 + lvl, cnt = 2 + (lvl > 2 ? 1 : 0);
+  for (let L = 0; L < layers; L++) { const along = L % 2 === 0; for (let k = 0; k < cnt; k++) { const off = (k - (cnt - 1) / 2) * 0.28; const log = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 1.0, 7), logMat); log.rotation.z = Math.PI / 2; if (!along) log.rotation.y = Math.PI / 2; log.position.set(along ? 0 : off, 0.24 + L * 0.17, along ? off : 0); if (shadowsOn) log.castShadow = true; f.logPile.add(log); } }
   f.safeR = 9 + lvl * 3.5;                 // L1:12.5 → L4:23
-  f.max = [0, 140, 260, 420, 650][lvl];    // daha yüksek seviye = daha çok yakıt kapasitesi
-  const sc = 0.8 + lvl * 0.25; f.flame.scale.setScalar(sc); f.flame2.scale.setScalar(sc); f.halo.scale.setScalar(sc * 1.1);
+  f.max = [0, 140, 260, 420, 650][lvl];
+  const sc = 0.7 + lvl * 0.28; f.flame.scale.setScalar(sc); f.flame2.scale.setScalar(sc); f.halo.scale.setScalar(sc * 1.1);
+  const fy = 0.5 + layers * 0.17; f.halo.position.y = fy + 0.4; f.flame.position.y = fy + 0.25; f.flame2.position.y = fy + 0.1; f.core.position.y = fy;   // alev yığının üstünde
 }
 
 /* ----- üs: barikat duvarı + çivili tuzak (oyuncu diker) ----- */
@@ -979,6 +1061,7 @@ function findTarget() {
     if (score > bestScore) { bestScore = score; best = { kind, obj, d }; }
   };
   consider(BENCH.x, BENCH.z, 3.8, "bench", null);            // fiziksel tezgah
+  if (scav) consider(scav.x, scav.z, 3.8, "scav", null);     // hurdacı NPC (takas)
   for (const t of trees) if (t.alive) consider(t.x, t.z, 4.2, "tree", t);
   for (const a of animals) consider(a.x, a.z, 4.4, "animal", a);
   for (const s of scraps) if (!s.taken) consider(s.x, s.z, 3.4, "scrap", s);
@@ -989,6 +1072,12 @@ function doAction() {
   if (S.swingCd > 0) return;
   const t = findTarget(); if (!t) return;
   if (t.kind === "bench") { openCraft(); return; }            // tezgaha bakıp vur → üretim açılır
+  if (t.kind === "scav") {                                    // hurdacı: 5 ⚙️ → 🩹 + 🪵
+    if (S.swingCd > 0) return; S.swingCd = 0.5;
+    if (S.inv.metal >= 5) { S.inv.metal -= 5; S.inv.bandage += 1; S.inv.wood += 8; Sound.crackle(); toast("🤝 Hurdacı: 5⚙️ → 🩹1 + 🪵8", "good"); }
+    else toast("🤝 Hurdacı: 5 metal getir (sende " + S.inv.metal + ")", "bad");
+    return;
+  }
   S.swingCd = 0.4; S.stamina = clamp(S.stamina - 4, 0, 100);
   if (t.kind === "tree") {
     Sound.chop(); const tr = t.obj; tr.hp--; S.inv.wood++;
@@ -1796,7 +1885,7 @@ function updateHUD(night) {
   const t = findTarget();
   if (t) {
     const key = isTouch ? "VUR" : "[Sol tık / E]";
-    const txt = t.kind === "bench" ? "🛠️ Tezgah " : t.kind === "tree" ? "🪓 Odun kes " : t.kind === "scrap" ? "⚙️ Metal topla " : t.kind === "chest" ? "📦 Sandığı aç " : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ");
+    const txt = t.kind === "bench" ? "🛠️ Tezgah " : t.kind === "scav" ? "🤝 Takas (5⚙️) " : t.kind === "tree" ? "🪓 Odun kes " : t.kind === "scrap" ? "⚙️ Metal topla " : t.kind === "chest" ? "📦 Sandığı aç " : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ");
     promptEl.textContent = txt + key; promptEl.classList.remove("hidden");
   } else promptEl.classList.add("hidden");
   // pusula / ateşe dönüş

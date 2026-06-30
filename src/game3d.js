@@ -718,11 +718,13 @@ function newState() {
   return {
     running: false, paused: false, over: false, won: false,
     time: 0.16, day: 1,
-    health: 100, hunger: 100, warmth: 100, sanity: 100, stamina: 100,
-    inv: { wood: 10, raw: 0, cooked: 2, metal: 0, pelt: 0, bandage: 1, gem: 0, cloth: 0, rope: 0, medkit: 0, pills: 0, canned: 0, choco: 0, pistolAmmo: 0, shells: 0, rifleAmmo: 0, arrows: 0 },
+    health: 100, hunger: 100, warmth: 100, sanity: 100, stamina: 100, thirst: 100,
+    inv: { wood: 10, raw: 0, cooked: 2, metal: 0, pelt: 0, bandage: 1, gem: 0, cloth: 0, rope: 0, medkit: 0, pills: 0, canned: 0, choco: 0, pistolAmmo: 0, shells: 0, rifleAmmo: 0, arrows: 0, water: 1, soda: 0, batteries: 0 },
     tools: { pickaxe: false, tent: false, spear: false, axe: 0, chainsaw: false },   // axe: 0 eski / 1 iyi / 2 güçlü
     weapons: { pistol: false, shotgun: false, rifle: false, bow: false, crossbow: false },   // sahip olunan menzilli silahlar
     equip: null, shootCd: 0,   // kuşanılı menzilli silah (null=yakın dövüş)
+    melee: null, meleeOwned: {},   // özel yakın dövüş silahı (katana, topuz, cehennem kılıcı, zehirli mızrak)
+    flashlight: false, flashOn: false, battery: 0,   // el feneri + şarj
     benchTier: 1, hasMap: false, hasCompass: false, hasLightningRod: false, hasCrockpot: false, farms: 0, oilDrills: 0,
     placeables: {},  // tezgahta üretilen ama henüz kurulmamış yapılar {kind:adet}
     fireFed: 0,   // ateşe atılan toplam odun (seviye için)
@@ -1048,7 +1050,9 @@ addEventListener("keydown", (e) => {
   if (k === "f") inp.fire = true;
   if (k === "g") inp.eat = true;
   if (k === "r") { inp.shoot = true; shootDown = true; }   // ateş et (menzilli silah)
-  if (first && k === "q") cycleWeapon();                    // silah değiştir
+  if (first && k === "q") cycleWeapon();                    // menzilli silah değiştir
+  if (first && k === "z") cycleMelee();                     // yakın dövüş silahı değiştir
+  if (first && k === "l") toggleFlash();                    // el feneri aç/kapa
   if (first && k === "h") inp.shoot = true;                 // alternatif ateş tuşu
   if (k === "v") startTalk();           // bas-konuş (sesli sohbet)
   if (first && k === "c") toggleCraft();   // tezgah (kısayol; ana yol: tezgaha yaklaş)
@@ -1100,6 +1104,7 @@ bindBtn("btn-bandage", () => (inp.bandage = true));
 bindBtn("btn-shoot", () => (inp.shoot = true));
 { const bs = $("btn-shoot"); if (bs) { const d = () => { shootDown = true; }, u = () => { shootDown = false; }; bs.addEventListener("touchstart", d, { passive: false }); bs.addEventListener("touchend", u); bs.addEventListener("touchcancel", u); bs.addEventListener("mousedown", d); bs.addEventListener("mouseup", u); } }
 { const bw = $("btn-weapon"); if (bw) { bw.addEventListener("touchstart", (e) => { isTouch = true; cycleWeapon(); e.preventDefault(); }, { passive: false }); bw.addEventListener("click", () => cycleWeapon()); } }
+{ const bf = $("btn-flash"); if (bf) { bf.addEventListener("touchstart", (e) => { isTouch = true; toggleFlash(); e.preventDefault(); }, { passive: false }); bf.addEventListener("click", () => toggleFlash()); } }
 const sprintBtn = bindBtn("btn-sprint", null, true);
 { const cb = $("btn-craft"); if (cb) { cb.addEventListener("touchstart", (e) => { isTouch = true; toggleCraft(); e.preventDefault(); }, { passive: false }); cb.addEventListener("click", () => toggleCraft()); } }
 { const ok = $("placeOk"), cc = $("placeCancel");
@@ -1193,22 +1198,38 @@ function doAction() {
     else if (!S.weapons.shotgun && Math.random() < 0.05) { S.weapons.shotgun = true; S.inv.shells += 6; loot.push("💥 POMPALI!"); }
     else if (!S.weapons.rifle && Math.random() < 0.03) { S.weapons.rifle = true; S.inv.rifleAmmo += 6; loot.push("🎯 TÜFEK!"); }
     if (!S.weapons.crossbow && Math.random() < 0.04) { S.weapons.crossbow = true; loot.push("🏹 ARBALET!"); }
+    // içecekler + pil + el feneri + özel yakın dövüş (nadir)
+    if (Math.random() < 0.4) { const w = rndi(1, 2); S.inv.water += w; loot.push("💧" + w); }
+    if (Math.random() < 0.22) { S.inv.soda += 1; loot.push("🥤1"); }
+    if (Math.random() < 0.25) { const b = rndi(1, 2); S.inv.batteries += b; loot.push("🔋" + b); }
+    if (!S.flashlight && Math.random() < 0.12) { S.flashlight = true; S.battery = 100; loot.push("🔦 EL FENERİ!"); }
+    if (Math.random() < 0.05 && giveMelee("katana")) loot.push("⚔️ KATANA!");
+    else if (Math.random() < 0.035 && giveMelee("morningstar")) loot.push("🔨 TOPUZ!");
+    else if (Math.random() < 0.02 && giveMelee("infernal")) loot.push("🔥 CEHENNEM KILICI!");
     if (Math.random() < 0.45) { const note = choice(NOTE_POOL); if (!S.notes.includes(note)) { S.notes.push(note); loot.push("📓"); toast("📓 Bir günlük buldun (Duraklat → Günlükler)", "good"); } }
     toast("📦 Sandık: " + loot.join("  "), "good");
     return;
   }
   if (t.kind === "animal") {
-    Sound.chop(); const a = t.obj; a.hp -= S.tools.spear ? 6 : 3;
+    Sound.chop(); const a = t.obj;
+    const mw = S.melee && MELEE[S.melee];
+    a.hp -= mw ? mw.dmg : 3;
+    if (mw) { S.swingCd = mw.cd;
+      if (mw.poison) a.poison = Math.max(a.poison || 0, 4.0);
+      if (mw.fire) a.burn = Math.max(a.burn || 0, 3.2);
+      if (mw.knock) { const dx = a.x - camera.position.x, dz = a.z - camera.position.z, d = Math.hypot(dx, dz) || 1; a.x += dx / d * 1.4; a.z += dz / d * 1.4; }
+    }
     if (a.type === "boar" || a.type === "jaguar") { a.hostile = true; a.state = "chase"; }
     else { a.state = "flee"; a.dir = Math.atan2(a.z - camera.position.z, a.x - camera.position.x); }
-    if (a.hp <= 0) killAnimal(a);
+    if (a.hp <= 0) killAnimal(a, mw && mw.fire);
   }
 }
-function killAnimal(a) {
+function killAnimal(a, cooked) {
   const y = a.type === "jaguar" ? rndi(5, 7) : a.type === "tapir" ? rndi(3, 5) : rndi(2, 4);
-  S.inv.raw += y; const pelt = a.type === "jaguar" ? rndi(2, 3) : rndi(1, 2); S.inv.pelt += pelt;
-  toast("🥩 +" + y + " et · 🧵 +" + pelt + " post (" + nameTR(a.type) + ")", "good");
-  scene.remove(a.group); animals.splice(animals.indexOf(a), 1);
+  if (cooked) { S.inv.cooked += y; } else { S.inv.raw += y; }   // cehennem kılıcı → et direkt pişmiş düşer
+  const pelt = a.type === "jaguar" ? rndi(2, 3) : rndi(1, 2); S.inv.pelt += pelt;
+  toast((cooked ? "🍗 +" + y + " pişmiş et" : "🥩 +" + y + " et") + " · 🧵 +" + pelt + " post (" + nameTR(a.type) + ")", "good");
+  scene.remove(a.group); const idx = animals.indexOf(a); if (idx >= 0) animals.splice(idx, 1);
   if (a.type !== "jaguar") setTimeout(() => { if (S.running && animals.length < 18) spawnPrey(); }, 9000);
 }
 const nameTR = (t) => ({ capybara: "kapibara", deer: "geyik", tapir: "tapir", boar: "yaban domuzu", jaguar: "jaguar" }[t] || t);
@@ -1266,6 +1287,37 @@ function doShoot() {
   if (!spec.silent) for (const a of animals) { if ((a.type === "boar" || a.type === "jaguar") && Math.hypot(a.x - px, a.z - pz) < 30) { a.hostile = true; a.state = "chase"; } }   // silah sesi avcıları çeker
 }
 
+/* ----------------------- ÖZEL YAKIN DÖVÜŞ SİLAHLARI (Faz 3) ----------------------- */
+const MELEE = {
+  spear:       { label: "🗡️ Mızrak",         dmg: 6,  cd: 0.42 },
+  poisonSpear: { label: "🧪 Zehirli Mızrak",  dmg: 7,  cd: 0.42, poison: true },
+  katana:      { label: "⚔️ Katana",          dmg: 9,  cd: 0.26 },
+  morningstar: { label: "🔨 Topuz",           dmg: 17, cd: 0.62, knock: true },
+  infernal:    { label: "🔥 Cehennem Kılıcı", dmg: 14, cd: 0.4,  fire: true },
+};
+const MELEE_ORDER = ["spear", "poisonSpear", "katana", "morningstar", "infernal"];
+const meleeRank = (k) => MELEE_ORDER.indexOf(k);
+function giveMelee(k) {   // silahı envantere ekle; daha güçlüyse otomatik kuşan
+  if (!MELEE[k]) return false; const had = !!S.meleeOwned[k]; S.meleeOwned[k] = true; if (k === "spear") S.tools.spear = true;
+  if (!S.melee || meleeRank(k) > meleeRank(S.melee)) S.melee = k;
+  return !had;
+}
+function cycleMelee() {
+  const owned = MELEE_ORDER.filter((k) => S.meleeOwned[k] || (k === "spear" && S.tools.spear));
+  if (!owned.length) { toast("Özel yakın dövüş silahı yok (sandık/tezgah) 🗡️", "bad"); return; }
+  const list = [null, ...owned]; let i = list.indexOf(S.melee); S.melee = list[(i + 1) % list.length];
+  toast(S.melee ? "Kuşanıldı: " + MELEE[S.melee].label : "👊 Yumruk/balta", "good");
+}
+let flashLight = null;
+function toggleFlash() {
+  if (!S.flashlight) { toast("🔦 El feneri yok (sandıklardan bul)", "bad"); return; }
+  if (!S.flashOn && S.battery <= 0) {
+    if (S.inv.batteries > 0) { S.inv.batteries--; S.battery = 100; S.flashOn = true; Sound.reload(); toast("🔋 Pil takıldı — fener AÇIK", "good"); return; }
+    toast("🔋 Pil bitik (sandıklardan pil bul)", "bad"); return;
+  }
+  S.flashOn = !S.flashOn; toast(S.flashOn ? "🔦 Fener AÇIK" : "🔦 Fener kapalı", "good");
+}
+
 function doFire() {
   // Tek bir KAMP ATEŞİ var (üs). En yakınına odun atılır; yeni ateş kurulamaz.
   const px = camera.position.x, pz = camera.position.z;
@@ -1281,6 +1333,11 @@ function doFire() {
 }
 function doEat() {
   const inv = S.inv;
+  // susuzluk açlıktan daha acilse (ve düşükse) ve içecek varsa: ÖNCE iç
+  if (S.thirst < 80 && S.thirst <= S.hunger && (inv.water > 0 || inv.soda > 0)) {
+    if (inv.soda > 0 && (inv.water <= 0 || S.stamina < 40)) { inv.soda--; S.thirst = clamp(S.thirst + 45, 0, 100); S.stamina = clamp(S.stamina + 30, 0, 100); toast("🥤 Kola içtin (+45 susuzluk, +30 enerji)", "good"); return; }
+    if (inv.water > 0) { inv.water--; S.thirst = clamp(S.thirst + 55, 0, 100); toast("💧 Su içtin (+55 susuzluk)", "good"); return; }
+  }
   if (inv.canned > 0) { inv.canned--; S.hunger = clamp(S.hunger + 60, 0, 100); toast("🥫 Konserve yedin (+60 açlık)", "good"); }
   else if (inv.choco > 0) { inv.choco--; S.hunger = clamp(S.hunger + 30, 0, 100); S.stamina = clamp(S.stamina + 25, 0, 100); toast("🍫 Çikolata (+30 açlık, +25 enerji)", "good"); }
   else if (inv.cooked > 0) { inv.cooked--; const amt = S.hasCrockpot ? 65 : 45; S.hunger = clamp(S.hunger + amt, 0, 100); if (S.hasCrockpot) S.health = clamp(S.health + 5, 0, 100); toast("🍗 " + (S.hasCrockpot ? "Güveç" : "Pişmiş et") + " yedin (+" + amt + ")", "good"); }
@@ -1377,12 +1434,13 @@ const RECIPES = [
   { tier: 1, name: "🛏️ Eski Yatak", desc: "Üretilir, ateş yanına KUR; güvendeyken T ile uyu", cost: { wood: 18 }, make: () => addPlaceable("bed") },
   { tier: 1, name: "🌱 Tarla", desc: "Üretilir, ateş yanına KUR; zamanla 🍗 üretir (maks 6)", cost: { wood: 10 }, once: () => (S.farms + (S.placeables.farm || 0)) >= 6, make: () => addPlaceable("farm") },
   { tier: 1, name: "⛏️ Kazma", desc: "Metali hızlı toplar, daha sert vurur", cost: { metal: 3, wood: 3 }, once: () => S.tools.pickaxe, make: (s) => s.tools.pickaxe = true },
-  { tier: 1, name: "🗡️ Mızrak", desc: "Avı/canavarı daha çok yaralar", cost: { metal: 2, wood: 4 }, once: () => S.tools.spear, make: (s) => s.tools.spear = true },
+  { tier: 1, name: "🗡️ Mızrak", desc: "Avı/canavarı daha çok yaralar (Z ile kuşan)", cost: { metal: 2, wood: 4 }, once: () => S.tools.spear, make: () => giveMelee("spear") },
   { tier: 1, up: 2, name: "⬆️ Tezgah Tier 2", desc: "2. seviye tarifleri açar", cost: { metal: 1, wood: 5 }, once: () => S.benchTier >= 2, make: (s) => s.benchTier = 2 },
   // ---- Tier 2 ----
   { tier: 2, name: "🪓 İyi Balta", desc: "Ağaçları 2 vuruşta keser (eski baltadan hızlı)", cost: { metal: 6, wood: 4 }, once: () => S.tools.axe >= 1, make: (s) => s.tools.axe = Math.max(s.tools.axe, 1) },
   { tier: 2, name: "🧰 Sağlık Çantası", desc: "+75 can (🩹 butonu önce bunu kullanır)", cost: { cloth: 3, metal: 2 }, make: (s) => s.inv.medkit++ },
   { tier: 2, name: "🏹 Yay", desc: "Sessiz menzilli silah; Q ile kuşan, R / sağ tık ile ateş", cost: { wood: 8, rope: 2 }, once: () => S.weapons.bow, make: (s) => { s.weapons.bow = true; if (!s.equip) s.equip = "bow"; } },
+  { tier: 2, name: "🔦 El Feneri", desc: "Geceleri/mağarada önünü aydınlatır (L); pil ile çalışır", cost: { metal: 5, gem: 1 }, once: () => S.flashlight, make: (s) => { s.flashlight = true; s.battery = 100; } },
   { tier: 2, name: "🎯 Ok ×10", desc: "Yay/arbalet için ok", cost: { rope: 1, wood: 2, metal: 1 }, make: (s) => s.inv.arrows += 10 },
   // ---- Tier 2 ----
   { tier: 2, name: "🧭 Pusula", desc: "Baktığın yönü HUD'da gösterir", cost: { metal: 3 }, once: () => S.hasCompass, make: (s) => s.hasCompass = true },
@@ -1395,15 +1453,19 @@ const RECIPES = [
   { tier: 3, name: "⚡ Paratoner", desc: "Şimşeğin akıl/sağlık etkisini engeller (üs)", cost: { metal: 8 }, once: () => S.hasLightningRod, make: (s) => s.hasLightningRod = true },
   { tier: 3, name: "🍲 Güveç Tenceresi", desc: "Pişmiş et açlığı çok daha iyi giderir", cost: { metal: 8, wood: 8 }, once: () => S.hasCrockpot, make: (s) => s.hasCrockpot = true },
   { tier: 3, name: "🪓 Güçlü Balta", desc: "Normal ağacı tek vuruşta devirir", cost: { metal: 14, gem: 1 }, once: () => S.tools.axe >= 2, make: (s) => s.tools.axe = 2 },
+  { tier: 3, name: "🧪 Zehirli Mızrak", desc: "Vurduğun düşmanı zehirler (zamanla erir)", cost: { metal: 4, gem: 1, cloth: 1 }, once: () => S.meleeOwned.poisonSpear, make: () => giveMelee("poisonSpear") },
   { tier: 3, up: 4, name: "⬆️ Tezgah Tier 4", desc: "4. seviye tarifleri açar", cost: { metal: 15, wood: 20 }, once: () => S.benchTier >= 4, make: (s) => s.benchTier = 4 },
   // ---- Tier 4 ----
   { tier: 4, name: "🛢️ Petrol Sondajı", desc: "Üretilir, KUR; kamp ateşini otomatik besler (maks 3)", cost: { metal: 18, wood: 25 }, once: () => (S.oilDrills + (S.placeables.drill || 0)) >= 3, make: () => addPlaceable("drill") },
   { tier: 4, name: "🪚 Motorlu Testere", desc: "Aksiyonu BASILI tut → ağaçları sürekli ve hızlı kes", cost: { metal: 20, gem: 2 }, once: () => S.tools.chainsaw, make: (s) => s.tools.chainsaw = true },
+  { tier: 4, name: "⚔️ Katana", desc: "Çok hızlı sallanan keskin yakın dövüş silahı", cost: { metal: 14, cloth: 2 }, once: () => S.meleeOwned.katana, make: () => giveMelee("katana") },
+  { tier: 4, name: "🔨 Topuz", desc: "Ağır; tek vuruşta yüksek hasar + düşmanı geri iter", cost: { metal: 20, wood: 6 }, once: () => S.meleeOwned.morningstar, make: () => giveMelee("morningstar") },
   { tier: 4, up: 5, name: "⬆️ Tezgah Tier 5", desc: "5. seviye tarifleri açar", cost: { metal: 40, wood: 50 }, once: () => S.benchTier >= 5, make: (s) => s.benchTier = 5 },
   // ---- Tier 5 ----
   { tier: 5, name: "🚩 Bayrak", desc: "Üretilir, KUR; mini haritada kalıcı işaret bırakır", cost: { metal: 6, wood: 6 }, make: () => addPlaceable("flag") },
   { tier: 5, name: "💠 Kristal Fener", desc: "Üretilir, KUR; güçlü kalıcı ışık + geniş güvenli alan", cost: { gem: 1, metal: 6 }, make: () => addPlaceable("lantern") },
   { tier: 5, name: "🔮 Koruyucu Totem", desc: "Üretilir, KUR; çevrende akıl yenilenir + İzleyen yaklaşmaz", cost: { gem: 2, metal: 8, wood: 10 }, make: () => addPlaceable("totem") },
+  { tier: 5, name: "🔥 Cehennem Kılıcı", desc: "Düşmanı ateşe verir; öldürdüğün av direkt PİŞMİŞ et düşer", cost: { gem: 3, metal: 20 }, once: () => S.meleeOwned.infernal, make: () => giveMelee("infernal") },
 ];
 function canAfford(r) { for (const k in r.cost) if ((S.inv[k] || 0) < r.cost[k]) return false; return !(r.once && r.once()); }
 function craft(r) {
@@ -1680,7 +1742,8 @@ function saveProgress() {
   try {
     localStorage.setItem("orm_save", JSON.stringify({
       day: S.day, time: S.time, inv: S.inv, tools: S.tools, notes: S.notes,
-      health: S.health, hunger: S.hunger, warmth: S.warmth, sanity: S.sanity,
+      health: S.health, hunger: S.hunger, warmth: S.warmth, sanity: S.sanity, thirst: S.thirst,
+      weapons: S.weapons, meleeOwned: S.meleeOwned, melee: S.melee, equip: S.equip, flashlight: S.flashlight, battery: S.battery,
       x: camera.position.x, z: camera.position.z, ts: Date.now(),
     }));
   } catch (e) {}
@@ -1693,9 +1756,14 @@ function applySave() {
   S.day = sv.day || 1; S.time = sv.time != null ? sv.time : 0.18;
   if (sv.inv) Object.assign(S.inv, sv.inv);
   if (sv.tools) Object.assign(S.tools, sv.tools);
+  if (sv.weapons) Object.assign(S.weapons, sv.weapons);
+  if (sv.meleeOwned) Object.assign(S.meleeOwned, sv.meleeOwned);
+  if (sv.melee) S.melee = sv.melee; if (sv.equip) S.equip = sv.equip;
+  if (sv.flashlight) S.flashlight = sv.flashlight; if (sv.battery != null) S.battery = sv.battery;
   if (sv.notes) S.notes = sv.notes;
   S.health = sv.health != null ? sv.health : 100; S.hunger = sv.hunger != null ? sv.hunger : 100;
   S.warmth = sv.warmth != null ? sv.warmth : 100; S.sanity = sv.sanity != null ? sv.sanity : 100;
+  S.thirst = sv.thirst != null ? sv.thirst : 100;
   if (sv.x != null) camera.position.set(sv.x, CFG.EYE, sv.z);
   toast("💾 Devam ediliyor — GÜN " + S.day, "good"); return true;
 }
@@ -1806,6 +1874,16 @@ function update(dt) {
   // kristal parıltısı (nabız) + koruyucu totem aurası (sanity yenileme)
   { const pulse = 0.6 + Math.sin(performance.now() / 380) * 0.35; for (const c of crystals) if (!c.mined && c.mat) c.mat.emissiveIntensity = pulse; }
   for (const tm of totems) { if (Math.hypot(tm.x - camera.position.x, tm.z - camera.position.z) < tm.r) { S.sanity = clamp(S.sanity + 2.2 * dt, 0, 100); break; } }
+  // zehir / yanma hasarı (zehirli mızrak, cehennem kılıcı)
+  for (let i = animals.length - 1; i >= 0; i--) { const a = animals[i]; let dd = 0; if (a.poison > 0) { a.poison -= dt; dd += 2.5 * dt; } if (a.burn > 0) { a.burn -= dt; dd += 3.8 * dt; } if (dd > 0) { a.hp -= dd; if (a.hp <= 0) killAnimal(a, (a.burn || 0) > 0); } }
+  // el feneri: önümüzü aydınlatır, pili tüketir
+  if (S.flashOn && S.battery > 0) {
+    S.battery = Math.max(0, S.battery - 3.2 * dt);
+    if (!flashLight) { flashLight = new THREE.PointLight(0xfff2d8, 0, 24, 1.3); scene.add(flashLight); }
+    flashLight.intensity = 2.6;
+    camera.getWorldDirection(_fwd); flashLight.position.set(camera.position.x + _fwd.x * 3.6, camera.position.y + _fwd.y * 3.6 + 0.2, camera.position.z + _fwd.z * 3.6);
+    if (S.battery <= 0) { S.flashOn = false; toast("🔋 Pil bitti! (yeni pil tak)", "bad"); }
+  } else if (flashLight) flashLight.intensity = 0;
 
   // ateşler (üs ateşi KALICI — sönse bile odun/taşlar kalır, yeniden beslenir)
   let nearFire = false, fireDist = 1e9;
@@ -1830,6 +1908,7 @@ function update(dt) {
 
   // hayatta kalma
   S.hunger = clamp(S.hunger - 0.42 * dt, 0, 100);
+  S.thirst = clamp(S.thirst - (sprinting ? 0.75 : 0.5) * dt, 0, 100);   // koşunca daha çok susarsın
   if (nearFire) S.warmth = clamp(S.warmth + 9 * dt, 0, 100);
   else if (night) S.warmth = clamp(S.warmth - 1.25 * dt, 0, 100);
   else S.warmth = clamp(S.warmth - 0.18 * dt, 0, 100);
@@ -1840,10 +1919,11 @@ function update(dt) {
 
   let dmg = 0;
   if (S.hunger <= 0) { dmg += 2.0; S.deathReason = "açlık"; }
+  if (S.thirst <= 0) { dmg += 1.8; S.deathReason = "susuzluk"; }
   if (S.warmth <= 0) { dmg += 1.5; S.deathReason = "soğuk"; }
   if (S.sanity <= 0) { dmg += 2.5; S.deathReason = "delirme"; }
   if (dmg > 0) S.health = clamp(S.health - dmg * dt, 0, 100);
-  else if (S.hunger > 40 && S.warmth > 40 && S.sanity > 25 && S.sick <= 0) S.health = clamp(S.health + 0.8 * dt, 0, 100);
+  else if (S.hunger > 40 && S.warmth > 40 && S.sanity > 25 && S.thirst > 40 && S.sick <= 0) S.health = clamp(S.health + 0.8 * dt, 0, 100);
   if (S.health <= 0) { playerDied(S.deathReason || "bilinmeyen"); if (S.over || S.downed) return; }
 
   // korku — İzleyen
@@ -2113,7 +2193,7 @@ function dreadLevel() { return clamp((S.day - 1) / 99, 0, 1) + (S.bloodMoon && i
 function phaseInfo(t) { if (t < 0.07) return ["🌑", "Gece"]; if (t < 0.20) return ["🌅", "Şafak"]; if (t < 0.45) return ["☀️", "Gündüz"]; if (t < 0.54) return ["🌤️", "Öğle"]; if (t < 0.68) return ["🌆", "Akşam"]; return ["🌑", "Gece"]; }
 
 /* ----------------------- HUD ----------------------- */
-const bars = { health: $("bar-health"), hunger: $("bar-hunger"), warmth: $("bar-warmth"), sanity: $("bar-sanity"), stamina: $("bar-stamina") };
+const bars = { health: $("bar-health"), hunger: $("bar-hunger"), warmth: $("bar-warmth"), sanity: $("bar-sanity"), stamina: $("bar-stamina"), thirst: $("bar-thirst") };
 const invEl = { wood: $("inv-wood"), raw: $("inv-raw"), cooked: $("inv-cooked"), metal: $("inv-metal"), pelt: $("inv-pelt"), bandage: $("inv-bandage"), gem: $("inv-gem") };
 const mmCanvas = $("minimap"), mmctx = mmCanvas.getContext("2d");
 function drawMinimap() {
@@ -2138,11 +2218,17 @@ function drawMinimap() {
 function updateHUD(night) {
   $("dayNum").textContent = S.day;
   const [ic, tx] = phaseInfo(S.time); $("phaseIcon").textContent = ic; $("phaseText").textContent = tx;
-  bars.health.style.width = S.health + "%"; bars.hunger.style.width = S.hunger + "%"; bars.warmth.style.width = S.warmth + "%"; bars.sanity.style.width = S.sanity + "%"; bars.stamina.style.width = S.stamina + "%";
+  bars.health.style.width = S.health + "%"; bars.hunger.style.width = S.hunger + "%"; bars.warmth.style.width = S.warmth + "%"; bars.sanity.style.width = S.sanity + "%"; bars.stamina.style.width = S.stamina + "%"; if (bars.thirst) bars.thirst.style.width = S.thirst + "%";
   invEl.wood.textContent = S.inv.wood; invEl.raw.textContent = S.inv.raw; invEl.cooked.textContent = S.inv.cooked;
   invEl.metal.textContent = S.inv.metal; invEl.pelt.textContent = S.inv.pelt; invEl.bandage.textContent = S.inv.bandage; if (invEl.gem) invEl.gem.textContent = S.inv.gem;
   const wh = $("weaponHud");
-  if (wh) { if (S.equip && RANGED[S.equip]) { const sp = RANGED[S.equip]; wh.textContent = sp.label + " · " + (S.inv[sp.ammo] || 0) + " 🔸"; wh.classList.remove("hidden"); } else wh.classList.add("hidden"); }
+  if (wh) {
+    const parts = [];
+    if (S.equip && RANGED[S.equip]) parts.push(RANGED[S.equip].label + " " + (S.inv[RANGED[S.equip].ammo] || 0) + "🔸");
+    if (S.melee && MELEE[S.melee]) parts.push(MELEE[S.melee].label);
+    if (S.flashlight) parts.push("🔦" + (S.flashOn ? Math.round(S.battery) + "%" : "·"));
+    if (parts.length) { wh.textContent = parts.join("  ·  "); wh.classList.remove("hidden"); } else wh.classList.add("hidden");
+  }
   const t = findTarget();
   if (t) {
     const key = isTouch ? "VUR" : "[Sol tık / E]";

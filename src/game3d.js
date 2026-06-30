@@ -22,7 +22,9 @@ const BIOMES = {
   snow:     { name: "❄️ Karlı Bölge",   ground: 0xdde8f2, fog: 0xc6d4e4, fol: [0.58, 0.10, 0.82], trunk: 0.60, cold: true },
   fairy:    { name: "🧚 Peri Ormanı",   ground: 0x5e3a72, fog: 0xc89bdc, fol: [0.85, 0.62, 0.66], trunk: 0.78, fairy: true },
   volcanic: { name: "🌋 Volkanik Bölge", ground: 0x241310, fog: 0x6e2a18, fol: [0.03, 0.70, 0.22], trunk: 0.02, heat: true },
+  caves:    { name: "🕳️ Mağara", ground: 0x171310, fog: 0x050505 },   // yeraltı: karanlık (el feneri/meşale şart)
 };
+let inCave = false;   // oyuncu bir mağara hacminin içinde mi (karanlık + mağara yaratıkları)
 const BIOME_R = 78;   // bu yarıçapın içi her zaman Orman (güvenli başlangıç)
 function biomeAt(x, z) {
   if (Math.hypot(x, z) < BIOME_R) return "forest";
@@ -609,6 +611,7 @@ function buildScatter() {
 const scraps = [];   // {x,z,group,taken}
 const chests = [];   // {x,z,group,lid,opened}
 const crystals = []; // {x,z,group,hp,mined,shards[]} — kazma ile kazılır → 💎
+const caves = [];    // {x,z,r} — karanlık yeraltı mağaraları (el feneri şart)
 const houses = [];   // {x,z,group}
 function farFromSpawn(min) { let x, z; do { x = rnd(-CFG.WORLD + 6, CFG.WORLD - 6); z = rnd(-CFG.WORLD + 6, CFG.WORLD - 6); } while (Math.hypot(x, z) < min); return [x, z]; }
 function makeScrap(x, z) {
@@ -709,12 +712,20 @@ function makeWatchtower(x, z) {
 }
 function makeCave(x, z) {
   const g = new THREE.Group(); g.position.set(x, 0, z);
-  const rock = new THREE.MeshStandardMaterial({ color: 0x474039, roughness: 1, flatShading: true });
-  const mound = new THREE.Mesh(new THREE.SphereGeometry(5, 12, 10, 0, 6.28, 0, Math.PI / 2), rock); mound.scale.set(1, 0.8, 1); g.add(mound);
-  const mouth = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.7, 2.6, 10, 1, true, 0, Math.PI), new THREE.MeshBasicMaterial({ color: 0x050403, side: THREE.DoubleSide })); mouth.rotation.x = Math.PI / 2; mouth.rotation.y = Math.PI; mouth.position.set(0, 1.3, 4); g.add(mouth);
-  const dark = new THREE.Mesh(new THREE.CircleGeometry(1.5, 12), new THREE.MeshBasicMaterial({ color: 0x000000 })); dark.position.set(0, 1.3, 4.05); g.add(dark);
-  if (shadowsOn) mound.castShadow = true;
-  scene.add(g); makeChest(x + 2.5, z + 4.5); houses.push({ x, z, group: g });
+  const rock = new THREE.MeshStandardMaterial({ color: 0x39332d, roughness: 1, flatShading: true });
+  const darkM = new THREE.MeshStandardMaterial({ color: 0x0b0908, roughness: 1, flatShading: true, side: THREE.BackSide });
+  const R = 15;
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(R, 18, 12, 0, 6.28, 0, Math.PI / 2), darkM); dome.scale.set(1, 0.9, 1); g.add(dome);   // iç karanlık kubbe (tavan)
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(R, 20), new THREE.MeshStandardMaterial({ color: 0x171310, roughness: 1 })); floor.rotation.x = -Math.PI / 2; floor.position.y = 0.05; g.add(floor);
+  for (let i = 0; i < 14; i++) { const a = rnd(0, 6.28), r = rnd(R * 0.5, R - 0.5), h = rnd(1.4, 4), top = Math.random() < 0.5; const sp = new THREE.Mesh(new THREE.ConeGeometry(rnd(0.4, 0.95), h, 6), rock); sp.position.set(Math.cos(a) * r, top ? R * 0.78 - h / 2 : h / 2, Math.sin(a) * r); if (top) sp.rotation.z = Math.PI; g.add(sp); }   // sarkıt/dikit
+  for (let i = 0; i < 8; i++) { const a = (i / 8) * 6.28; const pil = new THREE.Mesh(new THREE.CylinderGeometry(rnd(0.6, 1.0), rnd(0.9, 1.4), rnd(3, 6), 6), rock); pil.position.set(Math.cos(a) * (R - 0.4), 2.5, Math.sin(a) * (R - 0.4)); g.add(pil); }   // çevre kaya sütunları
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  scene.add(g); caves.push({ x, z, r: R });
+  // mağara ganimeti: bol hurda + maden (kristal) + askeri mühimmat kasası
+  for (let i = 0; i < 4; i++) { const a = rnd(0, 6.28), r = rnd(3, R - 3); makeScrap(x + Math.cos(a) * r, z + Math.sin(a) * r); }
+  for (let i = 0; i < 3; i++) { const a = rnd(0, 6.28), r = rnd(3, R - 3); makeCrystal(x + Math.cos(a) * r, z + Math.sin(a) * r); }
+  const ac = makeChest(x + rnd(-3, 3), z + rnd(-3, 3)); if (ac) ac.ammo = true;
+  houses.push({ x, z, group: g });
 }
 function makeBridge(x, z) {
   const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rnd(0, 6.3);
@@ -939,6 +950,16 @@ function makeAnimal(type) {
     if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
     scene.add(g); return g;
   }
+  if (type === "spider") {                                    // MAĞARA ÖRÜMCEĞİ — koyu, çok bacaklı, ışıyan gözler
+    const dark = new THREE.MeshStandardMaterial({ color: 0x161213, roughness: 1, flatShading: true });
+    const abd = new THREE.Mesh(new THREE.SphereGeometry(0.4, 10, 10), dark); abd.position.set(-0.25, 0.45, 0); abd.scale.set(1.1, 0.9, 1.1); g.add(abd);
+    const ceph = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 10), dark); ceph.position.set(0.28, 0.42, 0); g.add(ceph);
+    const eyeM = new THREE.MeshStandardMaterial({ color: 0xff3030, emissive: 0xff0000, emissiveIntensity: 3 });
+    for (const sz of [-1, 1]) for (const yy of [0, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 6), eyeM); e.position.set(0.46, 0.46 + yy * 0.08, sz * 0.1); g.add(e); }
+    for (let i = 0; i < 8; i++) { const sx = i < 4 ? -1 : 1, lz = ((i % 4) - 1.5) * 0.22; const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.035, 0.8, 3, 5), dark); leg.position.set(lz + 0.05, 0.42, sx * 0.32); leg.rotation.x = sx * 0.9; leg.rotation.z = 0.5 - Math.abs((i % 4) - 1.5) * 0.2; g.add(leg); }
+    if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    scene.add(g); return g;
+  }
   if (animalProtos[type]) {                                   // yüklenmiş gerçek GLB (boar/capybara/tapir)
     const src = animalProtos[type]; const m = SkeletonUtilsMod ? SkeletonUtilsMod.clone(src.proto) : src.proto.clone(true);
     m.rotation.y = Math.PI / 2; g.add(m); g.userData.model = m;
@@ -1023,8 +1044,9 @@ const BEAST = {
   lavabeast: { sp: 6.2, dmg: 12, reach: 2.0, hp: 18, fearFire: false, nightOnly: false, desp: 60, burn: true },
   fairy:     { sp: 7.2, dmg: 7,  reach: 1.9, hp: 8,  fearFire: true,  nightOnly: true,  desp: 46, sanity: 9 },
   cultist:   { sp: 3.2, dmg: 24, reach: 2.8, hp: 95, fearFire: false, nightOnly: false, desp: 999, boss: true },
+  spider:    { sp: 5.6, dmg: 9,  reach: 1.7, hp: 7,  fearFire: false, nightOnly: false, desp: 32 },
 };
-const beastName = (t) => ({ polarbear: "kutup ayısı", lavabeast: "lav yaratığı", fairy: "peri saldırısı", cultist: "Cultist King" }[t] || t);
+const beastName = (t) => ({ polarbear: "kutup ayısı", lavabeast: "lav yaratığı", fairy: "peri saldırısı", cultist: "Cultist King", spider: "mağara örümceği" }[t] || t);
 let bossAlive = false;
 function spawnBeast(type) {
   const B = BEAST[type], ang = rnd(0, 6.28), d = rnd(22, 40);
@@ -1323,7 +1345,8 @@ function doAction() {
     else if (Math.random() < 0.02 && giveMelee("infernal")) loot.push("🔥 CEHENNEM KILICI!");
     // BİYOMA ÖZEL ganimet: 🌋 Ruby sandığı (mücevher + Cehennem Kılıcı) · ❄️ soğuk sandık (kürk + Buz Baltası)
     const cb = biomeAt(c.x, c.z); let chestName = "📦 Sandık";
-    if (cb === "volcanic") { chestName = "🔴 Ruby Sandığı"; S.inv.gem += rndi(1, 3); loot.push("💎+"); if (Math.random() < 0.22 && giveMelee("infernal")) loot.push("🔥 CEHENNEM KILICI!"); }
+    if (c.ammo) { chestName = "🪖 Askeri Mühimmat Kasası"; S.inv.pistolAmmo += rndi(8, 16); S.inv.rifleAmmo += rndi(6, 12); S.inv.shells += rndi(4, 8); loot.push("🔫🎯💥 mühimmat"); }
+    else if (cb === "volcanic") { chestName = "🔴 Ruby Sandığı"; S.inv.gem += rndi(1, 3); loot.push("💎+"); if (Math.random() < 0.22 && giveMelee("infernal")) loot.push("🔥 CEHENNEM KILICI!"); }
     else if (cb === "snow") { chestName = "❄️ Soğuk Sandık"; S.inv.pelt += rndi(2, 4); S.inv.cloth += rndi(1, 3); loot.push("🧵🧶+"); if (Math.random() < 0.3 && giveMelee("iceaxe")) loot.push("🧊 BUZ BALTASI!"); }
     else if (cb === "fairy") { chestName = "🧚 Peri Sandığı"; S.inv.bandage += rndi(1, 2); S.inv.medkit += Math.random() < 0.4 ? 1 : 0; loot.push("🩹+"); }
     if (Math.random() < 0.45) { const note = choice(NOTE_POOL); if (!S.notes.includes(note)) { S.notes.push(note); loot.push("📓"); toast("📓 Bir günlük buldun (Duraklat → Günlükler)", "good"); } }
@@ -1957,7 +1980,8 @@ function update(dt) {
   for (const w of walls) { const dx = nx - w.x, dz = nz - w.z, rr = w.r + 0.4; if (dx * dx + dz * dz < rr * rr) { const d = Math.hypot(dx, dz) || 0.001; nx = w.x + dx / d * rr; nz = w.z + dz / d * rr; } }
   nx = clamp(nx, -CFG.WORLD, CFG.WORLD); nz = clamp(nz, -CFG.WORLD, CFG.WORLD);
   camera.position.x = nx; camera.position.z = nz;
-  { const nb = biomeAt(nx, nz); if (nb !== curBiome) { curBiome = nb; toast("Bölge: " + BIOMES[nb].name, "good"); } }
+  { let ic = false; for (const c of caves) { if (Math.hypot(c.x - nx, c.z - nz) < c.r) { ic = true; break; } } inCave = ic;
+    const nb = ic ? "caves" : biomeAt(nx, nz); if (nb !== curBiome) { curBiome = nb; toast(ic ? "🕳️ Mağaraya girdin — fenerini aç (L)!" : "Bölge: " + BIOMES[nb].name, "good"); } }
   // baş sallanması + sarsıntı
   if (m > 0.1) { S.bob += dt * (sprinting ? 14 : 9); S.stepT -= dt; if (S.stepT <= 0) { Sound.step(); S.stepT = sprinting ? 0.3 : 0.45; } } else S.bob *= 0.9;
   let camY = CFG.EYE + Math.sin(S.bob) * 0.06;
@@ -2114,8 +2138,8 @@ function update(dt) {
   if (night && S.day > 1 && Math.random() < 0.0009 && animals.filter((a) => a.type === "jaguar").length < 2) { spawnJaguar(); Sound.growl(); whisperText("bir hırıltı..."); }
   // SÜRÜNEN — gece avcısı (gün geçtikçe + kanlı ayda daha çok)
   if (night && S.day >= 2 && Math.random() < (0.0007 + dread * 0.0014) && animals.filter((a) => a.type === "crawler").length < (S.bloodMoon ? 3 : 2)) { spawnCrawler(); Sound.growl(); whisperText(choice(["sürünüyor...", "duydun mu?", "çok ayak sesi"])); }
-  // TAKLİTÇİ (gün ≥3): arkadaş gibi durup yaklaşınca saldırır — tek seferde bir tane
-  if (night && S.day >= 3 && Math.random() < (0.0004 + dread * 0.0009) && !animals.some((a) => a.type === "mimic")) spawnMimic();
+  // TAKLİTÇİ — artık SADECE mağarada gelir (yeraltı yaratığı); arkadaş gibi durup yaklaşınca saldırır
+  if (inCave && S.day >= 2 && Math.random() < 0.0013 && !animals.some((a) => a.type === "mimic")) spawnMimic();
   // PUSUCU (gün ≥3): ağaca gizlenir
   if (night && S.day >= 3 && Math.random() < (0.0005 + dread * 0.001) && animals.filter((a) => a.type === "lurker").length < 2) spawnLurker();
   // SÜRÜ (gün ≥4 / kanlı ay): hızlı yavrular dalga halinde
@@ -2125,6 +2149,8 @@ function update(dt) {
   if (curBiome === "volcanic" && Math.random() < 0.0013 && animals.filter((a) => a.type === "lavabeast").length < 3) spawnBeast("lavabeast");
   if (curBiome === "fairy" && night && Math.random() < 0.0015 && animals.filter((a) => a.type === "fairy").length < 4) { spawnBeast("fairy"); whisperText(choice(["ışıklar...", "bizimle kal", "kaçamazsın"])); }
   if (curBiome === "volcanic" && S.day >= 8 && !bossAlive && Math.random() < 0.0006) spawnCultistKing();
+  // MAĞARA: örümcekler (her zaman, karanlıkta sıkıştırır)
+  if (inCave && Math.random() < 0.0020 && animals.filter((a) => a.type === "spider").length < 5) spawnBeast("spider");
 
   updateAnimals(dt);
 
@@ -2154,8 +2180,9 @@ function update(dt) {
   if (S.weather === "rain") skyCol.lerp(new THREE.Color(0x2a3038), 0.5);      // yağmurda gri-mavi
   if (S.flash > 0) skyCol.lerp(new THREE.Color(0xcdd6e6), S.flash * 0.7);     // şimşek beyazı
   if (curBiome !== "forest") skyCol.lerp(new THREE.Color(BIOMES[curBiome].fog), 0.4 * dayK + 0.2);   // biyom atmosfer tonu (gündüz daha belirgin)
+  if (inCave) { skyCol.lerp(new THREE.Color(0x040404), 0.94); hemi.intensity = 0.03; amb.intensity = 0.04; sun.intensity = 0; moon.intensity = 0; headlamp.intensity = 0.12; }   // MAĞARA: zifiri karanlık — el feneri/meşale şart
   scene.background = skyCol; scene.fog.color = skyCol;
-  scene.fog.density = lerp(0.013, 0.12, dk) * (S.weather === "rain" ? 1.5 : 1);   // gece yoğun sis; yağmur daha da kapatır
+  scene.fog.density = inCave ? 0.09 : lerp(0.013, 0.12, dk) * (S.weather === "rain" ? 1.5 : 1);   // mağarada/gece yoğun sis; yağmur daha da kapatır
   updateSky(dk, dayK, skyCol, sunAng);          // gradyan gökyüzü + yıldız + ay + güneş parıltısı
   windU.value = performance.now() / 1000;        // bitki rüzgârı
   if (waterTex) { waterTex.offset.x = windU.value * 0.02; waterTex.offset.y = Math.sin(windU.value * 0.3) * 0.04; }   // su parıltısı

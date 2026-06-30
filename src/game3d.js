@@ -16,6 +16,23 @@ const choice = (arr) => arr[(Math.random() * arr.length) | 0];
 
 const CFG = { WORLD: 215, DAY_LENGTH: 165, WIN_DAY: 100, TREES: 1050, BUSHES: 430, ROCKS: 95, GRASS: 1500, VINES: 160, EYE: 1.7, SCRAP: 0, CHESTS: 40, HOUSES: 14 };
 
+/* ----- BİYOMLAR: merkez Orman; dış halka açıya göre Kar / Peri / Volkan ----- */
+const BIOMES = {
+  forest:   { name: "🌲 Orman",        ground: 0x3c5a32, fog: 0x9fb7a0, fol: [0.30, 0.55, 0.28], trunk: 0.08 },
+  snow:     { name: "❄️ Karlı Bölge",   ground: 0xdde8f2, fog: 0xc6d4e4, fol: [0.58, 0.10, 0.82], trunk: 0.60, cold: true },
+  fairy:    { name: "🧚 Peri Ormanı",   ground: 0x5e3a72, fog: 0xc89bdc, fol: [0.85, 0.62, 0.66], trunk: 0.78, fairy: true },
+  volcanic: { name: "🌋 Volkanik Bölge", ground: 0x241310, fog: 0x6e2a18, fol: [0.03, 0.70, 0.22], trunk: 0.02, heat: true },
+};
+const BIOME_R = 78;   // bu yarıçapın içi her zaman Orman (güvenli başlangıç)
+function biomeAt(x, z) {
+  if (Math.hypot(x, z) < BIOME_R) return "forest";
+  const a = Math.atan2(z, x);                       // -π..π
+  if (a >= -Math.PI / 3 && a < Math.PI / 3) return "fairy";      // +X sektörü
+  if (a >= Math.PI / 3 && a < Math.PI) return "volcanic";        // arka-sol sektör (en uzak/tehlikeli)
+  return "snow";                                                  // kalan sektör
+}
+let curBiome = "forest";
+
 /* ----------------------- DOM ----------------------- */
 const $ = (id) => document.getElementById(id);
 const threeCanvas = $("three");
@@ -151,6 +168,7 @@ function buildScene() {
   );
   ground.rotation.x = -Math.PI / 2; if (shadowsOn) ground.receiveShadow = true; scene.add(ground);
 
+  buildBiomes();                  // biyom zemin renkleri + kar/lav/peri dekorları + atmosfer parçacıkları
   buildTrees();
   setupTreeModel();               // gerçek GLB ağaç paketi (low-poly) — prosedürel ağaçların yerini alır
   buildScatter();
@@ -460,12 +478,54 @@ async function setupTreeModel() {
     } else modelBranchIM = modelTrunkIM;   // dal yoksa aynı ref — writeTree zararsızca iki kez yazar
     treeModelOn = true;
     for (let i = 0; i < N; i++) writeTree(i);
+    // biyom tonlaması: orman doğal kalır; kar/peri/volkan ağaçları biyom rengine boyanır (çarpımsal)
+    const whiteCol = new THREE.Color(0xffffff), tCol = new THREE.Color();
+    for (let i = 0; i < N; i++) {
+      const t = trees[i], tinted = t.biome && t.biome !== "forest";
+      modelBranchIM.setColorAt(i, tinted ? t.fol : whiteCol);
+      if (modelTrunkIM !== modelBranchIM) { if (tinted) { tCol.setHSL(BIOMES[t.biome].trunk, 0.4, t.biome === "snow" ? 0.7 : 0.3); modelTrunkIM.setColorAt(i, tCol); } else modelTrunkIM.setColorAt(i, whiteCol); }
+    }
+    if (modelBranchIM.instanceColor) modelBranchIM.instanceColor.needsUpdate = true;
+    if (modelTrunkIM.instanceColor) modelTrunkIM.instanceColor.needsUpdate = true;
     modelTrunkIM.instanceMatrix.needsUpdate = modelBranchIM.instanceMatrix.needsUpdate = true;
     trunkIM.visible = folLowIM.visible = folTopIM.visible = false;   // prosedürel ağaçları gizle
     console.log("[trees] GLB ağaç modeli uygulandı:", trunk.name, branch ? branch.name : "(dal yok)");
   } catch (e) { console.warn("[trees] GLB yüklenemedi — prosedürel ağaçlar kalıyor:", e); }
 }
 
+let biomeFX = null;   // oyuncu çevresinde biyoma göre atmosfer parçacıkları (kar/kül/ışıltı)
+function buildBiomes() {
+  const R = CFG.WORLD, step = 44;
+  // --- zemin renk yamaları: biyom bölgelerini zemine boyar (ızgara, çakışan diskler) ---
+  const patchGeo = new THREE.CircleGeometry(step * 0.82, 10);
+  const patchMat = { snow: new THREE.MeshStandardMaterial({ color: BIOMES.snow.ground, roughness: 1 }), fairy: new THREE.MeshStandardMaterial({ color: BIOMES.fairy.ground, roughness: 1 }), volcanic: new THREE.MeshStandardMaterial({ color: BIOMES.volcanic.ground, roughness: 1 }) };
+  for (let gx = -R; gx <= R; gx += step) for (let gz = -R; gz <= R; gz += step) {
+    const bk = biomeAt(gx, gz); if (bk === "forest") continue;
+    const m = new THREE.Mesh(patchGeo, patchMat[bk]); m.rotation.x = -Math.PI / 2; m.position.set(gx + rnd(-7, 7), 0.05, gz + rnd(-7, 7));
+    if (shadowsOn) m.receiveShadow = true; scene.add(m);
+  }
+  // --- dekorlar: kar tepeleri / lav kayaları (ışıyan) / peri mantarları (ışıyan) ---
+  const snowM = new THREE.MeshStandardMaterial({ color: 0xeef4fb, roughness: 1, flatShading: true });
+  const rockM = new THREE.MeshStandardMaterial({ color: 0x1a120e, roughness: 1, flatShading: true });
+  const lavaM = new THREE.MeshStandardMaterial({ color: 0xff6a22, emissive: 0xff3300, emissiveIntensity: 1.5, roughness: 0.6, flatShading: true });
+  const stemM = new THREE.MeshStandardMaterial({ color: 0xece6f5, roughness: 1 });
+  const capCols = [0xff7ad9, 0x9b6cff, 0x66e0ff];
+  for (let i = 0; i < 300; i++) {
+    const x = rnd(-R, R), z = rnd(-R, R), bk = biomeAt(x, z); if (bk === "forest") continue;
+    const g = new THREE.Group(); g.position.set(x, 0, z);
+    if (bk === "snow") { const s = rnd(0.6, 1.8); const m = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), snowM); m.position.y = s * 0.32; m.scale.y = 0.5; g.add(m); }
+    else if (bk === "volcanic") { const s = rnd(0.5, 1.4); const m = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), Math.random() < 0.45 ? lavaM : rockM); m.position.y = s * 0.4; m.scale.y = 0.7; g.add(m); }
+    else { const h = rnd(0.5, 1.3); const st = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, h, 5), stemM); st.position.y = h / 2; g.add(st); const c = choice(capCols); const cap = new THREE.Mesh(new THREE.IcosahedronGeometry(rnd(0.18, 0.34), 0), new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 1.0, roughness: 0.5, flatShading: true })); cap.position.y = h; g.add(cap); }
+    if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    scene.add(g);
+  }
+  // --- atmosfer parçacıkları (kar düşer / kül yükselir / ışıltı süzülür) — oyuncu çevresinde ---
+  const N = 320, p = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) { p[i * 3] = rnd(-40, 40); p[i * 3 + 1] = rnd(0, 30); p[i * 3 + 2] = rnd(-40, 40); }
+  const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.BufferAttribute(p, 3));
+  biomeFX = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.24, transparent: true, opacity: 0, depthWrite: false }));
+  biomeFX.frustumCulled = false; biomeFX.visible = false; scene.add(biomeFX);
+}
 function buildTrees() {
   const N = CFG.TREES;
   const trunkGeo = new THREE.CylinderGeometry(0.14, 0.34, 5.2, 7);
@@ -484,15 +544,17 @@ function buildTrees() {
   for (let i = 0; i < N; i++) {
     let x, z;
     do { x = rnd(-CFG.WORLD, CFG.WORLD); z = rnd(-CFG.WORLD, CFG.WORLD); } while (Math.hypot(x, z) < 9);
-    trees.push({ x, z, s: rnd(0.8, 1.6), rot: rnd(0, 6.28), r: 0, hp: 4, alive: true, regrow: 0 });
+    const bk = biomeAt(x, z), bf = BIOMES[bk].fol;
+    trees.push({ x, z, s: rnd(0.8, 1.6), rot: rnd(0, 6.28), r: 0, hp: 4, alive: true, regrow: 0, biome: bk });
     trees[i].r = 0.9 * trees[i].s;
     writeTree(i);
-    // gövde rengi (kahve tonları)
-    col.setHSL(0.08, rnd(0.35, 0.5), rnd(0.14, 0.22)); trunkIM.setColorAt(i, col);
-    // yaprak rengi (orman yeşili çeşitliliği)
-    const h = rnd(0.27, 0.36);
-    col.setHSL(h, rnd(0.45, 0.65), rnd(0.18, 0.30)); folLowIM.setColorAt(i, col);
-    col.setHSL(h, rnd(0.45, 0.65), rnd(0.26, 0.40)); folTopIM.setColorAt(i, col);
+    // gövde rengi (biyoma göre)
+    col.setHSL(BIOMES[bk].trunk, rnd(0.3, 0.5), rnd(0.12, 0.22)); trunkIM.setColorAt(i, col);
+    // yaprak rengi (biyom paleti + çeşitlilik)
+    const h = (bf[0] + rnd(-0.03, 0.03) + 1) % 1, sat = clamp(bf[1] * rnd(0.85, 1.05), 0, 1);
+    col.setHSL(h, sat, clamp(bf[2] * rnd(0.62, 0.85), 0, 1)); folLowIM.setColorAt(i, col);
+    col.setHSL(h, sat, clamp(bf[2] * rnd(0.85, 1.1), 0, 1)); folTopIM.setColorAt(i, col);
+    trees[i].fol = col.clone();   // GLB ağaçları için (modelBranchIM tonlaması)
   }
   trunkIM.instanceMatrix.needsUpdate = folLowIM.instanceMatrix.needsUpdate = folTopIM.instanceMatrix.needsUpdate = true;
   trunkIM.instanceColor.needsUpdate = folLowIM.instanceColor.needsUpdate = folTopIM.instanceColor.needsUpdate = true;
@@ -1825,6 +1887,7 @@ function update(dt) {
   for (const w of walls) { const dx = nx - w.x, dz = nz - w.z, rr = w.r + 0.4; if (dx * dx + dz * dz < rr * rr) { const d = Math.hypot(dx, dz) || 0.001; nx = w.x + dx / d * rr; nz = w.z + dz / d * rr; } }
   nx = clamp(nx, -CFG.WORLD, CFG.WORLD); nz = clamp(nz, -CFG.WORLD, CFG.WORLD);
   camera.position.x = nx; camera.position.z = nz;
+  { const nb = biomeAt(nx, nz); if (nb !== curBiome) { curBiome = nb; toast("Bölge: " + BIOMES[nb].name, "good"); } }
   // baş sallanması + sarsıntı
   if (m > 0.1) { S.bob += dt * (sprinting ? 14 : 9); S.stepT -= dt; if (S.stepT <= 0) { Sound.step(); S.stepT = sprinting ? 0.3 : 0.45; } } else S.bob *= 0.9;
   let camY = CFG.EYE + Math.sin(S.bob) * 0.06;
@@ -1884,6 +1947,22 @@ function update(dt) {
     camera.getWorldDirection(_fwd); flashLight.position.set(camera.position.x + _fwd.x * 3.6, camera.position.y + _fwd.y * 3.6 + 0.2, camera.position.z + _fwd.z * 3.6);
     if (S.battery <= 0) { S.flashOn = false; toast("🔋 Pil bitti! (yeni pil tak)", "bad"); }
   } else if (flashLight) flashLight.intensity = 0;
+  // biyom atmosfer parçacıkları (kar düşer / kül yükselir / ışıltı süzülür)
+  if (biomeFX) {
+    const bz = BIOMES[curBiome], on = !!(bz.cold || bz.heat || bz.fairy), mat = biomeFX.material;
+    mat.opacity = lerp(mat.opacity, on ? 0.6 : 0, on ? 0.06 : 0.1);
+    if (mat.opacity < 0.02) biomeFX.visible = false;
+    else {
+      biomeFX.visible = true; biomeFX.position.set(camera.position.x, 0, camera.position.z);
+      const rise = curBiome === "volcanic", drift = curBiome === "fairy";
+      const vy = (rise ? 7 : drift ? 1.2 : -9) * dt;
+      const pa = biomeFX.geometry.attributes.position, ar = pa.array;
+      for (let i = 1; i < ar.length; i += 3) { ar[i] += vy + (drift ? Math.sin(performance.now() / 500 + i) * 0.5 * dt : 0); if (rise || drift) { if (ar[i] > 30) ar[i] = 0; } else if (ar[i] < 0) ar[i] = 30; }
+      pa.needsUpdate = true;
+      if (mat.color && mat.color.setHex) mat.color.setHex(rise ? 0xff7a3c : drift ? 0xffb0f2 : 0xffffff);
+      mat.size = curBiome === "snow" ? 0.3 : drift ? 0.26 : 0.2;
+    }
+  }
 
   // ateşler (üs ateşi KALICI — sönse bile odun/taşlar kalır, yeniden beslenir)
   let nearFire = false, fireDist = 1e9;
@@ -1916,6 +1995,12 @@ function update(dt) {
   if (nearFire) S.sanity = clamp(S.sanity + (night ? 1.0 : 2.2) * dt, 0, 100);
   else if (night) S.sanity = clamp(S.sanity - 0.85 * dt, 0, 100);
   else S.sanity = clamp(S.sanity + 0.3 * dt, 0, 100);
+  // BİYOM İKLİMİ: kar üşütür, volkan kavurur (sıcak hasarı + susuzluk), peri huzur verir
+  { const bz = BIOMES[curBiome];
+    if (bz.cold && !nearFire) S.warmth = clamp(S.warmth - 2.2 * dt, 0, 100);
+    if (bz.heat) { S.warmth = clamp(S.warmth + 8 * dt, 0, 100); S.thirst = clamp(S.thirst - 1.4 * dt, 0, 100); S.health = clamp(S.health - 1.1 * dt, 0, 100); if (S.health < 30) S.deathReason = "aşırı sıcak / lav"; }
+    if (bz.fairy) S.sanity = clamp(S.sanity + 0.8 * dt, 0, 100);
+  }
 
   let dmg = 0;
   if (S.hunger <= 0) { dmg += 2.0; S.deathReason = "açlık"; }
@@ -1993,6 +2078,7 @@ function update(dt) {
   if (S.bloodMoon && dk > 0.4) skyCol.lerp(new THREE.Color(0x3a0608), 0.6);   // KANLI AY -> kırmızı sis/gökyüzü
   if (S.weather === "rain") skyCol.lerp(new THREE.Color(0x2a3038), 0.5);      // yağmurda gri-mavi
   if (S.flash > 0) skyCol.lerp(new THREE.Color(0xcdd6e6), S.flash * 0.7);     // şimşek beyazı
+  if (curBiome !== "forest") skyCol.lerp(new THREE.Color(BIOMES[curBiome].fog), 0.4 * dayK + 0.2);   // biyom atmosfer tonu (gündüz daha belirgin)
   scene.background = skyCol; scene.fog.color = skyCol;
   scene.fog.density = lerp(0.013, 0.12, dk) * (S.weather === "rain" ? 1.5 : 1);   // gece yoğun sis; yağmur daha da kapatır
   updateSky(dk, dayK, skyCol, sunAng);          // gradyan gökyüzü + yıldız + ay + güneş parıltısı
@@ -2218,6 +2304,7 @@ function drawMinimap() {
 function updateHUD(night) {
   $("dayNum").textContent = S.day;
   const [ic, tx] = phaseInfo(S.time); $("phaseIcon").textContent = ic; $("phaseText").textContent = tx;
+  { const bl = $("biomeLabel"); if (bl) bl.textContent = BIOMES[curBiome].name; }
   bars.health.style.width = S.health + "%"; bars.hunger.style.width = S.hunger + "%"; bars.warmth.style.width = S.warmth + "%"; bars.sanity.style.width = S.sanity + "%"; bars.stamina.style.width = S.stamina + "%"; if (bars.thirst) bars.thirst.style.width = S.thirst + "%";
   invEl.wood.textContent = S.inv.wood; invEl.raw.textContent = S.inv.raw; invEl.cooked.textContent = S.inv.cooked;
   invEl.metal.textContent = S.inv.metal; invEl.pelt.textContent = S.inv.pelt; invEl.bandage.textContent = S.inv.bandage; if (invEl.gem) invEl.gem.textContent = S.inv.gem;

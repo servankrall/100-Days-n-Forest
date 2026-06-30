@@ -817,7 +817,7 @@ let watcher = null;   // {group,head,x,z,seen,life,alpha}
 let wCd = 8, wEnc = 0;
 
 function clearDynamic() {
-  for (const a of animals) scene.remove(a.group); animals.length = 0;
+  for (const a of animals) scene.remove(a.group); animals.length = 0; bossAlive = false;
   for (const f of fires) scene.remove(f.group); fires.length = 0;
   for (const w of walls) scene.remove(w.group); walls.length = 0;
   for (const t of traps) scene.remove(t.group); traps.length = 0;
@@ -903,6 +903,42 @@ function makeAnimal(type) {
     if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
     scene.add(g); return g;
   }
+  if (type === "lavabeast") {                                 // VOLKAN — kömürleşmiş gövde, ışıyan lav çatlakları
+    const rock = new THREE.MeshStandardMaterial({ color: 0x1a120e, roughness: 1, flatShading: true });
+    const lava = new THREE.MeshStandardMaterial({ color: 0xff5a1e, emissive: 0xff3300, emissiveIntensity: 2.0, roughness: 0.5, flatShading: true });
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.5, 1.0, 5, 9), rock); body.rotation.z = Math.PI / 2; body.position.set(0.1, 0.8, 0); g.add(body);
+    const head = new THREE.Mesh(new THREE.DodecahedronGeometry(0.4, 0), rock); head.position.set(0.85, 0.9, 0); g.add(head);
+    for (let i = 0; i < 7; i++) { const c = new THREE.Mesh(new THREE.IcosahedronGeometry(rnd(0.1, 0.2), 0), lava); c.position.set(rnd(-0.4, 0.8), rnd(0.6, 1.1), rnd(-0.35, 0.35)); g.add(c); }
+    const eyeM = new THREE.MeshStandardMaterial({ color: 0xffe23a, emissive: 0xffd000, emissiveIntensity: 3 });
+    for (const sz of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), eyeM); e.position.set(1.05, 0.96, sz * 0.14); g.add(e); }
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) { const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.1, 0.7, 6), rock); leg.position.set(sx * 0.45, 0.35, sz * 0.32); g.add(leg); }
+    g.add(Object.assign(new THREE.PointLight(0xff5a1e, 1.0, 8, 1.8), { position: new THREE.Vector3(0.3, 0.9, 0) }));
+    if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    scene.add(g); return g;
+  }
+  if (type === "fairy") {                                     // PERİ — küçük, ışıltılı, geceleri saldırgan
+    const c = choice([0xff7ad9, 0x9b6cff, 0x66e0ff]);
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.26, 0), new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 2.2, roughness: 0.4, flatShading: true })); core.position.y = 1.4; g.add(core);
+    const wingM = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xbfe0ff, emissiveIntensity: 0.8, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
+    for (const sz of [-1, 1]) { const w = new THREE.Mesh(new THREE.CircleGeometry(0.3, 8), wingM); w.position.set(0, 1.45, sz * 0.18); w.rotation.y = sz * 0.6; g.add(w); }
+    g.add(Object.assign(new THREE.PointLight(c, 0.8, 7, 1.8), { position: new THREE.Vector3(0, 1.4, 0) }));
+    if (shadowsOn) core.castShadow = true; scene.add(g); return g;
+  }
+  if (type === "cultist") {                                   // CULTIST KING — volkan bossu, kukuletalı, asalı
+    const robe = new THREE.MeshStandardMaterial({ color: 0x2a0810, emissive: 0x3a0000, emissiveIntensity: 0.5, roughness: 1, flatShading: true });
+    const gold = new THREE.MeshStandardMaterial({ color: 0xd9a441, metalness: 0.6, roughness: 0.4 });
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 1.0, 2.6, 8), robe); body.position.y = 1.3; g.add(body);
+    const hood = new THREE.Mesh(new THREE.ConeGeometry(0.55, 1.0, 8), robe); hood.position.y = 2.7; g.add(hood);
+    const face = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 10), new THREE.MeshBasicMaterial({ color: 0x050000 })); face.position.set(0.18, 2.45, 0); g.add(face);
+    const eyeM = new THREE.MeshStandardMaterial({ color: 0xff2a2a, emissive: 0xff0000, emissiveIntensity: 4 });
+    for (const sz of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), eyeM); e.position.set(0.34, 2.5, sz * 0.12); g.add(e); }
+    const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 3.0, 6), gold); staff.position.set(0.6, 1.5, 0); g.add(staff);
+    const orb = new THREE.Mesh(new THREE.IcosahedronGeometry(0.28, 0), new THREE.MeshStandardMaterial({ color: 0xff5a1e, emissive: 0xff3300, emissiveIntensity: 2.4, flatShading: true })); orb.position.set(0.6, 3.1, 0); g.add(orb);
+    g.add(Object.assign(new THREE.PointLight(0xff3a1e, 1.6, 12, 1.6), { position: new THREE.Vector3(0.6, 3.1, 0) }));
+    g.scale.setScalar(1.35);
+    if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    scene.add(g); return g;
+  }
   if (animalProtos[type]) {                                   // yüklenmiş gerçek GLB (boar/capybara/tapir)
     const src = animalProtos[type]; const m = SkeletonUtilsMod ? SkeletonUtilsMod.clone(src.proto) : src.proto.clone(true);
     m.rotation.y = Math.PI / 2; g.add(m); g.userData.model = m;
@@ -916,6 +952,7 @@ function makeAnimal(type) {
     tapir: { col: 0x4a4248, len: 1.45, rad: 0.44, legH: 0.5, headR: 0.32, headFwd: 0.92, headY: 0.74, snout: "trunk", ears: "round" },
     deer: { col: 0x9a7a52, len: 1.0, rad: 0.3, legH: 0.62, headR: 0.24, headFwd: 0.66, headY: 1.1, snout: "blunt", ears: "point", neck: true, antlers: true },
     jaguar: { col: 0xc8902c, len: 1.4, rad: 0.36, legH: 0.5, headR: 0.3, headFwd: 0.95, headY: 0.72, snout: "blunt", ears: "point", eyes: true },
+    polarbear: { col: 0xeef3f8, len: 1.6, rad: 0.6, legH: 0.62, headR: 0.42, headFwd: 1.0, headY: 0.95, snout: "snout", ears: "round", eyes: true },
   })[type] || { col: 0x8a6a44, len: 1.0, rad: 0.38, legH: 0.4, headR: 0.3, headFwd: 0.66, headY: 0.62, snout: "blunt", ears: "round" };
   const mat = new THREE.MeshStandardMaterial({ color: P.col, roughness: 0.95 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 1 });
@@ -980,6 +1017,21 @@ function spawnPack() {                                         // sürü: 4-6 h�
   for (let i = 0; i < n; i++) animals.push({ group: makeAnimal("pup"), x: bx + rnd(-3, 3), z: bz + rnd(-3, 3), type: "pup", hp: 3, state: "chase", dir: 0, atkCd: 0, bite: 0, hostile: true });
   Sound.growl(); whisperText("sürü geliyor!");
 }
+/* ----- BİYOM YARATIKLARI + CULTIST KING boss ----- */
+const BEAST = {
+  polarbear: { sp: 4.8, dmg: 14, reach: 2.2, hp: 26, fearFire: false, nightOnly: false, desp: 72 },
+  lavabeast: { sp: 6.2, dmg: 12, reach: 2.0, hp: 18, fearFire: false, nightOnly: false, desp: 60, burn: true },
+  fairy:     { sp: 7.2, dmg: 7,  reach: 1.9, hp: 8,  fearFire: true,  nightOnly: true,  desp: 46, sanity: 9 },
+  cultist:   { sp: 3.2, dmg: 24, reach: 2.8, hp: 95, fearFire: false, nightOnly: false, desp: 999, boss: true },
+};
+const beastName = (t) => ({ polarbear: "kutup ayısı", lavabeast: "lav yaratığı", fairy: "peri saldırısı", cultist: "Cultist King" }[t] || t);
+let bossAlive = false;
+function spawnBeast(type) {
+  const B = BEAST[type], ang = rnd(0, 6.28), d = rnd(22, 40);
+  let x = clamp(camera.position.x + Math.cos(ang) * d, -CFG.WORLD, CFG.WORLD), z = clamp(camera.position.z + Math.sin(ang) * d, -CFG.WORLD, CFG.WORLD);
+  animals.push({ group: makeAnimal(type), x, z, type, hp: B.hp, maxhp: B.hp, state: "chase", dir: 0, atkCd: 0, bite: 0, slow: 0, hostile: true, boss: !!B.boss });
+}
+function spawnCultistKing() { if (bossAlive) return; bossAlive = true; spawnBeast("cultist"); Sound.growl(); whisperText("CULTIST KING uyandı..."); toast("🌋👑 CULTIST KING beliriyor!", "bad"); jumpscare(null, 8, 0); }
 
 /* ----- ateş modeli ----- */
 function makeFire(x, z) {
@@ -1209,7 +1261,8 @@ function doAction() {
   S.swingCd = 0.4; S.stamina = clamp(S.stamina - 4, 0, 100);
   if (t.kind === "tree") {
     Sound.chop(); const tr = t.obj;
-    const dmg = S.tools.chainsaw ? 4 : [1, 2, 4][S.tools.axe || 0];   // eski/iyi/güçlü balta
+    let dmg = S.tools.chainsaw ? 4 : [1, 2, 4][S.tools.axe || 0];   // eski/iyi/güçlü balta
+    if (!S.tools.chainsaw && S.melee === "iceaxe") dmg = Math.max(dmg, 2);   // buz baltası iyi balta gibi keser
     if (S.tools.chainsaw) S.swingCd = 0.12;                            // motorlu testere: basılı tut → sürekli kesim
     tr.hp -= dmg; S.inv.wood++;
     if (tr.hp <= 0) { tr.alive = false; tr.regrow = 95; const bonus = S.tools.chainsaw ? 3 : 2; S.inv.wood += bonus; writeTree(trees.indexOf(tr)); treesNeedUpdate(); toast("🪵 Ağaç devrildi (+" + (bonus + 1) + ")", "good"); }
@@ -1268,8 +1321,13 @@ function doAction() {
     if (Math.random() < 0.05 && giveMelee("katana")) loot.push("⚔️ KATANA!");
     else if (Math.random() < 0.035 && giveMelee("morningstar")) loot.push("🔨 TOPUZ!");
     else if (Math.random() < 0.02 && giveMelee("infernal")) loot.push("🔥 CEHENNEM KILICI!");
+    // BİYOMA ÖZEL ganimet: 🌋 Ruby sandığı (mücevher + Cehennem Kılıcı) · ❄️ soğuk sandık (kürk + Buz Baltası)
+    const cb = biomeAt(c.x, c.z); let chestName = "📦 Sandık";
+    if (cb === "volcanic") { chestName = "🔴 Ruby Sandığı"; S.inv.gem += rndi(1, 3); loot.push("💎+"); if (Math.random() < 0.22 && giveMelee("infernal")) loot.push("🔥 CEHENNEM KILICI!"); }
+    else if (cb === "snow") { chestName = "❄️ Soğuk Sandık"; S.inv.pelt += rndi(2, 4); S.inv.cloth += rndi(1, 3); loot.push("🧵🧶+"); if (Math.random() < 0.3 && giveMelee("iceaxe")) loot.push("🧊 BUZ BALTASI!"); }
+    else if (cb === "fairy") { chestName = "🧚 Peri Sandığı"; S.inv.bandage += rndi(1, 2); S.inv.medkit += Math.random() < 0.4 ? 1 : 0; loot.push("🩹+"); }
     if (Math.random() < 0.45) { const note = choice(NOTE_POOL); if (!S.notes.includes(note)) { S.notes.push(note); loot.push("📓"); toast("📓 Bir günlük buldun (Duraklat → Günlükler)", "good"); } }
-    toast("📦 Sandık: " + loot.join("  "), "good");
+    toast(chestName + ": " + loot.join("  "), "good");
     return;
   }
   if (t.kind === "animal") {
@@ -1279,6 +1337,7 @@ function doAction() {
     if (mw) { S.swingCd = mw.cd;
       if (mw.poison) a.poison = Math.max(a.poison || 0, 4.0);
       if (mw.fire) a.burn = Math.max(a.burn || 0, 3.2);
+      if (mw.slow) a.slow = Math.max(a.slow || 0, 3.5);
       if (mw.knock) { const dx = a.x - camera.position.x, dz = a.z - camera.position.z, d = Math.hypot(dx, dz) || 1; a.x += dx / d * 1.4; a.z += dz / d * 1.4; }
     }
     if (a.type === "boar" || a.type === "jaguar") { a.hostile = true; a.state = "chase"; }
@@ -1287,6 +1346,16 @@ function doAction() {
   }
 }
 function killAnimal(a, cooked) {
+  if (a.boss) {   // CULTIST KING yenildi → büyük ödül
+    bossAlive = false; const newSword = giveMelee("infernal"); S.inv.gem += rndi(3, 6); S.inv.metal += rndi(8, 14); S.inv.cooked += 4;
+    toast("👑 CULTIST KING düştü! " + (newSword ? "🔥 Cehennem Kılıcı + " : "") + "💎 mücevher + ⚙️ ganimet!", "good"); Sound.crackle();
+    scene.remove(a.group); const bi = animals.indexOf(a); if (bi >= 0) animals.splice(bi, 1); return;
+  }
+  if (BEAST[a.type]) {   // biyom yaratıkları: post/et yok, sadece kaybolur (+ az ganimet)
+    if (a.type === "polarbear") { S.inv.pelt += rndi(2, 4); if (cooked) S.inv.cooked += rndi(2, 3); else S.inv.raw += rndi(2, 3); toast("🐻‍❄️ Kutup ayısını avladın · 🧵 post", "good"); }
+    else toast("☠️ " + beastName(a.type) + " yok edildi", "good");
+    scene.remove(a.group); const bi = animals.indexOf(a); if (bi >= 0) animals.splice(bi, 1); return;
+  }
   const y = a.type === "jaguar" ? rndi(5, 7) : a.type === "tapir" ? rndi(3, 5) : rndi(2, 4);
   if (cooked) { S.inv.cooked += y; } else { S.inv.raw += y; }   // cehennem kılıcı → et direkt pişmiş düşer
   const pelt = a.type === "jaguar" ? rndi(2, 3) : rndi(1, 2); S.inv.pelt += pelt;
@@ -1352,12 +1421,13 @@ function doShoot() {
 /* ----------------------- ÖZEL YAKIN DÖVÜŞ SİLAHLARI (Faz 3) ----------------------- */
 const MELEE = {
   spear:       { label: "🗡️ Mızrak",         dmg: 6,  cd: 0.42 },
+  iceaxe:      { label: "🧊 Buz Baltası",     dmg: 7,  cd: 0.4,  slow: true },
   poisonSpear: { label: "🧪 Zehirli Mızrak",  dmg: 7,  cd: 0.42, poison: true },
   katana:      { label: "⚔️ Katana",          dmg: 9,  cd: 0.26 },
   morningstar: { label: "🔨 Topuz",           dmg: 17, cd: 0.62, knock: true },
   infernal:    { label: "🔥 Cehennem Kılıcı", dmg: 14, cd: 0.4,  fire: true },
 };
-const MELEE_ORDER = ["spear", "poisonSpear", "katana", "morningstar", "infernal"];
+const MELEE_ORDER = ["spear", "iceaxe", "poisonSpear", "katana", "morningstar", "infernal"];
 const meleeRank = (k) => MELEE_ORDER.indexOf(k);
 function giveMelee(k) {   // silahı envantere ekle; daha güçlüyse otomatik kuşan
   if (!MELEE[k]) return false; const had = !!S.meleeOwned[k]; S.meleeOwned[k] = true; if (k === "spear") S.tools.spear = true;
@@ -2050,6 +2120,11 @@ function update(dt) {
   if (night && S.day >= 3 && Math.random() < (0.0005 + dread * 0.001) && animals.filter((a) => a.type === "lurker").length < 2) spawnLurker();
   // SÜRÜ (gün ≥4 / kanlı ay): hızlı yavrular dalga halinde
   if (night && (S.day >= 4 || S.bloodMoon) && Math.random() < (0.00035 + dread * 0.0009) && !animals.some((a) => a.type === "pup")) spawnPack();
+  // BİYOM YARATIKLARI (bulunduğun bölgeye göre)
+  if (curBiome === "snow" && Math.random() < 0.0011 && animals.filter((a) => a.type === "polarbear").length < 2) { spawnBeast("polarbear"); Sound.growl(); }
+  if (curBiome === "volcanic" && Math.random() < 0.0013 && animals.filter((a) => a.type === "lavabeast").length < 3) spawnBeast("lavabeast");
+  if (curBiome === "fairy" && night && Math.random() < 0.0015 && animals.filter((a) => a.type === "fairy").length < 4) { spawnBeast("fairy"); whisperText(choice(["ışıklar...", "bizimle kal", "kaçamazsın"])); }
+  if (curBiome === "volcanic" && S.day >= 8 && !bossAlive && Math.random() < 0.0006) spawnCultistKing();
 
   updateAnimals(dt);
 
@@ -2186,6 +2261,7 @@ function updateAnimals(dt) {
   for (let i = animals.length - 1; i >= 0; i--) {
     const a = animals[i], d = Math.hypot(a.x - px, a.z - pz);
     if (a.atkCd > 0) a.atkCd -= dt;
+    if (a.slow > 0) a.slow -= dt;   // buz baltası yavaşlatması
     if (a.group.userData.mixer) a.group.userData.mixer.update(dt);   // GLB animasyon klibi (jaguar/boar/…)
     if (a.type === "jaguar") {
       let fearFire = false; for (const f of fires) if (Math.hypot(a.x - f.x, a.z - f.z) < (f.safeR ? f.safeR - 4 : 7)) fearFire = true;
@@ -2239,6 +2315,19 @@ function updateAnimals(dt) {
       if (a.bite > 0) a.bite -= dt;
       if (d < 1.8 && a.bite <= 0) { S.health = clamp(S.health - 4, 0, 100); S.hurt = 0.35; S.shake = 0.25; a.bite = 1.0; Sound.chop(); S.deathReason = "sürü"; if (S.health <= 0) { playerDied("sürü saldırısı"); return; } }
       if (!isNight() && d > 12) { scene.remove(a.group); animals.splice(i, 1); continue; }
+    } else if (BEAST[a.type]) {                                // BİYOM YARATIKLARI + boss (kutup ayısı / lav / peri / cultist)
+      const B = BEAST[a.type];
+      let fearFire = false; if (B.fearFire) for (const f of fires) if (f.fuel > 0 && Math.hypot(a.x - f.x, a.z - f.z) < (f.safeR || 8)) fearFire = true;
+      a.dir = fearFire ? Math.atan2(a.z - pz, a.x - px) : Math.atan2(pz - a.z, px - a.x);
+      const spd = (fearFire ? 4 : B.sp) * (a.slow > 0 ? 0.5 : 1);
+      a.x += Math.cos(a.dir) * spd * dt; a.z += Math.sin(a.dir) * spd * dt;
+      if (a.bite > 0) a.bite -= dt;
+      if (d < B.reach && a.bite <= 0) {
+        S.health = clamp(S.health - B.dmg, 0, 100); if (B.sanity) S.sanity = clamp(S.sanity - B.sanity, 0, 100);
+        S.hurt = 0.55; S.shake = Math.max(S.shake, B.boss ? 0.85 : 0.45); a.bite = B.boss ? 1.5 : 1.1; Sound.growl();
+        S.deathReason = beastName(a.type); if (S.health <= 0) { playerDied(beastName(a.type)); return; }
+      }
+      if (!B.boss && (d > B.desp || (B.nightOnly && !isNight()))) { scene.remove(a.group); animals.splice(i, 1); continue; }
     } else if (a.type === "boar" && a.hostile) {
       a.dir = Math.atan2(pz - a.z, px - a.x); a.x += Math.cos(a.dir) * 5.5 * dt; a.z += Math.sin(a.dir) * 5.5 * dt;
       if (d < 2 && a.atkCd <= 0) { S.health = clamp(S.health - 7, 0, 100); S.hurt = 0.4; S.shake = 0.3; a.atkCd = 1.4; S.deathReason = "yaban domuzu"; if (S.health <= 0) { playerDied("yaban domuzu saldırısı"); return; } }
@@ -2249,7 +2338,7 @@ function updateAnimals(dt) {
       else { a.t -= dt; if (a.t <= 0) { a.t = rnd(1.5, 4); a.dir = rnd(0, 6.28); a.moving = Math.random() < 0.6; } if (a.moving) { a.x += Math.cos(a.dir) * 1.6 * dt; a.z += Math.sin(a.dir) * 1.6 * dt; } }
     }
     // OYUNCUYA GİRMESİN: atılım dışında bir dur-mesafesi koru (jaguar/domuz içimize giriyordu)
-    const STOP = a.type === "jaguar" ? 1.7 : a.type === "crawler" ? 1.5 : a.type === "lurker" && a.state === "ambush" ? 1.4 : a.type === "pup" ? 0.9 : a.type === "boar" && a.hostile ? 1.6 : 0;
+    const STOP = a.type === "jaguar" ? 1.7 : a.type === "crawler" ? 1.5 : a.type === "lurker" && a.state === "ambush" ? 1.4 : a.type === "pup" ? 0.9 : a.type === "boar" && a.hostile ? 1.6 : a.type === "cultist" ? 2.4 : a.type === "polarbear" ? 1.9 : a.type === "lavabeast" ? 1.7 : a.type === "fairy" ? 1.3 : 0;
     if (STOP && (a.pounce == null || a.pounce <= 0)) {
       const nd = Math.hypot(a.x - px, a.z - pz);
       if (nd < STOP) { const u = nd || 0.001; a.x = px + (a.x - px) / u * STOP; a.z = pz + (a.z - pz) / u * STOP; }
@@ -2305,6 +2394,7 @@ function updateHUD(night) {
   $("dayNum").textContent = S.day;
   const [ic, tx] = phaseInfo(S.time); $("phaseIcon").textContent = ic; $("phaseText").textContent = tx;
   { const bl = $("biomeLabel"); if (bl) bl.textContent = BIOMES[curBiome].name; }
+  { const bb = $("bossBar"); if (bb) { const boss = bossAlive ? animals.find((a) => a.boss) : null; if (boss) { bb.classList.remove("hidden"); const bf = $("bossFill"); if (bf) bf.style.width = clamp(boss.hp / (boss.maxhp || 95) * 100, 0, 100) + "%"; } else bb.classList.add("hidden"); } }
   bars.health.style.width = S.health + "%"; bars.hunger.style.width = S.hunger + "%"; bars.warmth.style.width = S.warmth + "%"; bars.sanity.style.width = S.sanity + "%"; bars.stamina.style.width = S.stamina + "%"; if (bars.thirst) bars.thirst.style.width = S.thirst + "%";
   invEl.wood.textContent = S.inv.wood; invEl.raw.textContent = S.inv.raw; invEl.cooked.textContent = S.inv.cooked;
   invEl.metal.textContent = S.inv.metal; invEl.pelt.textContent = S.inv.pelt; invEl.bandage.textContent = S.inv.bandage; if (invEl.gem) invEl.gem.textContent = S.inv.gem;

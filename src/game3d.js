@@ -2561,7 +2561,7 @@ $("cr-close").addEventListener("click", () => closeCraft());
 const pauseBtn = $("pauseBtn");
 pauseBtn.addEventListener("click", () => togglePause());
 pauseBtn.addEventListener("touchstart", (e) => { isTouch = true; togglePause(); e.preventDefault(); }, { passive: false });
-addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); if (placeMode) exitPlace(); else if (settingsOpen) closeSettings(); else if (notesOpen) closeNotes(); else if (craftOpen) closeCraft(); else togglePause(); } });
+addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); if (placeMode) exitPlace(); else if (guideOpen) closeGuide(); else if (settingsOpen) closeSettings(); else if (notesOpen) closeNotes(); else if (craftOpen) closeCraft(); else togglePause(); } });
 document.addEventListener("visibilitychange", () => { if (document.hidden && S && S.running) { S.paused = true; pauseBtn.textContent = "▶"; } });
 addEventListener("touchstart", () => { isTouch = true; }, { once: true, passive: true });
 const vBtn = $("btn-voice");
@@ -2758,6 +2758,54 @@ function closeNotes() { notesOpen = false; $("notes").classList.add("hidden"); }
 $("notes-close").addEventListener("click", closeNotes);
 $("pz-settings").addEventListener("click", openSettings);
 $("pz-notes").addEventListener("click", openNotes);
+
+/* ----------------------- OYUN İÇİ REHBER / WIKI ----------------------- */
+const GUIDE = [
+  { t: "🗺️ Biyomlar", h: `
+    <h3>🌲 Orman (başlangıç)</h3><p>En güvenli merkez. Odun, av (geyik/domuz/kapibara), sandık ve kulübeler. Üssünü burada kur, ateşi asla söndürme.</p>
+    <h3>❄️ Karlı Bölge</h3><p>Beyaz ağaçlar. Ateşten uzaktaysan <b>hızlı üşürsün</b>. Soğuk sandıklardan <b>🧊 Buz Baltası</b> (düşmanı yavaşlatır), kürk. Kutup ayıları saldırgan.</p>
+    <h3>🧚 Peri Ormanı</h3><p>Pembe/mor ağaçlar, ışıltı. Peri sandıkları tıbbi verir; çevre hafif <b>akıl huzuru</b> sağlar. Geceleri periler saldırganlaşır.</p>
+    <h3>🌋 Volkanik Bölge</h3><p>En tehlikeli. <b>Sürekli sıcak hasarı + susuzluk</b>. 🔴 Ruby sandıkları + 🔥 Cehennem Kılıcı. <b>Cultist King boss</b> (gün 8+) burada. Gir-al-çık.</p>
+    <h3>🕳️ Mağara</h3><p>Zifiri karanlık — <b>🔦 El feneri şart</b>. Bol hurda + maden + 🪖 askeri mühimmat kasası. Örümcekler ve Taklitçi sadece burada.</p>` },
+  { t: "🪓 Alet & Silah", h: `
+    <h3>Baltalar (ağaç kes)</h3><p>Eski (yavaş) → İyi (2 vuruş) → Güçlü (tek vuruş) → <b>🪚 Motorlu Testere</b> (BASILI tut, en hızlı). Tezgahta üret veya sandıktan bul.</p>
+    <h3>Menzilli (Q kuşan · R/sağ tık ateş)</h3><p>🔫 Tabanca, 💥 Pompalı (yakın), 🎯 Tüfek (uzak), 🏹 Yay/Arbalet (sessiz). Mermi sandıklardan/mühimmat kasasından.</p>
+    <h3>Yakın dövüş (Z değiştir)</h3><p>🗡️ Mızrak, 🧊 Buz Baltası (yavaşlat), 🧪 Zehirli Mızrak, ⚔️ Katana (hızlı), 🔨 Topuz (geri iter), 🔥 Cehennem Kılıcı (yakar + et pişmiş düşer).</p>
+    <p><b>İpucu:</b> Motorlu testere/silah SES çıkarır, tehlikeyi çeker; sessiz av için yay kullan.</p>` },
+  { t: "📦 Eşya & Loot", h: `
+    <h3>Sandık türleri</h3><p>Normal · Ruby (volkan) · Soğuk (kar) · Peri · 🪖 Askeri Mühimmat Kasası (mağara). Renk/tema seni yönlendirir.</p>
+    <h3>Kaynaklar</h3><p>🪵 Odun · ⚙️ Hurda (craft/ticaret) · 🧶 Kumaş · 🪢 Halat · 💎 Mücevher (kristal kaz).</p>
+    <h3>Tıbbi (B tuşu)</h3><p>🩹 Bandaj (+can/dirilt) · 🧰 Sağlık Çantası (+75) · 💊 Ağrı kesici (+can +enerji). Öncelik: çanta→hap→bandaj.</p>
+    <h3>Yeme/İçme (G tuşu)</h3><p>🥫 Konserve · 🍫 Çikolata · 💧 Su · 🥤 Kola · 🍗 Pişmiş et. Susuzluk acilse önce içer.</p>` },
+  { t: "🔥 Hayatta Kalma", h: `
+    <h3>Barlar</h3><p>❤️ Can · 🍖 Açlık · 💧 Susuzluk · 🔥 Isı · 🧠 Akıl · ⚡ Enerji. Biri sıfırlanırsa can yakar.</p>
+    <h3>Kamp ateşi</h3><p>Merkezi ateşe <b>F</b> ile odun at. Ne kadar odun = o kadar uzun yanar + seviye atlar (güvenli alan büyür). Ateş yanı = ısı + akıl + güvenlik.</p>
+    <h3>Gece & hava</h3><p>Gece yaratıklar gelir; ateş/meşale/totem yanında güvendesin. Yağmur ateşi çabuk söndürür; fırtınada yıldırıma karşı ⚡ Paratoner kur.</p>
+    <h3>Uyku (T)</h3><p>Yatak kurup güvendeyken uyu → sabaha atla. Tehlike yakınken uyuyamazsın.</p>` },
+  { t: "🎮 Kontroller", h: `
+    <h3>Masaüstü</h3><p><b>WASD</b> hareket · <b>fare</b> bak · <b>Shift</b> koş · <b>E/sol tık</b> vur/topla · <b>F</b> ateşe odun · <b>G</b> ye/iç · <b>B</b> iyileş/dirilt · <b>T</b> uyu · <b>C</b> tezgah · <b>M</b> harita.</p>
+    <p><b>Q</b> menzilli silah değiştir · <b>Z</b> yakın dövüş değiştir · <b>R / sağ tık</b> ateş et · <b>L</b> el feneri · <b>V</b> bas-konuş (sesli sohbet).</p>
+    <h3>Mobil</h3><p>Sol joystick hareket · sağ ekran bak · butonlar: VUR, 🔫 ateş, 🔁 silah, 🔥 odun, 🍗 ye, 🩹 iyileş, KOŞ, 🔦 fener, 🛠️ tezgah.</p>` },
+  { t: "💡 İpuçları", h: `
+    <ul>
+    <li>İlk günler: odun stokla, ateşi büyüt, tezgahı (kampta) kullanıp <b>İyi Balta + Yatak</b> yap.</li>
+    <li>Yapıları <b>ateşin yakınına KUR</b> (üret → 🎒 Kurulacaklar → KUR, hayalet önizleme).</li>
+    <li>Kürk/hurda biriktir; hurdacıyla takas et (5⚙️→🩹+🪵).</li>
+    <li>Uç biyoma <b>hazırlıkla</b> gir: kara ısı/ateş, mağaraya fener+pil, volkana tıbbi + çıkış planı.</li>
+    <li>Petrol Sondajı + tarla + güveç ile üssü <b>otomatikleştir</b>; 100. güne hazır var.</li>
+    </ul>` },
+];
+let guideOpen = false, guideTab = 0;
+function renderGuide() {
+  const tabs = $("guideTabs"), body = $("guideBody"); if (!tabs || !body) return;
+  tabs.innerHTML = "";
+  GUIDE.forEach((s, i) => { const b = document.createElement("button"); b.className = "guide-tab" + (i === guideTab ? " on" : ""); b.textContent = s.t; b.addEventListener("click", () => { guideTab = i; renderGuide(); }); tabs.appendChild(b); });
+  body.innerHTML = GUIDE[guideTab].h;
+}
+function openGuide() { guideOpen = true; renderGuide(); $("guide").classList.remove("hidden"); if (document.exitPointerLock) document.exitPointerLock(); }
+function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
+{ const gc = $("guide-close"); if (gc) gc.addEventListener("click", closeGuide); }
+{ const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 resize();
 // Render döngüsü: sahne kurulmadan da (menüde) FX katmanını temiz tutar; START ile sahne kurulur.

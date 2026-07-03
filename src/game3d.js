@@ -799,6 +799,7 @@ function newState() {
     melee: null, meleeOwned: {},   // özel yakın dövüş silahı (katana, topuz, cehennem kılıcı, zehirli mızrak)
     flashlight: false, flashOn: false, battery: 0,   // el feneri + şarj
     armor: 0, armorDef: 0,   // zırh dayanıklılığı (0-100) + hasar azaltma oranı (0-1)
+    rescuing: false, rescueT: 0,   // 100. gün kurtarma sineması
     benchTier: 1, hasMap: false, hasCompass: false, hasLightningRod: false, hasCrockpot: false, farms: 0, oilDrills: 0,
     placeables: {},  // tezgahta üretilen ama henüz kurulmamış yapılar {kind:adet}
     fireFed: 0,   // ateşe atılan toplam odun (seviye için)
@@ -830,6 +831,7 @@ let wCd = 8, wEnc = 0;
 
 function clearDynamic() {
   for (const a of animals) scene.remove(a.group); animals.length = 0; bossAlive = false;
+  if (heli) heli.visible = false;
   for (const f of fires) scene.remove(f.group); fires.length = 0;
   for (const w of walls) scene.remove(w.group); walls.length = 0;
   for (const t of traps) scene.remove(t.group); traps.length = 0;
@@ -1314,7 +1316,7 @@ function doAction() {
     return;
   }
   if (t.kind === "chest") {                                   // sandık aç → ganimet
-    const c = t.obj; c.opened = true; if (c.lid) c.lid.rotation.x = -1.2; Sound.crackle();
+    const c = t.obj; c.opened = true; c.openedDay = S.day; if (c.lid) c.lid.rotation.x = -1.2; Sound.crackle();
     const loot = [];
     const wood = rndi(2, 6); S.inv.wood += wood; loot.push("🪵" + wood);
     const m = rndi(2, 6); S.inv.metal += m; loot.push("⚙️" + m);   // hurda artık SADECE sandık/yapılarda
@@ -1921,6 +1923,41 @@ function die(reason) {
   setTimeout(() => { $("deathReason").textContent = "Sebep: " + reason; $("daysSurvived").textContent = S.day; $("gameover").classList.remove("hidden"); }, 700);
 }
 function winGame() { S.won = true; S.running = false; clearSave(); document.exitPointerLock && document.exitPointerLock(); $("win").classList.remove("hidden"); }
+/* ----- 100. gün: KURTARMA HELİKOPTERİ finali ----- */
+let heli = null, heliRotor = null;
+function makeHeli() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(1.1, 2.2, 6, 10), new THREE.MeshStandardMaterial({ color: 0x2e3a34, metalness: 0.5, roughness: 0.5 })); body.rotation.z = Math.PI / 2; g.add(body);
+  const cockpit = new THREE.Mesh(new THREE.SphereGeometry(0.9, 12, 10), new THREE.MeshStandardMaterial({ color: 0x5aa0c8, metalness: 0.3, roughness: 0.2, transparent: true, opacity: 0.7 })); cockpit.position.set(1.6, 0, 0); g.add(cockpit);
+  const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.32, 3.2, 8), new THREE.MeshStandardMaterial({ color: 0x28322c })); tail.rotation.z = Math.PI / 2; tail.position.set(-2.4, 0.2, 0); g.add(tail);
+  heliRotor = new THREE.Mesh(new THREE.BoxGeometry(7.5, 0.08, 0.4), new THREE.MeshStandardMaterial({ color: 0x11150f })); heliRotor.position.y = 1.2; g.add(heliRotor);
+  const tr = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.6, 0.3), new THREE.MeshStandardMaterial({ color: 0x11150f })); tr.position.set(-3.9, 0.4, 0); g.add(tr);
+  for (const sx of [-1, 1]) { const sk = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 3.4, 6), new THREE.MeshStandardMaterial({ color: 0x1a1f18 })); sk.rotation.z = Math.PI / 2; sk.position.set(0, -1.1, sx * 0.8); g.add(sk); }
+  g.add(Object.assign(new THREE.PointLight(0xfff2c0, 2, 30, 1.4), { position: new THREE.Vector3(1.8, -0.4, 0) }));
+  scene.add(g); return g;
+}
+function startRescue() {
+  if (S.rescuing) return;
+  S.rescuing = true; S.rescueT = 7; S.running = true;   // kısa sinematik; sonra zafer ekranı
+  if (!heli) heli = makeHeli();
+  heli.visible = true;
+  document.exitPointerLock && document.exitPointerLock();
+  toast("🚁 KURTARMA HELİKOPTERİ GELİYOR — DAYANDIN!", "good"); Sound.thunder(); whisperText("kurtuldun...");
+}
+function updateRescue(dt) {
+  S.rescueT -= dt;
+  if (heliRotor) heliRotor.rotation.y += dt * 40;
+  if (heli) {
+    const px = camera.position.x, pz = camera.position.z, land = 6;
+    const k = clamp(1 - S.rescueT / 7, 0, 1);                 // 0→1 iniş ilerlemesi
+    heli.position.set(px + 10 - k * 6, 60 - k * 54 + land, pz + 8 - k * 4);
+    heli.rotation.y = Math.atan2(px - heli.position.x, pz - heli.position.z);
+    // kamerayı yavaşça helikoptere çevir (sinematik)
+    const hy = Math.atan2(heli.position.x - px, heli.position.z - pz); yaw = lerp(yaw, hy + Math.PI, Math.min(1, dt * 2)); pitch = lerp(pitch, 0.15, Math.min(1, dt * 2));
+  }
+  camera.rotation.set(pitch, yaw, 0, "YXZ");   // erken-return sırasında kamerayı çevir
+  if (S.rescueT <= 0) { if (heli) heli.visible = false; winGame(); }
+}
 
 /* ----------------------- KAYDET / DEVAM ET ----------------------- */
 function saveProgress() {
@@ -1957,14 +1994,21 @@ function applySave() {
 
 /* ----------------------- UPDATE ----------------------- */
 function update(dt) {
+  if (S.rescuing) { updateRescue(dt); return; }   // 100. gün kurtarma sineması — normal oyun durur
   // zaman / gün
   S.time += dt / CFG.DAY_LENGTH;
   if (S.time >= 1) {
     S.time -= 1; S.day++; S.firstNightDone = false; S.scripted = false;
-    if (S.day > CFG.WIN_DAY) { winGame(); return; }
+    if (S.day > CFG.WIN_DAY) { startRescue(); return; }
     S.bloodMoon = S.day >= 6 && Math.random() < (0.12 + S.day / 100 * 0.4);   // ilerledikçe daha sık KANLI AY
     toast("☀️ GÜN " + S.day + " başladı" + (S.bloodMoon ? " — bu gece KANLI AY 🔴" : ""), S.bloodMoon ? "bad" : "good");
     if ([5, 10, 25, 50, 75, 90].includes(S.day)) { toast("🏆 " + S.day + " GÜN HAYATTA KALDIN!", "good"); whisperText(choice(["hâlâ buradasın...", "neden bırakmıyorsun", "o izliyor"])); }
+    // SANDIK RESPAWN: yağmalanan sandıklar birkaç gün sonra yeniden dolar (uç biyomlar daha yavaş)
+    { const px = camera.position.x, pz = camera.position.z; let refilled = 0;
+      for (const c of chests) { if (!c.opened || c.openedDay == null) continue;
+        const cb = c.ammo ? "caves" : biomeAt(c.x, c.z), wait = (cb === "volcanic" || cb === "snow" || cb === "caves") ? 8 : 4;
+        if (S.day - c.openedDay >= wait && Math.hypot(c.x - px, c.z - pz) > 40) { c.opened = false; c.openedDay = null; if (c.lid) c.lid.rotation.x = 0; refilled++; } }
+      if (refilled > 0) toast("📦 " + refilled + " sandık yeniden dolduruldu (yağmalanabilir)", "good"); }
     saveProgress();   // her yeni gün otomatik kaydet
   }
   const night = isNight();
@@ -1977,7 +2021,7 @@ function update(dt) {
   if (S.sleeping > 0) {
     S.sleeping -= dt;
     if (S.sleeping <= 0) {
-      if (S.time >= 0.5) { S.day++; if (S.day > CFG.WIN_DAY) { winGame(); return; } S.bloodMoon = false; }
+      if (S.time >= 0.5) { S.day++; if (S.day > CFG.WIN_DAY) { startRescue(); return; } S.bloodMoon = false; }
       S.time = 0.18; S.warmth = clamp(S.warmth + 25, 0, 100); S.stamina = 100; S.sanity = clamp(S.sanity + 15, 0, 100); S.hunger = clamp(S.hunger - 10, 0, 100);
       toast("🌅 Uyandın — GÜN " + S.day, "good");
     }

@@ -162,11 +162,13 @@ function buildScene() {
     sun.shadow.bias = -0.0006;
   }
 
-  // zemin (prosedürel doku)
+  // paylaşılan yapı dokuları (ahşap/taş) + zemin kabartma haritası
+  woodTex = woodTexture(); stoneTex = stoneTexture(); groundNormTex = groundNormalTexture();
+  // zemin (prosedürel doku + kabartma normal haritası → güneş altında yüzey canlanır)
   const gtex = groundTexture();
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(CFG.WORLD * 2 + 20, CFG.WORLD * 2 + 20),
-    new THREE.MeshStandardMaterial({ map: gtex, roughness: 1, metalness: 0 })
+    new THREE.MeshStandardMaterial({ map: gtex, normalMap: groundNormTex, normalScale: new THREE.Vector2(0.55, 0.55), roughness: 0.96, metalness: 0 })
   );
   ground.rotation.x = -Math.PI / 2; if (shadowsOn) ground.receiveShadow = true; scene.add(ground);
 
@@ -358,7 +360,7 @@ function buildMotes() {
   const N = 240, p = new Float32Array(N * 3);
   for (let i = 0; i < N; i++) { p[i * 3] = rnd(-42, 42); p[i * 3 + 1] = rnd(0.5, 10); p[i * 3 + 2] = rnd(-42, 42); }
   const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(p, 3));
-  motes = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xfff0c0, size: 0.09, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+  motes = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xfff0c0, size: 0.16, map: dotSprite(), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
   motes.frustumCulled = false; motes.userData.ph = new Float32Array(N).map(() => rnd(0, 6.28)); scene.add(motes);
 }
 
@@ -417,7 +419,7 @@ function buildFireflies() {
   const N = 260, pos = new Float32Array(N * 3);
   for (let i = 0; i < N; i++) { pos[i * 3] = rnd(-60, 60); pos[i * 3 + 1] = rnd(0.5, 6); pos[i * 3 + 2] = rnd(-60, 60); }
   const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  const mat = new THREE.PointsMaterial({ color: 0xcaff8a, size: 0.26, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+  const mat = new THREE.PointsMaterial({ color: 0xcaff8a, size: 0.42, map: dotSprite(), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
   fireflies = new THREE.Points(geo, mat); fireflies.frustumCulled = false; fireflies.userData.phase = new Float32Array(N).map(() => rnd(0, 6.28));
   scene.add(fireflies);
 }
@@ -463,6 +465,44 @@ function biomeTexture(kind) {
     g.globalAlpha = 1; for (let i = 0; i < 640; i++) { g.fillStyle = choice(["#ff8ae0", "#9b6cff", "#66e0ff", "#ffb0f2"]); g.beginPath(); g.arc(Math.random() * N, Math.random() * N, Math.random() * 2 + 0.4, 0, 6.3); g.fill(); }
   }
   const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2, 2); t.anisotropy = 8; return t;
+}
+// zemin normal haritası (kabartma) — piksel okuma YOK (headless-güvenli); çizilmiş kabartılar
+function groundNormalTexture() {
+  const N = 512, c = document.createElement("canvas"); c.width = c.height = N; const g = c.getContext("2d");
+  g.fillStyle = "#8080ff"; g.fillRect(0, 0, N, N);   // düz normal (yukarı bakan)
+  for (let i = 0; i < 900; i++) {
+    const x = Math.random() * N, y = Math.random() * N, r = rnd(3, 16), ang = rnd(0, 6.28);
+    const rx = Math.round(128 + Math.cos(ang) * 70), gy = Math.round(128 + Math.sin(ang) * 70);
+    const rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, `rgb(${rx},${gy},255)`); rg.addColorStop(1, "rgba(128,128,255,0)");
+    g.fillStyle = rg; g.beginPath(); g.arc(x, y, r, 0, 6.3); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(30, 30); t.anisotropy = 8; return t;
+}
+// ahşap dokusu (gövde/duvar/sandık) — dikey damar
+function woodTexture() {
+  const N = 256, c = document.createElement("canvas"); c.width = c.height = N; const g = c.getContext("2d");
+  const base = g.createLinearGradient(0, 0, N, 0); base.addColorStop(0, "#5a3f22"); base.addColorStop(0.5, "#6b4a28"); base.addColorStop(1, "#4a3418"); g.fillStyle = base; g.fillRect(0, 0, N, N);
+  for (let i = 0; i < 46; i++) { g.strokeStyle = `rgba(${rnd(40, 90) | 0},${rnd(28, 60) | 0},${rnd(14, 34) | 0},${rnd(0.15, 0.5)})`; g.lineWidth = rnd(0.6, 2.4); const x = Math.random() * N; g.beginPath(); g.moveTo(x, 0); for (let y = 0; y <= N; y += 10) g.lineTo(x + Math.sin(y * 0.06 + i) * 3, y); g.stroke(); }
+  for (let i = 0; i < 6; i++) { const x = Math.random() * N, y = Math.random() * N; g.strokeStyle = "rgba(30,18,8,0.5)"; g.lineWidth = 1.5; for (let k = 3; k < 16; k += 3) { g.beginPath(); g.ellipse(x, y, k, k * 1.6, 0, 0, 6.3); g.stroke(); } }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; return t;
+}
+// taş dokusu (kilise/kule/mağara) — benekli bloklar + çatlaklar
+function stoneTexture() {
+  const N = 256, c = document.createElement("canvas"); c.width = c.height = N; const g = c.getContext("2d");
+  g.fillStyle = "#4a4640"; g.fillRect(0, 0, N, N);
+  for (let i = 0; i < 4000; i++) { g.fillStyle = choice(["#3a362f", "#565048", "#605a50", "#413c34", "#6a6458"]); g.globalAlpha = rnd(0.3, 0.8); g.beginPath(); g.arc(Math.random() * N, Math.random() * N, Math.random() * 2 + 0.4, 0, 6.3); g.fill(); }
+  g.globalAlpha = 1; g.strokeStyle = "rgba(20,18,15,0.55)"; g.lineWidth = 1.4;
+  for (let gy = 0; gy <= N; gy += 42) { g.beginPath(); g.moveTo(0, gy); g.lineTo(N, gy + rnd(-4, 4)); g.stroke(); }
+  for (let i = 0; i < 6; i++) { const off = (i % 2) * 21; for (let gx = off; gx <= N; gx += 42) { g.beginPath(); g.moveTo(gx, i * 42); g.lineTo(gx + rnd(-3, 3), (i + 1) * 42); g.stroke(); } }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; return t;
+}
+let woodTex = null, stoneTex = null, groundNormTex = null;
+// yumuşak parıltı spritesi (ateş böceği/toz/atmosfer noktaları için — sert kare yerine yumuşak glow)
+function dotSprite() {
+  const N = 64, c = document.createElement("canvas"); c.width = c.height = N; const g = c.getContext("2d");
+  const rg = g.createRadialGradient(N / 2, N / 2, 0, N / 2, N / 2, N / 2); rg.addColorStop(0, "rgba(255,255,255,1)"); rg.addColorStop(0.35, "rgba(255,255,255,0.55)"); rg.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = rg; g.fillRect(0, 0, N, N);
+  return new THREE.CanvasTexture(c);
 }
 
 /* ----- ağaçlar (InstancedMesh) ----- */
@@ -566,7 +606,7 @@ function buildBiomes() {
   const N = 320, p = new Float32Array(N * 3);
   for (let i = 0; i < N; i++) { p[i * 3] = rnd(-40, 40); p[i * 3 + 1] = rnd(0, 30); p[i * 3 + 2] = rnd(-40, 40); }
   const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.BufferAttribute(p, 3));
-  biomeFX = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.24, transparent: true, opacity: 0, depthWrite: false }));
+  biomeFX = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.3, map: dotSprite(), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
   biomeFX.frustumCulled = false; biomeFX.visible = false; scene.add(biomeFX);
 }
 function buildTrees() {
@@ -676,7 +716,7 @@ function makeCrystal(x, z) {
 }
 function makeChest(x, z) {
   const g = new THREE.Group(); g.position.set(x, 0, z);
-  const wood = new THREE.MeshStandardMaterial({ color: 0x6b4a26, roughness: 0.9 });
+  const wood = new THREE.MeshStandardMaterial({ map: woodTex, color: 0xa8895a, roughness: 0.9 });
   const iron = new THREE.MeshStandardMaterial({ color: 0x55585c, metalness: 0.6, roughness: 0.5 });
   const base = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 0.6), wood); base.position.y = 0.25; g.add(base);
   const lid = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.22, 0.62), wood); lid.position.set(0, 0.5, -0.3); g.add(lid);
@@ -686,7 +726,7 @@ function makeChest(x, z) {
 }
 function makeHouse(x, z) {
   const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rnd(0, 6.3);
-  const wall = new THREE.MeshStandardMaterial({ color: 0x4a3a28, roughness: 1 });
+  const wall = new THREE.MeshStandardMaterial({ map: woodTex, color: 0xbaa688, roughness: 1 });
   const roofM = new THREE.MeshStandardMaterial({ color: 0x2e2418, roughness: 1, flatShading: true });
   const W = rnd(4, 6), D = rnd(4, 6), H = 2.6;
   // duvarlar (ön açık)
@@ -732,7 +772,7 @@ function makeStonehenge(x, z) {
 }
 function makeChurch(x, z) {
   const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rnd(0, 6.3);
-  const stone = new THREE.MeshStandardMaterial({ color: 0x4a4640, roughness: 1 });
+  const stone = new THREE.MeshStandardMaterial({ map: stoneTex, color: 0xafaba2, roughness: 1 });
   const dark = new THREE.MeshStandardMaterial({ color: 0x2a2620, roughness: 1, flatShading: true });
   const body = new THREE.Mesh(new THREE.BoxGeometry(6, 6, 10), stone); body.position.y = 3; g.add(body);
   const roof = new THREE.Mesh(new THREE.BoxGeometry(6.4, 2.4, 10.4), dark); roof.position.y = 7; roof.rotation.z = 0.0; g.add(roof);
@@ -754,7 +794,7 @@ function makeWatchtower(x, z) {
 }
 function makeCave(x, z) {
   const g = new THREE.Group(); g.position.set(x, 0, z);
-  const rock = new THREE.MeshStandardMaterial({ color: 0x39332d, roughness: 1, flatShading: true });
+  const rock = new THREE.MeshStandardMaterial({ map: stoneTex, color: 0x6c645a, roughness: 1, flatShading: true });
   const darkM = new THREE.MeshStandardMaterial({ color: 0x0b0908, roughness: 1, flatShading: true, side: THREE.BackSide });
   const R = 15;
   const dome = new THREE.Mesh(new THREE.SphereGeometry(R, 18, 12, 0, 6.28, 0, Math.PI / 2), darkM); dome.scale.set(1, 0.9, 1); g.add(dome);   // iç karanlık kubbe (tavan)
@@ -1164,7 +1204,7 @@ function setFireLevel(f, lvl) {
 /* ----- üs: barikat duvarı + çivili tuzak (oyuncu diker) ----- */
 function makeWall(x, z, rotY) {
   const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rotY || 0;
-  const wood = new THREE.MeshStandardMaterial({ color: 0x5a3f22, roughness: 1, flatShading: true });
+  const wood = new THREE.MeshStandardMaterial({ map: woodTex, color: 0x9c7a48, roughness: 1, flatShading: true });
   for (let i = -2; i <= 2; i++) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.18, 2.0, 6), wood); p.position.set(i * 0.42, 1.0, 0); p.rotation.x = rnd(-0.05, 0.05); g.add(p); const tip = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.35, 6), wood); tip.position.set(i * 0.42, 2.1, 0); g.add(tip); }
   const rail = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.16, 0.16), wood); rail.position.set(0, 1.4, 0); g.add(rail);
   if (shadowsOn) g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });

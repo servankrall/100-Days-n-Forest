@@ -266,7 +266,7 @@ async function setupPostFX() {
     const w = window.innerWidth, h = window.innerHeight;
     const comp = new EC.EffectComposer(renderer);
     comp.addPass(new RP.RenderPass(scene, camera));
-    const bloom = new BLOOM.UnrealBloomPass(new THREE.Vector2(w, h), 0.95, 0.62, 0.72); comp.addPass(bloom); // ateş/gözler/ay parlar (daha güçlü)
+    const bloom = new BLOOM.UnrealBloomPass(new THREE.Vector2(w, h), 1.08, 0.66, 0.66); comp.addPass(bloom); // ateş/gözler/ay/lav parlar (daha zengin)
     // sinematik: kromatik sapma + renk derecelendirme (teal-turuncu) + güçlü vignette + film grain
     grainPass = new SP.ShaderPass({
       uniforms: { tDiffuse: { value: null }, t: { value: 0 }, vig: { value: 1.15 }, grain: { value: 0.06 }, ca: { value: 1.0 } },
@@ -277,7 +277,8 @@ async function setupPostFX() {
         "void main(){ vec2 q=vUv-0.5; float r2=dot(q,q);" +
         " vec2 off = q * r2 * 0.012 * ca;" +                                                          // kromatik sapma (kenarlarda)
         " vec3 col; col.r=texture2D(tDiffuse,vUv+off).r; col.g=texture2D(tDiffuse,vUv).g; col.b=texture2D(tDiffuse,vUv-off).b;" +
-        " float l=dot(col,vec3(0.299,0.587,0.114)); col=mix(vec3(l),col,1.12);" +                     // hafif doygunluk
+        " float l=dot(col,vec3(0.299,0.587,0.114)); col=mix(vec3(l),col,1.17);" +                     // doygunluk
+        " col=mix(col, col*col*(3.0-2.0*col), 0.2);" +                                                 // yumuşak kontrast (S-eğrisi)
         " col.rgb*=vec3(1.03,1.0,0.97); col.rgb+=vec3(0.015,0.01,-0.01)*(1.0-l);" +                    // sıcak ışık / soğuk gölge (sinematik)
         " float v=smoothstep(0.95,0.28,length(q)*vig); col.rgb*=mix(0.42,1.0,v);" +                   // güçlü vignette
         " float g=(rand(vUv*vec2(t*60.0+1.0, t*37.0+1.0))-0.5)*grain; col.rgb+=g;" +                   // film grain
@@ -310,13 +311,19 @@ function updateRain(dt) {
 function buildSky() {
   const skyMat = new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite: false, fog: false,
-    uniforms: { top: { value: new THREE.Color(0x2f6aa6) }, bottom: { value: new THREE.Color(0x9fb7a0) }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunCol: { value: new THREE.Color(0xffe6b0) }, sunI: { value: 1 } },
+    uniforms: { top: { value: new THREE.Color(0x2f6aa6) }, bottom: { value: new THREE.Color(0x9fb7a0) }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunCol: { value: new THREE.Color(0xffe6b0) }, sunI: { value: 1 }, time: { value: 0 } },
     vertexShader: "varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
     fragmentShader:
-      "uniform vec3 top,bottom,sunCol,sunDir; uniform float sunI; varying vec3 vDir;" +
-      "void main(){ float h = clamp(vDir.y*0.5+0.5,0.0,1.0); vec3 col = mix(bottom, top, pow(h,0.55));" +
-      " float s = max(dot(normalize(vDir), normalize(sunDir)),0.0);" +
-      " col += sunCol * (pow(s,120.0)*1.8 + pow(s,16.0)*0.4 + pow(s,4.0)*0.12) * sunI;" +
+      "uniform vec3 top,bottom,sunCol,sunDir; uniform float sunI, time; varying vec3 vDir;" +
+      "float hash(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }" +
+      "float noise(vec2 p){ vec2 i=floor(p),f=fract(p); f=f*f*(3.0-2.0*f); float a=hash(i),b=hash(i+vec2(1,0)),c=hash(i+vec2(0,1)),d=hash(i+vec2(1,1)); return mix(mix(a,b,f.x),mix(c,d,f.x),f.y); }" +
+      "float fbm(vec2 p){ float v=0.0,a=0.5; for(int i=0;i<3;i++){ v+=a*noise(p); p*=2.02; a*=0.5; } return v; }" +
+      "void main(){ vec3 dir = normalize(vDir); float h = clamp(dir.y*0.5+0.5,0.0,1.0); vec3 col = mix(bottom, top, pow(h,0.55));" +
+      " float haze = smoothstep(0.42,0.0,abs(dir.y-0.02)); col = mix(col, sunCol*0.55+col*0.55, haze*0.35*sunI);" +          // ufuk pusu
+      " if (dir.y > 0.015){ vec2 uv = dir.xz/(dir.y+0.35) + vec2(time*0.006, time*0.002); float cl = fbm(uv*1.6);" +          // sürüklenen bulutlar
+      "   cl = smoothstep(0.52,0.92,cl) * smoothstep(0.015,0.22,dir.y); col = mix(col, mix(vec3(0.9,0.92,0.97), sunCol, 0.22), cl*0.55*sunI); }" +
+      " float s = max(dot(dir, normalize(sunDir)),0.0);" +
+      " col += sunCol * (pow(s,340.0)*2.2 + pow(s,18.0)*0.42 + pow(s,4.0)*0.12) * sunI;" +
       " gl_FragColor = vec4(col,1.0); }",
   });
   skyDome = new THREE.Mesh(new THREE.SphereGeometry(500, 24, 16), skyMat);
@@ -340,6 +347,7 @@ function updateSky(dk, dayK, horiz, sunAng) {
     u.top.value.copy(_skyTop); u.bottom.value.copy(horiz);
     u.sunDir.value.set(Math.cos(sunAng), Math.max(Math.sin(sunAng), -0.15), 0.35).normalize();
     u.sunI.value = 0.25 + dayK;
+    if (u.time) u.time.value = performance.now() / 1000;
   }
   if (stars) { stars.material.opacity = dk * 0.95; stars.position.copy(camera.position); }
   if (moonMesh) { moonMesh.material.opacity = dk * 0.95; const mA = sunAng + Math.PI; moonMesh.position.set(camera.position.x + Math.cos(mA) * 280, camera.position.y + 120 + Math.sin(mA) * 60, camera.position.z - 260); moonMesh.lookAt(camera.position); }
@@ -369,11 +377,13 @@ function applyWind(mat, amount) {
 /* ----- su birikintileri (parıldayan, gökyüzü tonlu) ----- */
 let waterTex = null;
 function waterTexture() {
-  const c = document.createElement("canvas"); c.width = c.height = 256; const g = c.getContext("2d");
-  const grad = g.createLinearGradient(0, 0, 256, 256); grad.addColorStop(0, "#11364a"); grad.addColorStop(1, "#1c5066"); g.fillStyle = grad; g.fillRect(0, 0, 256, 256);
-  g.strokeStyle = "rgba(180,220,235,0.25)"; g.lineWidth = 2;
-  for (let i = 0; i < 40; i++) { g.beginPath(); const y = Math.random() * 256; g.moveTo(0, y); for (let x = 0; x <= 256; x += 16) g.lineTo(x, y + Math.sin(x * 0.1 + i) * 6); g.stroke(); }
-  waterTex = new THREE.CanvasTexture(c); waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping; waterTex.repeat.set(2, 2); return waterTex;
+  const N = 512, c = document.createElement("canvas"); c.width = c.height = N; const g = c.getContext("2d");
+  const grad = g.createRadialGradient(N / 2, N / 2, 40, N / 2, N / 2, N * 0.7); grad.addColorStop(0, "#1c5a72"); grad.addColorStop(1, "#0e2e42"); g.fillStyle = grad; g.fillRect(0, 0, N, N);
+  // katmanlı dalga çizgileri (kostik hissi)
+  for (let i = 0; i < 70; i++) { g.strokeStyle = `rgba(190,228,240,${rnd(0.06, 0.22)})`; g.lineWidth = rnd(1, 3); g.beginPath(); const y = Math.random() * N, amp = rnd(4, 12), fr = rnd(0.04, 0.12); g.moveTo(0, y); for (let x = 0; x <= N; x += 12) g.lineTo(x, y + Math.sin(x * fr + i) * amp); g.stroke(); }
+  // parıltı benekleri
+  for (let i = 0; i < 260; i++) { g.fillStyle = `rgba(220,245,255,${rnd(0.15, 0.5)})`; g.beginPath(); g.arc(Math.random() * N, Math.random() * N, Math.random() * 1.8 + 0.4, 0, 6.3); g.fill(); }
+  waterTex = new THREE.CanvasTexture(c); waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping; waterTex.repeat.set(2, 2); waterTex.anisotropy = 8; return waterTex;
 }
 function buildWater() {
   const tex = waterTexture();
@@ -413,20 +423,46 @@ function buildFireflies() {
 }
 
 function groundTexture() {
-  const c = document.createElement("canvas"); c.width = c.height = 512; const g = c.getContext("2d");
-  // büyük ölçekli yumuşak renk dalgalanması (toprak/yosun lekeleri)
-  const base = g.createLinearGradient(0, 0, 512, 512); base.addColorStop(0, "#243a22"); base.addColorStop(0.5, "#2a4226"); base.addColorStop(1, "#20351d");
-  g.fillStyle = base; g.fillRect(0, 0, 512, 512);
-  for (let i = 0; i < 60; i++) { g.fillStyle = choice(["rgba(58,48,32,0.25)", "rgba(40,70,38,0.22)", "rgba(26,40,22,0.3)"]); const x = Math.random() * 512, y = Math.random() * 512, r = rnd(30, 90); g.beginPath(); g.arc(x, y, r, 0, 6.3); g.fill(); }
-  // ince çakıl/yaprak dokusu
-  for (let i = 0; i < 5200; i++) {
-    g.fillStyle = choice(["#1d3018", "#2c4a26", "#34552c", "#3a3020", "#1a2614", "#46582e", "#5a4a2c"]);
-    const x = Math.random() * 512, y = Math.random() * 512, r = Math.random() * 3 + 0.6;
-    g.beginPath(); g.arc(x, y, r, 0, 6.3); g.fill();
+  const N = 1024, c = document.createElement("canvas"); c.width = c.height = N; const g = c.getContext("2d");
+  // derin katmanlı taban
+  const base = g.createLinearGradient(0, 0, N, N); base.addColorStop(0, "#1e321b"); base.addColorStop(0.5, "#2b442a"); base.addColorStop(1, "#182b16");
+  g.fillStyle = base; g.fillRect(0, 0, N, N);
+  // büyük yumuşak renk bölgeleri (yosun / kuru toprak / nemli çukurlar) — radial gradient lekeleri
+  const zones = ["#3a5a2e", "#4a5a30", "#5a4a2c", "#294a29", "#42361f", "#4e6634"];
+  for (let i = 0; i < 30; i++) { const x = Math.random() * N, y = Math.random() * N, r = rnd(120, 320); const rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, choice(zones)); rg.addColorStop(1, "rgba(0,0,0,0)"); g.globalAlpha = rnd(0.14, 0.4); g.fillStyle = rg; g.beginPath(); g.arc(x, y, r, 0, 6.3); g.fill(); }
+  g.globalAlpha = 1;
+  // çok yoğun ince çakıl / toprak greni
+  for (let i = 0; i < 17000; i++) { g.fillStyle = choice(["#15230e", "#2c4a26", "#34552c", "#3a3020", "#46582e", "#5a4a2c", "#233a1b", "#4e6634", "#6a5a34"]); const x = Math.random() * N, y = Math.random() * N, r = Math.random() * 2.3 + 0.35; g.globalAlpha = rnd(0.4, 1); g.beginPath(); g.arc(x, y, r, 0, 6.3); g.fill(); }
+  g.globalAlpha = 1;
+  // dağılmış yapraklar + dallar/çubuklar
+  for (let i = 0; i < 760; i++) { g.save(); g.translate(Math.random() * N, Math.random() * N); g.rotate(rnd(0, 6.3)); g.fillStyle = choice(["#3c5a2a", "#4a6630", "#5a4326", "#6a5a30", "#2c481d", "#71603a"]); g.globalAlpha = rnd(0.5, 0.92); g.beginPath(); g.ellipse(0, 0, rnd(3, 7.5), rnd(1.2, 2.8), 0, 0, 6.3); g.fill(); g.restore(); }
+  for (let i = 0; i < 130; i++) { g.save(); g.translate(Math.random() * N, Math.random() * N); g.rotate(rnd(0, 6.3)); g.strokeStyle = choice(["#3a2c18", "#4a3820", "#5a482a"]); g.globalAlpha = rnd(0.4, 0.8); g.lineWidth = rnd(1, 2.6); g.beginPath(); g.moveTo(0, 0); g.lineTo(rnd(7, 20), 0); g.stroke(); g.restore(); }
+  // nem/ışık parıltısı highlight'ları
+  for (let i = 0; i < 1100; i++) { g.fillStyle = "rgba(185,215,155,0.09)"; g.beginPath(); g.arc(Math.random() * N, Math.random() * N, Math.random() * 1.4 + 0.3, 0, 6.3); g.fill(); }
+  g.globalAlpha = 1;
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(30, 30); t.anisotropy = 8; return t;
+}
+// biyom zemin dokusu: kar parıltısı / ışıyan lav çatlakları / peri sporları
+function biomeTexture(kind) {
+  const N = 512, c = document.createElement("canvas"); c.width = c.height = N; const g = c.getContext("2d");
+  if (kind === "snow") {
+    g.fillStyle = "#e7eff7"; g.fillRect(0, 0, N, N);
+    for (let i = 0; i < 44; i++) { const x = Math.random() * N, y = Math.random() * N, r = rnd(28, 95); const rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, "#c7d6e8"); rg.addColorStop(1, "rgba(0,0,0,0)"); g.globalAlpha = 0.38; g.fillStyle = rg; g.beginPath(); g.arc(x, y, r, 0, 6.3); g.fill(); }
+    g.globalAlpha = 1;
+    for (let i = 0; i < 3200; i++) { g.fillStyle = Math.random() < 0.5 ? "#ffffff" : "#d3dfed"; g.beginPath(); g.arc(Math.random() * N, Math.random() * N, Math.random() * 1.6 + 0.3, 0, 6.3); g.fill(); }
+    for (let i = 0; i < 420; i++) { g.fillStyle = "rgba(255,255,255,0.95)"; g.fillRect(Math.random() * N, Math.random() * N, rnd(1, 2.6), rnd(1, 2.6)); }
+  } else if (kind === "volcanic") {
+    g.fillStyle = "#130a07"; g.fillRect(0, 0, N, N);
+    for (let i = 0; i < 28; i++) { g.fillStyle = choice(["#241410", "#190f0a", "#2a1a12"]); g.globalAlpha = rnd(0.5, 1); g.beginPath(); g.arc(Math.random() * N, Math.random() * N, rnd(20, 72), 0, 6.3); g.fill(); }
+    g.globalAlpha = 1; g.strokeStyle = "#ff5a1e"; g.lineCap = "round";
+    for (let i = 0; i < 28; i++) { g.lineWidth = rnd(1.5, 5); g.globalAlpha = rnd(0.6, 1); let x = Math.random() * N, y = Math.random() * N; g.beginPath(); g.moveTo(x, y); for (let k = 0; k < 5; k++) { x += rnd(-60, 60); y += rnd(-60, 60); g.lineTo(x, y); } g.stroke(); }
+    g.globalAlpha = 1; for (let i = 0; i < 320; i++) { g.fillStyle = choice(["#ff8a2a", "#ffcc44", "#ff4400"]); g.beginPath(); g.arc(Math.random() * N, Math.random() * N, Math.random() * 2 + 0.5, 0, 6.3); g.fill(); }
+  } else {
+    const base = g.createLinearGradient(0, 0, N, N); base.addColorStop(0, "#48285c"); base.addColorStop(1, "#341e46"); g.fillStyle = base; g.fillRect(0, 0, N, N);
+    for (let i = 0; i < 32; i++) { const x = Math.random() * N, y = Math.random() * N, r = rnd(40, 115); const rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, choice(["#7a4a9a", "#5a3a7a", "#6a4a8a"])); rg.addColorStop(1, "rgba(0,0,0,0)"); g.globalAlpha = 0.4; g.fillStyle = rg; g.beginPath(); g.arc(x, y, r, 0, 6.3); g.fill(); }
+    g.globalAlpha = 1; for (let i = 0; i < 640; i++) { g.fillStyle = choice(["#ff8ae0", "#9b6cff", "#66e0ff", "#ffb0f2"]); g.beginPath(); g.arc(Math.random() * N, Math.random() * N, Math.random() * 2 + 0.4, 0, 6.3); g.fill(); }
   }
-  // dağılmış küçük yapraklar
-  for (let i = 0; i < 240; i++) { g.save(); g.translate(Math.random() * 512, Math.random() * 512); g.rotate(rnd(0, 6.3)); g.fillStyle = choice(["#3c5a2a", "#4a6630", "#5a4326"]); g.beginPath(); g.ellipse(0, 0, rnd(2, 5), rnd(1, 2), 0, 0, 6.3); g.fill(); g.restore(); }
-  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(36, 36); return t;
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(2, 2); t.anisotropy = 8; return t;
 }
 
 /* ----- ağaçlar (InstancedMesh) ----- */
@@ -500,7 +536,12 @@ function buildBiomes() {
   const R = CFG.WORLD, step = 44;
   // --- zemin renk yamaları: biyom bölgelerini zemine boyar (ızgara, çakışan diskler) ---
   const patchGeo = new THREE.CircleGeometry(step * 0.82, 10);
-  const patchMat = { snow: new THREE.MeshStandardMaterial({ color: BIOMES.snow.ground, roughness: 1 }), fairy: new THREE.MeshStandardMaterial({ color: BIOMES.fairy.ground, roughness: 1 }), volcanic: new THREE.MeshStandardMaterial({ color: BIOMES.volcanic.ground, roughness: 1 }) };
+  const volTex = biomeTexture("volcanic");
+  const patchMat = {
+    snow: new THREE.MeshStandardMaterial({ map: biomeTexture("snow"), roughness: 0.95 }),
+    fairy: new THREE.MeshStandardMaterial({ map: biomeTexture("fairy"), roughness: 0.85, emissive: 0x3a1a52, emissiveIntensity: 0.35 }),
+    volcanic: new THREE.MeshStandardMaterial({ map: volTex, emissive: 0xffffff, emissiveMap: volTex, emissiveIntensity: 0.85, roughness: 0.75 }),
+  };
   for (let gx = -R; gx <= R; gx += step) for (let gz = -R; gz <= R; gz += step) {
     const bk = biomeAt(gx, gz); if (bk === "forest") continue;
     const m = new THREE.Mesh(patchGeo, patchMat[bk]); m.rotation.x = -Math.PI / 2; m.position.set(gx + rnd(-7, 7), 0.05, gz + rnd(-7, 7));

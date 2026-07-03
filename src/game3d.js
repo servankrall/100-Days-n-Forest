@@ -680,6 +680,7 @@ function buildStructures() {
 
 /* ----- ÖNEMLİ NOKTALAR (POI): Stonehenge, Kilise, Gözcü Kulesi, Mağara, Köprü, Hurdacı ----- */
 let scav = null;   // hurdacı NPC konumu (takas)
+let peltT = null;  // kürk tüccarı NPC konumu (kademeli balta takası)
 function makeStonehenge(x, z) {
   const g = new THREE.Group(); g.position.set(x, 0, z);
   const st = new THREE.MeshStandardMaterial({ color: 0x6b6660, roughness: 1, flatShading: true });
@@ -749,6 +750,22 @@ function makeScavenger(x, z) {
   if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   scene.add(g); scav = { x, z: z + 2 };
 }
+function makePeltTrader(x, z) {
+  const g = new THREE.Group(); g.position.set(x, 0, z);
+  const wall = new THREE.MeshStandardMaterial({ color: 0x5a4230, roughness: 1 });
+  const hut = new THREE.Mesh(new THREE.BoxGeometry(3, 2.4, 3), wall); hut.position.y = 1.2; g.add(hut);
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(2.6, 1.4, 4), new THREE.MeshStandardMaterial({ color: 0x3a2a1a, flatShading: true })); roof.position.y = 3.1; roof.rotation.y = Math.PI / 4; g.add(roof);
+  // asılı kürkler (dükkan hissi)
+  for (let i = 0; i < 3; i++) { const pelt = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.9), new THREE.MeshStandardMaterial({ color: choice([0x8a6a44, 0x9a7a52, 0x6a5030]), roughness: 1, side: THREE.DoubleSide })); pelt.position.set(-1 + i, 1.7, 1.55); g.add(pelt); }
+  // tüccar figürü (kürklü)
+  const np = new THREE.Group(); np.position.set(0, 0, 2);
+  np.add(new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 0.9, 4, 8), new THREE.MeshStandardMaterial({ color: 0x7a5a38 }))); np.children[0].position.y = 1.0;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 10, 10), new THREE.MeshStandardMaterial({ color: 0xc9b79a })); head.position.y = 1.7; np.add(head);
+  const hood = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.4, 8), new THREE.MeshStandardMaterial({ color: 0x5a4230 })); hood.position.y = 1.95; np.add(hood);
+  g.add(np);
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  scene.add(g); peltT = { x, z: z + 2 };
+}
 function makeCampsite(x, z) {   // terk edilmiş kamp: sönmüş ateş + barınak + sandık
   const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rnd(0, 6.3);
   const ash = new THREE.Mesh(new THREE.CircleGeometry(0.9, 12), new THREE.MeshStandardMaterial({ color: 0x2a2622, roughness: 1 })); ash.rotation.x = -Math.PI / 2; ash.position.y = 0.02; g.add(ash);
@@ -773,6 +790,7 @@ function buildPOIs() {
   p = farFromSpawn(45); makeWatchtower(p[0], p[1]);
   p = farFromSpawn(40); makeBridge(p[0], p[1]);
   p = farFromSpawn(30); makeScavenger(p[0], p[1]);
+  p = farFromSpawn(38); makePeltTrader(p[0], p[1]);
   p = farFromSpawn(50); makeCampsite(p[0], p[1]);
   p = farFromSpawn(65); makeCampsite(p[0], p[1]);
   p = farFromSpawn(75); makeShacks(p[0], p[1]);
@@ -800,6 +818,9 @@ function newState() {
     flashlight: false, flashOn: false, battery: 0,   // el feneri + şarj
     armor: 0, armorDef: 0,   // zırh dayanıklılığı (0-100) + hasar azaltma oranı (0-1)
     rescuing: false, rescueT: 0,   // 100. gün kurtarma sineması
+    cls: null,   // seçilen sınıf (lumberjack/medic/scavenger/assassin)
+    peltTrades: 0,   // kürk tüccarı takas sayısı (kademeli ödül)
+    backpack: 0,   // çanta yükseltmesi seviyesi (taşıma limitini artırır)
     benchTier: 1, hasMap: false, hasCompass: false, hasLightningRod: false, hasCrockpot: false, farms: 0, oilDrills: 0,
     placeables: {},  // tezgahta üretilen ama henüz kurulmamış yapılar {kind:adet}
     fireFed: 0,   // ateşe atılan toplam odun (seviye için)
@@ -1266,6 +1287,7 @@ function findTarget() {
   };
   consider(BENCH.x, BENCH.z, 3.8, "bench", null);            // fiziksel tezgah
   if (scav) consider(scav.x, scav.z, 3.8, "scav", null);     // hurdacı NPC (takas)
+  if (peltT) consider(peltT.x, peltT.z, 3.8, "pelt", null);  // kürk tüccarı NPC (kademeli takas)
   for (const t of trees) if (t.alive) consider(t.x, t.z, 4.2, "tree", t);
   for (const a of animals) consider(a.x, a.z, 4.4, "animal", a);
   for (const s of scraps) if (!s.taken) consider(s.x, s.z, 3.4, "scrap", s);
@@ -1291,11 +1313,22 @@ function doAction() {
     else toast("🤝 Hurdacı: 5 metal getir (sende " + S.inv.metal + ")", "bad");
     return;
   }
+  if (t.kind === "pelt") {                                    // kürk tüccarı: 5 🧵 → kademeli ödül (1.balta İyi, 4.balta Güçlü)
+    if (S.swingCd > 0) return; S.swingCd = 0.5;
+    if (S.inv.pelt < 5) { toast("🧵 Kürk Tüccarı: 5 post getir (sende " + S.inv.pelt + ")", "bad"); return; }
+    S.inv.pelt -= 5; const n = (S.peltTrades || 0) + 1; S.peltTrades = n; Sound.crackle();
+    if (n === 1 && S.tools.axe < 1) { S.tools.axe = 1; toast("🧵→🪓 Takas 1: İyi Balta!", "good"); }
+    else if (n === 4 && S.tools.axe < 2) { S.tools.axe = 2; toast("🧵→🪓 Takas 4: GÜÇLÜ BALTA!", "good"); }
+    else if (n % 3 === 0) { S.inv.medkit += 1; S.inv.bandage += 2; toast("🧵→ Takas: 🧰1 + 🩹2", "good"); }
+    else { const m = rndi(4, 7); S.inv.metal += m; S.inv.wood += 6; toast("🧵→ Takas: ⚙️" + m + " + 🪵6", "good"); }
+    return;
+  }
   S.swingCd = 0.4; S.stamina = clamp(S.stamina - 4, 0, 100);
   if (t.kind === "tree") {
     Sound.chop(); const tr = t.obj;
     let dmg = S.tools.chainsaw ? 4 : [1, 2, 4][S.tools.axe || 0];   // eski/iyi/güçlü balta
     if (!S.tools.chainsaw && S.melee === "iceaxe") dmg = Math.max(dmg, 2);   // buz baltası iyi balta gibi keser
+    if (S.cls === "lumberjack") dmg += 1;   // Oduncu perk: daha hızlı kesim
     if (S.tools.chainsaw) S.swingCd = 0.12;                            // motorlu testere: basılı tut → sürekli kesim
     tr.hp -= dmg; S.inv.wood++;
     if (tr.hp <= 0) { tr.alive = false; tr.regrow = 95; const bonus = S.tools.chainsaw ? 3 : 2; S.inv.wood += bonus; writeTree(trees.indexOf(tr)); treesNeedUpdate(); toast("🪵 Ağaç devrildi (+" + (bonus + 1) + ")", "good"); }
@@ -1319,7 +1352,7 @@ function doAction() {
     const c = t.obj; c.opened = true; c.openedDay = S.day; if (c.lid) c.lid.rotation.x = -1.2; Sound.crackle();
     const loot = [];
     const wood = rndi(2, 6); S.inv.wood += wood; loot.push("🪵" + wood);
-    const m = rndi(2, 6); S.inv.metal += m; loot.push("⚙️" + m);   // hurda artık SADECE sandık/yapılarda
+    const m = rndi(2, 6) + (S.cls === "scavenger" ? rndi(2, 4) : 0); S.inv.metal += m; loot.push("⚙️" + m);   // Toplayıcı perk: daha çok hurda
     if (Math.random() < 0.25) { const m2 = rndi(2, 4); S.inv.metal += m2; loot.push("⚙️" + m2); }
     if (Math.random() < 0.6) { const b = rndi(1, 2); S.inv.bandage += b; loot.push("🩹" + b); }
     if (Math.random() < 0.5) { const f = rndi(1, 3); S.inv.cooked += f; loot.push("🍗" + f); }
@@ -1352,6 +1385,7 @@ function doAction() {
     if (Math.random() < 0.22) { S.inv.soda += 1; loot.push("🥤1"); }
     if (Math.random() < 0.25) { const b = rndi(1, 2); S.inv.batteries += b; loot.push("🔋" + b); }
     if (!S.flashlight && Math.random() < 0.12) { S.flashlight = true; S.battery = 100; loot.push("🔦 EL FENERİ!"); }
+    if (Math.random() < 0.05) { S.backpack++; loot.push("🎒 ÇANTA YÜKSELTMESİ!"); }   // taşıma limiti artar
     if (Math.random() < 0.05 && giveMelee("katana")) loot.push("⚔️ KATANA!");
     else if (Math.random() < 0.035 && giveMelee("morningstar")) loot.push("🔨 TOPUZ!");
     else if (Math.random() < 0.02 && giveMelee("infernal")) loot.push("🔥 CEHENNEM KILICI!");
@@ -1372,7 +1406,7 @@ function doAction() {
     Sound.chop(); const a = t.obj;
     const mw = S.melee && MELEE[S.melee];
     a.hp -= mw ? mw.dmg : 3;
-    if (mw) { S.swingCd = mw.cd;
+    if (mw) { S.swingCd = mw.cd * (S.cls === "assassin" ? 0.65 : 1);   // Suikastçı perk: hızlı vuruş
       if (mw.poison) a.poison = Math.max(a.poison || 0, 4.0);
       if (mw.fire) a.burn = Math.max(a.burn || 0, 3.2);
       if (mw.slow) a.slow = Math.max(a.slow || 0, 3.5);
@@ -1699,10 +1733,11 @@ function useBandage() {
     toast("🩹 Arkadaşını dirilttin!", "good"); return;
   }
   if (S.health >= 100) { toast("Canın zaten dolu.", "bad"); return; }
-  if (S.inv.medkit > 0) { S.inv.medkit--; S.health = clamp(S.health + 75, 0, 100); S.sick = 0; S.bleed = 0; toast("🧰 Sağlık çantası: +75 can", "good"); return; }
-  if (S.inv.pills > 0) { S.inv.pills--; S.health = clamp(S.health + 30, 0, 100); S.stamina = clamp(S.stamina + 40, 0, 100); S.sick = 0; toast("💊 Ağrı kesici: +30 can, +40 enerji", "good"); return; }
+  const hm = S.cls === "medic" ? 1.5 : 1;   // Sağlıkçı perk: iyileşme %50 güçlü
+  if (S.inv.medkit > 0) { S.inv.medkit--; S.health = clamp(S.health + 75 * hm, 0, 100); S.sick = 0; S.bleed = 0; toast("🧰 Sağlık çantası: +" + Math.round(75 * hm) + " can", "good"); return; }
+  if (S.inv.pills > 0) { S.inv.pills--; S.health = clamp(S.health + 30 * hm, 0, 100); S.stamina = clamp(S.stamina + 40, 0, 100); S.sick = 0; toast("💊 Ağrı kesici: +" + Math.round(30 * hm) + " can, +40 enerji", "good"); return; }
   if (S.inv.bandage <= 0) { toast("Tıbbi malzeme yok 🩹🧰💊 (sandık/tezgah)", "bad"); return; }
-  S.inv.bandage--; S.health = clamp(S.health + 35, 0, 100); S.sick = 0; toast("🩹 Bandaj: +35 can", "good");
+  S.inv.bandage--; S.health = clamp(S.health + 35 * hm, 0, 100); S.sick = 0; toast("🩹 Bandaj: +" + Math.round(35 * hm) + " can", "good");
 }
 
 /* ----------------------- ÇADIR: güvendeyken uyu, sabaha atla ----------------------- */
@@ -1899,6 +1934,9 @@ function giveArmor(def, label) {   // zırh kuşan: daha iyisini giy, dayanıkl�
   if (def >= S.armorDef) { S.armorDef = def; S.armor = 100; toast("🛡️ " + label + " kuşandın (−%" + Math.round(def * 100) + " hasar)", "good"); return true; }
   return false;
 }
+// envanter ağırlığı: ağır kaynaklar (odun/metal/mücevher) limiti aşarsa yavaşlarsın; çanta limiti artırır
+function carryWeight() { return S.inv.wood * 0.4 + S.inv.metal * 0.6 + (S.inv.gem || 0) * 0.3; }
+function carryLimit() { return 80 + (S.backpack || 0) * 45; }
 function playerDied(reason) {
   if (S.over || S.downed) return;
   S.deathReason = reason || S.deathReason || "bilinmeyen";
@@ -1966,7 +2004,7 @@ function saveProgress() {
     localStorage.setItem("orm_save", JSON.stringify({
       day: S.day, time: S.time, inv: S.inv, tools: S.tools, notes: S.notes,
       health: S.health, hunger: S.hunger, warmth: S.warmth, sanity: S.sanity, thirst: S.thirst,
-      weapons: S.weapons, meleeOwned: S.meleeOwned, melee: S.melee, equip: S.equip, flashlight: S.flashlight, battery: S.battery, armor: S.armor, armorDef: S.armorDef,
+      weapons: S.weapons, meleeOwned: S.meleeOwned, melee: S.melee, equip: S.equip, flashlight: S.flashlight, battery: S.battery, armor: S.armor, armorDef: S.armorDef, cls: S.cls, peltTrades: S.peltTrades, backpack: S.backpack,
       x: camera.position.x, z: camera.position.z, ts: Date.now(),
     }));
   } catch (e) {}
@@ -1984,6 +2022,7 @@ function applySave() {
   if (sv.melee) S.melee = sv.melee; if (sv.equip) S.equip = sv.equip;
   if (sv.flashlight) S.flashlight = sv.flashlight; if (sv.battery != null) S.battery = sv.battery;
   if (sv.armor != null) S.armor = sv.armor; if (sv.armorDef != null) S.armorDef = sv.armorDef;
+  if (sv.cls) S.cls = sv.cls; if (sv.peltTrades != null) S.peltTrades = sv.peltTrades; if (sv.backpack != null) S.backpack = sv.backpack;
   if (sv.notes) S.notes = sv.notes;
   S.health = sv.health != null ? sv.health : 100; S.hunger = sv.hunger != null ? sv.hunger : 100;
   S.warmth = sv.warmth != null ? sv.warmth : 100; S.sanity = sv.sanity != null ? sv.sanity : 100;
@@ -2046,6 +2085,7 @@ function update(dt) {
   const sprinting = (inp.sprint || keys["shift"] || sprintBtn._held) && S.stamina > 1 && m > 0.1;
   let spd = (sprinting ? 8.5 : 5) * dt;
   if (S.hunger <= 0 || S.warmth <= 0) spd *= 0.62;
+  if (carryWeight() > carryLimit()) spd *= 0.6;   // aşırı yük → yavaşlama (çanta yükseltmesi limiti artırır)
   camera.getWorldDirection(_fwd); _fwd.y = 0; _fwd.normalize();
   const rightX = -_fwd.z, rightZ = _fwd.x; // sağ = cross(forward, up)
   let nx = camera.position.x + (_fwd.x * mz + rightX * mx) * spd;
@@ -2513,13 +2553,14 @@ function updateHUD(night) {
     if (S.melee && MELEE[S.melee]) parts.push(MELEE[S.melee].label);
     if (S.armor > 0 && S.armorDef > 0) parts.push("🛡️" + Math.round(S.armor) + "%");
     if (S.flashlight) parts.push("🔦" + (S.flashOn ? Math.round(S.battery) + "%" : "·"));
+    if (carryWeight() > carryLimit()) parts.push("⚖️ aşırı yük!");
     if (parts.length) { wh.textContent = parts.join("  ·  "); wh.classList.remove("hidden"); } else wh.classList.add("hidden");
   }
   const t = findTarget();
   if (t) {
     const key = isTouch ? "VUR" : "[Sol tık / E]";
     const axeTxt = S.tools.chainsaw ? "🪚 Kes (basılı tut) " : ["🪓 Odun kes ", "🪓 Odun kes (iyi) ", "🪓 Odun kes (güçlü) "][S.tools.axe || 0];
-    const txt = t.kind === "bench" ? "🛠️ Tezgah " : t.kind === "scav" ? "🤝 Takas (5⚙️) " : t.kind === "tree" ? axeTxt : t.kind === "scrap" ? "⚙️ Metal topla " : t.kind === "crystal" ? (S.tools.pickaxe ? "💎 Kristal kaz " : "💎 Kristal (⛏️ gerek) ") : t.kind === "chest" ? "📦 Sandığı aç " : t.kind === "wall" ? (S.tools.hammer ? "🔨 Duvarı tamir et " : "🔨 Çekiç gerek ") : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ");
+    const txt = t.kind === "bench" ? "🛠️ Tezgah " : t.kind === "scav" ? "🤝 Takas (5⚙️) " : t.kind === "pelt" ? "🧵 Kürk takası (5 post) " : t.kind === "tree" ? axeTxt : t.kind === "scrap" ? "⚙️ Metal topla " : t.kind === "crystal" ? (S.tools.pickaxe ? "💎 Kristal kaz " : "💎 Kristal (⛏️ gerek) ") : t.kind === "chest" ? "📦 Sandığı aç " : t.kind === "wall" ? (S.tools.hammer ? "🔨 Duvarı tamir et " : "🔨 Çekiç gerek ") : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ");
     promptEl.textContent = txt + key; promptEl.classList.remove("hidden");
   } else promptEl.classList.add("hidden");
   // pusula / ateşe dönüş
@@ -2613,6 +2654,7 @@ function startGame(continueSave) {
   // başlangıç kamp ateşi (üs): büyük yakıt deposu — odun atıp uzun yakabilirsin
   baseFire = makeFire(0, -3); baseFire.base = true; setFireLevel(baseFire, 1); baseFire.fuel = 120;   // merkezi kalıcı kamp ateşi (seviye 1)
   if (continueSave === true) applySave();   // kayıttan devam (gün/eşya/can geri yüklenir)
+  else applyClass(pendingClass);            // yeni oyun: sınıf başlangıç eşyaları + perk
   Sound.init(); Sound.resume();
   S.running = true;
   craftOpen = false; pauseOpen = false;
@@ -2632,6 +2674,19 @@ function startGame(continueSave) {
   setTimeout(() => toast(isTouch ? "🛠️ tezgaha yaklaş · 🩹 bandaj · KOŞ" : "🩹 B: bandaj · ⛺ T: uyu · 🗺️ M: harita · V: konuş", "good"), 5600);
 }
 
+/* ----- KARAKTER SINIFLARI ----- */
+let pendingClass = "lumberjack";
+function applyClass(cls) {
+  S.cls = cls;
+  if (cls === "lumberjack") { S.tools.axe = Math.max(S.tools.axe, 1); S.inv.wood += 10; }
+  else if (cls === "medic") { S.inv.bandage += 3; S.inv.medkit += 1; S.inv.cloth += 3; }
+  else if (cls === "scavenger") { S.inv.metal += 10; S.inv.wood += 6; S.inv.rope += 2; }
+  else if (cls === "assassin") { giveMelee("katana"); }
+}
+document.querySelectorAll(".clsbtn").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll(".clsbtn").forEach((x) => x.classList.remove("on"));
+  b.classList.add("on"); pendingClass = b.getAttribute("data-cls");
+}));
 $("startBtn").addEventListener("click", () => startGame(false));
 $("retryBtn").addEventListener("click", () => startGame(false));
 $("winBtn").addEventListener("click", () => startGame(false));

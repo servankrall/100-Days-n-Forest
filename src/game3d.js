@@ -19,9 +19,9 @@ const CFG = { WORLD: 215, DAY_LENGTH: 165, WIN_DAY: 100, TREES: 1050, BUSHES: 43
 /* ----- BİYOMLAR: merkez Orman; dış halka açıya göre Kar / Peri / Volkan ----- */
 const BIOMES = {
   forest:   { name: "🌲 Orman",        ground: 0x3c5a32, fog: 0x9fb7a0, fol: [0.30, 0.55, 0.28], trunk: 0.08 },
-  snow:     { name: "❄️ Karlı Bölge",   ground: 0xdde8f2, fog: 0xc6d4e4, fol: [0.58, 0.10, 0.82], trunk: 0.60, cold: true },
-  fairy:    { name: "🧚 Peri Ormanı",   ground: 0x5e3a72, fog: 0xc89bdc, fol: [0.85, 0.62, 0.66], trunk: 0.78, fairy: true },
-  volcanic: { name: "🌋 Volkanik Bölge", ground: 0x241310, fog: 0x6e2a18, fol: [0.03, 0.70, 0.22], trunk: 0.02, heat: true },
+  snow:     { name: "❄️ Karlı Bölge",   ground: 0xdde8f2, fog: 0xc6d4e4, sky: 0x9cc2e8, fol: [0.58, 0.10, 0.82], trunk: 0.60, cold: true },
+  fairy:    { name: "🧚 Peri Ormanı",   ground: 0x5e3a72, fog: 0xc89bdc, sky: 0x8f5ab8, fol: [0.85, 0.62, 0.66], trunk: 0.78, fairy: true },
+  volcanic: { name: "🌋 Volkanik Bölge", ground: 0x241310, fog: 0x6e2a18, sky: 0x8f2e14, fol: [0.03, 0.70, 0.22], trunk: 0.02, heat: true },
   caves:    { name: "🕳️ Mağara", ground: 0x171310, fog: 0x050505 },   // yeraltı: karanlık (el feneri/meşale şart)
 };
 let inCave = false;   // oyuncu bir mağara hacminin içinde mi (karanlık + mağara yaratıkları)
@@ -126,7 +126,7 @@ const Sound = {
 
 /* ----------------------- THREE setup ----------------------- */
 let renderer, scene, camera, sun, hemi, amb, headlamp, moon, fireflies, rain;
-let skyDome, stars, moonMesh, motes;            // gökyüzü kubbesi + yıldız + ay + toz zerreleri
+let skyDome, stars, moonMesh, motes, sunGlow;   // gökyüzü kubbesi + yıldız + ay + toz zerreleri + güneş parıltısı
 const windU = { value: 0 };                     // bitki rüzgâr salınımı için paylaşılan zaman uniform'u
 let shadowsOn = false;
 let composer = null, postOn = false, postTried = false, grainPass = null;
@@ -339,13 +339,17 @@ function buildSky() {
   // ay
   moonMesh = new THREE.Mesh(new THREE.CircleGeometry(24, 28), new THREE.MeshBasicMaterial({ color: 0xe6ecf2, transparent: true, opacity: 0, fog: false, depthWrite: false }));
   moonMesh.frustumCulled = false; moonMesh.renderOrder = -1; scene.add(moonMesh);
+  // güneş parıltısı (gökte yumuşak ışık topu — bloom ile huzme hissi verir)
+  sunGlow = new THREE.Mesh(new THREE.PlaneGeometry(160, 160), new THREE.MeshBasicMaterial({ map: dotSprite(), color: 0xffe2a0, transparent: true, opacity: 0, depthWrite: false, fog: false, blending: THREE.AdditiveBlending }));
+  sunGlow.frustumCulled = false; sunGlow.renderOrder = -1; scene.add(sunGlow);
 }
-const _skyTop = new THREE.Color(), _skyNight = new THREE.Color(0x0a1124), _skyDay = new THREE.Color(0x2f6aa6);
+const _skyTop = new THREE.Color(), _skyNight = new THREE.Color(0x0a1124), _skyDay = new THREE.Color(0x2f6aa6), _biomeSky = new THREE.Color();
 function updateSky(dk, dayK, horiz, sunAng) {
   if (skyDome) {
     skyDome.position.copy(camera.position);
     const u = skyDome.material.uniforms;
     _skyTop.copy(_skyNight).lerp(_skyDay, dayK); if (S.bloodMoon && dk > 0.3) _skyTop.lerp(new THREE.Color(0x2a0608), 0.5);
+    if (curBiome !== "forest" && BIOMES[curBiome] && BIOMES[curBiome].sky != null) _skyTop.lerp(_biomeSky.setHex(BIOMES[curBiome].sky), 0.55 * dayK);   // biyoma özel gökyüzü (gündüz)
     u.top.value.copy(_skyTop); u.bottom.value.copy(horiz);
     u.sunDir.value.set(Math.cos(sunAng), Math.max(Math.sin(sunAng), -0.15), 0.35).normalize();
     u.sunI.value = 0.25 + dayK;
@@ -353,6 +357,7 @@ function updateSky(dk, dayK, horiz, sunAng) {
   }
   if (stars) { stars.material.opacity = dk * 0.95; stars.position.copy(camera.position); }
   if (moonMesh) { moonMesh.material.opacity = dk * 0.95; const mA = sunAng + Math.PI; moonMesh.position.set(camera.position.x + Math.cos(mA) * 280, camera.position.y + 120 + Math.sin(mA) * 60, camera.position.z - 260); moonMesh.lookAt(camera.position); }
+  if (sunGlow && skyDome) { const sd = skyDome.material.uniforms.sunDir.value; sunGlow.position.set(camera.position.x + sd.x * 300, camera.position.y + sd.y * 300, camera.position.z + sd.z * 300); sunGlow.lookAt(camera.position); sunGlow.material.opacity = clamp(dayK * 0.55, 0, 0.55); }
 }
 
 /* ----- toz/polen zerreleri (gündüz havada süzülür) ----- */
@@ -377,7 +382,7 @@ function applyWind(mat, amount) {
 }
 
 /* ----- su birikintileri (parıldayan, gökyüzü tonlu) ----- */
-let waterTex = null;
+let waterTex = null, waterMat = null, waterNrm = null;
 function waterTexture() {
   const N = 512, c = document.createElement("canvas"); c.width = c.height = N; const g = c.getContext("2d");
   const grad = g.createRadialGradient(N / 2, N / 2, 40, N / 2, N / 2, N * 0.7); grad.addColorStop(0, "#1c5a72"); grad.addColorStop(1, "#0e2e42"); g.fillStyle = grad; g.fillRect(0, 0, N, N);
@@ -388,11 +393,12 @@ function waterTexture() {
   waterTex = new THREE.CanvasTexture(c); waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping; waterTex.repeat.set(2, 2); waterTex.anisotropy = 8; return waterTex;
 }
 function buildWater() {
-  const tex = waterTexture();
-  const mat = new THREE.MeshStandardMaterial({ map: tex, color: 0x6fa6c8, transparent: true, opacity: 0.82, metalness: 0.6, roughness: 0.15, emissive: 0x0a2230, emissiveIntensity: 0.4 });
+  const tex = waterTexture(), nrm = groundNormalTexture(); nrm.repeat.set(6, 6);
+  waterMat = new THREE.MeshStandardMaterial({ map: tex, normalMap: nrm, normalScale: new THREE.Vector2(0.7, 0.7), color: 0x6fa6c8, transparent: true, opacity: 0.84, metalness: 0.7, roughness: 0.12, emissive: 0x0a2230, emissiveIntensity: 0.4 });
+  waterNrm = nrm;
   for (let i = 0; i < 5; i++) {
     const [x, z] = farFromSpawn(30); const r = rnd(6, 13);
-    const m = new THREE.Mesh(new THREE.CircleGeometry(r, 28), mat); m.rotation.x = -Math.PI / 2; m.position.set(x, 0.06, z); m.receiveShadow = false; scene.add(m);
+    const m = new THREE.Mesh(new THREE.CircleGeometry(r, 32), waterMat); m.rotation.x = -Math.PI / 2; m.position.set(x, 0.06, z); m.receiveShadow = false; scene.add(m);
   }
 }
 
@@ -669,7 +675,7 @@ function buildScatter() {
   applyWind(bushMat, 0.07);
   const bushIM = new THREE.InstancedMesh(bushGeo, bushMat, CFG.BUSHES);
   bushIM.frustumCulled = false; if (shadowsOn) { bushIM.castShadow = true; bushIM.receiveShadow = true; }
-  for (let i = 0; i < CFG.BUSHES; i++) { _d.position.set(rnd(-CFG.WORLD, CFG.WORLD), 0.5, rnd(-CFG.WORLD, CFG.WORLD)); _d.rotation.set(0, rnd(0, 6.3), 0); _d.scale.setScalar(rnd(0.7, 1.7)); _d.updateMatrix(); bushIM.setMatrixAt(i, _d.matrix); col.setHSL(rnd(0.26, 0.34), rnd(0.45, 0.65), rnd(0.16, 0.28)); bushIM.setColorAt(i, col); }
+  for (let i = 0; i < CFG.BUSHES; i++) { const bx = rnd(-CFG.WORLD, CFG.WORLD), bz = rnd(-CFG.WORLD, CFG.WORLD); _d.position.set(bx, 0.5, bz); _d.rotation.set(0, rnd(0, 6.3), 0); _d.scale.setScalar(rnd(0.7, 1.7)); _d.updateMatrix(); bushIM.setMatrixAt(i, _d.matrix); const bf = BIOMES[biomeAt(bx, bz)].fol; col.setHSL((bf[0] + rnd(-0.03, 0.03) + 1) % 1, clamp(bf[1] * rnd(0.8, 1.05), 0, 1), clamp(bf[2] * rnd(0.55, 0.9), 0, 1)); bushIM.setColorAt(i, col); }
   bushIM.instanceColor.needsUpdate = true; scene.add(bushIM);
   // kayalar
   const rockGeo = new THREE.DodecahedronGeometry(0.7, 0);
@@ -684,7 +690,7 @@ function buildScatter() {
   applyWind(grassMat, 0.16);
   const grassIM = new THREE.InstancedMesh(grassGeo, grassMat, CFG.GRASS);
   grassIM.frustumCulled = false;
-  for (let i = 0; i < CFG.GRASS; i++) { _d.position.set(rnd(-CFG.WORLD, CFG.WORLD), 0.45, rnd(-CFG.WORLD, CFG.WORLD)); _d.rotation.set(rnd(-0.15, 0.15), rnd(0, 6.3), rnd(-0.15, 0.15)); _d.scale.set(rnd(0.7, 1.5), rnd(0.8, 1.8), rnd(0.7, 1.5)); _d.updateMatrix(); grassIM.setMatrixAt(i, _d.matrix); col.setHSL(rnd(0.24, 0.33), rnd(0.5, 0.7), rnd(0.20, 0.32)); grassIM.setColorAt(i, col); }
+  for (let i = 0; i < CFG.GRASS; i++) { const gx = rnd(-CFG.WORLD, CFG.WORLD), gz = rnd(-CFG.WORLD, CFG.WORLD); _d.position.set(gx, 0.45, gz); _d.rotation.set(rnd(-0.15, 0.15), rnd(0, 6.3), rnd(-0.15, 0.15)); _d.scale.set(rnd(0.7, 1.5), rnd(0.8, 1.8), rnd(0.7, 1.5)); _d.updateMatrix(); grassIM.setMatrixAt(i, _d.matrix); const gf = BIOMES[biomeAt(gx, gz)].fol; col.setHSL((gf[0] + rnd(-0.03, 0.03) + 1) % 1, clamp(gf[1] * rnd(0.85, 1.1), 0, 1), clamp(gf[2] * rnd(0.6, 0.95), 0, 1)); grassIM.setColorAt(i, col); }
   grassIM.instanceColor.needsUpdate = true; scene.add(grassIM);
 }
 
@@ -2388,6 +2394,8 @@ function update(dt) {
   updateSky(dk, dayK, skyCol, sunAng);          // gradyan gökyüzü + yıldız + ay + güneş parıltısı
   windU.value = performance.now() / 1000;        // bitki rüzgârı
   if (waterTex) { waterTex.offset.x = windU.value * 0.02; waterTex.offset.y = Math.sin(windU.value * 0.3) * 0.04; }   // su parıltısı
+  if (waterNrm && waterNrm.offset) { waterNrm.offset.x = -windU.value * 0.03; waterNrm.offset.y = windU.value * 0.018; }   // kayan dalga kabartması
+  if (waterMat) { waterMat.emissiveIntensity = 0.3 + Math.sin(windU.value * 1.6) * 0.18; }   // yüzey parıltı nabzı
   // toz/polen zerreleri (gündüz)
   if (motes) {
     motes.material.opacity = dayK * (S.weather === "rain" ? 0.05 : 0.5); motes.position.set(camera.position.x, 0, camera.position.z);

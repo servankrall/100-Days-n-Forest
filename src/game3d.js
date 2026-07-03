@@ -2923,6 +2923,12 @@ const GUIDE = [
     <h3>Masaüstü</h3><p><b>WASD</b> hareket · <b>fare</b> bak · <b>Shift</b> koş · <b>E/sol tık</b> vur/topla · <b>F</b> ateşe odun · <b>G</b> ye/iç · <b>B</b> iyileş/dirilt · <b>T</b> uyu · <b>C</b> tezgah · <b>M</b> harita.</p>
     <p><b>Q</b> menzilli silah değiştir · <b>Z</b> yakın dövüş değiştir · <b>R / sağ tık</b> ateş et · <b>L</b> el feneri · <b>V</b> bas-konuş (sesli sohbet).</p>
     <h3>Mobil</h3><p>Sol joystick hareket · sağ ekran bak · butonlar: VUR, 🔫 ateş, 🔁 silah, 🔥 odun, 🍗 ye, 🩹 iyileş, KOŞ, 🔦 fener, 🛠️ tezgah.</p>` },
+  { t: "🎭 Sınıf & Üs", h: `
+    <h3>Sınıflar (yeni oyunda seç)</h3><p>🪓 Oduncu (İyi Balta+hızlı kesim) · ➕ Sağlıkçı (bol tıbbi+%50 iyileşme) · 🔧 Toplayıcı (ekstra hurda+bol ganimet) · 🗡️ Suikastçı (Katana+hızlı vuruş).</p>
+    <h3>🛡️ Zırh</h3><p>Sandık/tezgahtan zırh kuşan; yaratık hasarını %20-50 azaltır, yıprandıkça KIRILIR (açlık/soğuğu engellemez). HUD'da 🛡️% görünür.</p>
+    <h3>🧵 Kürk Tüccarı</h3><p>Avdan çıkan postu (5) götür → kademeli ödül: 1. takas İyi Balta, 4. takas Güçlü Balta, arada tıbbi/metal. Hurdacı ise 5⚙️→🩹+🪵.</p>
+    <h3>🧱 Üs bakımı</h3><p>Tomruk duvarlar zamanla (fırtınada hızlı) çürür → 🔨 Çekiç ile odun harcayıp tamir et. ⚖️ Aşırı yük yavaşlatır — 🎒 Çanta yükseltmesi limiti artırır.</p>
+    <h3>🚁 Final</h3><p>100. günü çıkınca kurtarma helikopteri gelir — kazandın!</p>` },
   { t: "💡 İpuçları", h: `
     <ul>
     <li>İlk günler: odun stokla, ateşi büyüt, tezgahı (kampta) kullanıp <b>İyi Balta + Yatak</b> yap.</li>

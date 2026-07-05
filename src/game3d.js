@@ -1626,6 +1626,7 @@ function doFire() {
   const lvl = S.fireFed > 170 ? 4 : S.fireFed > 80 ? 3 : S.fireFed > 28 ? 2 : 1;   // toplam beslemeyle seviye atlar
   if (lvl > near.level) { setFireLevel(near, lvl); near.fuel = Math.min(near.fuel + 40, near.max); toast("🔥 ATEŞ SEVİYE " + lvl + "! Güvenli alan büyüdü 🪨", "good"); Sound.crackle(); }
   else toast("🔥 +" + add + " odun (yakıt %" + Math.round(near.fuel / near.max * 100) + ")", "good");
+  if (net.online && near.base) { try { net.broadcast({ t: "fire", fed: S.fireFed }); } catch (e) {} }   // ateş seviyesi co-op'ta paylaşılır
 }
 function doEat() {
   const inv = S.inv;
@@ -1704,12 +1705,41 @@ function confirmPlace() {
   const [x, z] = placeInFront(spec.dist);
   if (baseFire && Math.hypot(x - baseFire.x, z - baseFire.z) > CAMP_R()) { toast("🔥 Daha yakın kur — kamp ateşi alanı", "bad"); return; }
   camera.getWorldDirection(_fwd); _fwd.y = 0; _fwd.normalize();
-  spec.build(x, z, Math.atan2(-_fwd.x, -_fwd.z));
-  if (spec.onPlace) spec.onPlace();
+  applyPlace(k, x, z, Math.atan2(-_fwd.x, -_fwd.z), false);   // kurar + onPlace + co-op yayını
   S.placeables[k]--; if (S.placeables[k] <= 0) delete S.placeables[k];
   Sound.chop(); toast("✅ Kuruldu: " + spec.label, "good");
   if (S.placeables[k] > 0) { if (placeName) placeName.textContent = spec.label + " ×" + S.placeables[k]; }
   else exitPlace();
+}
+
+/* ===== CO-OP paylaşımlı dünya durumu: kurulan yapılar + tezgah tier'ı + ateş seviyesi
+   herkeste görünür. Host yetkilidir; katılınca host tam anlık görüntü gönderir. ===== */
+const worldLog = [];   // {kind,x,z,rot} — bu dünyada kurulmuş tüm yapılar (anlık görüntü için)
+let pendingWorld = null;   // oyun henüz hazır değilken gelen anlık görüntü
+function worldSeen(e) { return worldLog.some((w) => w.kind === e.kind && Math.abs(w.x - e.x) < 0.15 && Math.abs(w.z - e.z) < 0.15); }
+function applyPlace(kind, x, z, rot, remote) {
+  const spec = PLACE[kind]; if (!spec || !scene) return;
+  spec.build(x, z, rot || 0);
+  if (!remote && spec.onPlace) spec.onPlace();          // sayaçlar (S.farms++ vb.) yalnızca kuran oyuncuda
+  worldLog.push({ kind, x, z, rot: rot || 0 });
+  if (!remote && net.online) { try { net.broadcast({ t: "place", kind, x, z, rot: rot || 0 }); } catch (e) {} }
+}
+function applyBench(tier) {
+  if (!S || !(tier > S.benchTier)) return;
+  S.benchTier = tier; toast("🛠️ Üs tezgahı Tier " + tier + " oldu (arkadaşın yükseltti)", "good"); renderCraft();
+}
+function applyFireLevel(fed) {
+  if (!S) return;
+  S.fireFed = Math.max(S.fireFed || 0, fed);
+  const lvl = S.fireFed > 170 ? 4 : S.fireFed > 80 ? 3 : S.fireFed > 28 ? 2 : 1;
+  if (baseFire && lvl > baseFire.level) setFireLevel(baseFire, lvl);
+}
+function applyWorldSnapshot(d) {
+  if (!scene || !S || !S.running) { pendingWorld = d; return; }   // menüdeysem başlayınca uygula
+  if (Array.isArray(d.log)) for (const e of d.log) { if (!worldSeen(e)) applyPlace(e.kind, e.x, e.z, e.rot, true); }
+  if (d.benchTier) applyBench(d.benchTier);
+  if (d.fireFed) applyFireLevel(d.fireFed);
+  toast("🌐 Üs durumu arkadaşından alındı (yapılar + tezgah + ateş)", "good");
 }
 // hayalet önizlemeyi her karede oyuncunun baktığı yere taşı (yeşil=geçerli, kırmızı=ateşe uzak)
 function updateGhost() {
@@ -1775,6 +1805,7 @@ function craft(r) {
   const ok = r.make(S);
   if (ok === false) { for (const k in r.cost) S.inv[k] += r.cost[k]; renderCraft(); return; }
   Sound.chop(); toast("🛠️ Üretildi: " + r.name, "good"); renderCraft();
+  if (r.up && net.online) { try { net.broadcast({ t: "bench", tier: S.benchTier }); } catch (e) {} }   // tezgah yükseltmesi tüm co-op'ta görünür
 }
 const costStr = (c) => Object.entries(c).map(([k, v]) => ({ wood: "🪵", metal: "⚙️", pelt: "🧵", bandage: "🩹", gem: "💎", cloth: "🧶", rope: "🪢" }[k] + v)).join(" ");
 function renderCraft() {
@@ -2770,6 +2801,7 @@ function startGame(continueSave) {
   for (let i = 0; i < trees.length; i++) { trees[i].alive = true; trees[i].hp = 4; trees[i].regrow = 0; }
   refreshTrees();
   clearDynamic(); watcherGroup = null; wCd = 8; wEnc = 0;
+  worldLog.length = 0;   // co-op paylaşımlı yapı kaydı sıfırlanır (yeni dünya)
   if (rain) rain.visible = false;
   for (let i = 0; i < 16; i++) spawnPrey();
   camera.position.set(0, CFG.EYE, 0); yaw = 0; pitch = 0;
@@ -2779,6 +2811,7 @@ function startGame(continueSave) {
   else applyClass(pendingClass);            // yeni oyun: sınıf başlangıç eşyaları + perk
   Sound.init(); Sound.resume();
   S.running = true;
+  if (pendingWorld) { const pw = pendingWorld; pendingWorld = null; applyWorldSnapshot(pw); }   // menüde katıldıysam gecikmiş üs durumunu şimdi uygula
   craftOpen = false; pauseOpen = false;
   $("craft").classList.add("hidden"); $("pause").classList.add("hidden"); $("downed").classList.add("hidden");
   $("start").classList.add("hidden"); $("gameover").classList.add("hidden"); $("win").classList.add("hidden");
@@ -2845,6 +2878,26 @@ function acctMsg(t, ok) { const m = $("ac-msg"); m.textContent = t; m.className 
 function showMe() { if (!account) return; $("ac-me").classList.remove("hidden"); $("ac-name").textContent = account.user; $("ac-id").textContent = account.id; }
 
 loadAccount(); if (account) showMe();
+
+/* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
+const GAME_BUILD = 42;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+async function checkForUpdate() {
+  try {
+    const url = "https://raw.githubusercontent.com/servankrall/100-Days-n-Forest/main/version.json?t=" + Date.now();
+    const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 6000);
+    const res = await fetch(url, { cache: "no-store", signal: ctl.signal }); clearTimeout(to);
+    if (!res.ok) return;
+    const j = await res.json();
+    if (j && typeof j.build === "number" && j.build > GAME_BUILD) {
+      const b = $("updateBanner"); if (!b) return;
+      $("updateVer").textContent = j.version ? "(v" + j.version + ")" : "";
+      if (j.url) b.href = j.url;
+      b.classList.remove("hidden");
+    }
+  } catch (e) { /* ağ yok / native kısıt: sessizce geç, uyarı gösterme */ }
+}
+checkForUpdate();
+
 $("ac-create").addEventListener("click", () => {
   const email = $("ac-email").value.trim(), user = $("ac-user").value.trim(), p = $("ac-pass").value, p2 = $("ac-pass2").value;
   if (!email || !email.includes("@")) return acctMsg("Geçerli bir e-posta gir.");
@@ -2934,6 +2987,26 @@ async function joinFriend(hostId) {
   if (!hostId) return;
   try { await ensureMyPeer(); net.joinHost(hostId, { name: account ? account.user : "Oyuncu" }); mpMsg("Katılınıyor: " + hostId + " ..."); try { await net.enableMic(); } catch (e) {} } catch (e) {}
 }
+/* ---- HIZLI CO-OP: kısa oda kodu (kolay katılım) ---- */
+function genRoomCode() { const c = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; let s = ""; for (let i = 0; i < 4; i++) s += c[Math.floor(Math.random() * c.length)]; return s; }
+function roomCodeVal() { return (($("qc-code") && $("qc-code").value) || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6); }
+$("qc-host").addEventListener("click", async () => {
+  let code = roomCodeVal(); if (!code) { code = genRoomCode(); $("qc-code").value = code; }
+  const rid = "ORM-ROOM-" + code;
+  mpMsg("Oda kuruluyor: " + code + " ...");
+  try {
+    if (net.online) net.disconnect();                 // oda kimliğiyle yeniden başla
+    await net.start(rid); net.host = true; $("mp-myid").textContent = net.id;
+    mpMsg("✅ ODA AÇIK — KOD: " + code + " · Arkadaşların bu kodu 'KATIL'a yazsın.");
+    toast("🟢 Oda açık — kod: " + code, "good");
+    try { await net.enableMic(); } catch (e) {}
+  } catch (e) { mpMsg("Oda kurulamadı (kod meşgul olabilir): başka kod dene."); }
+});
+$("qc-join").addEventListener("click", async () => {
+  const code = roomCodeVal(); if (!code) { mpMsg("Önce oda kodunu yaz."); return; }
+  try { await ensureMyPeer(); net.joinHost("ORM-ROOM-" + code, { name: account ? account.user : "Oyuncu" }); mpMsg("Odaya katılınıyor: " + code + " ... (üs birazdan görünür)"); try { await net.enableMic(); } catch (e) {} }
+  catch (e) { mpMsg("Katılınamadı: " + (e.message || e)); }
+});
 $("mp-copy").addEventListener("click", () => { if (net.id && navigator.clipboard) navigator.clipboard.writeText(net.id); });
 $("pz-voice").addEventListener("click", async () => {
   try { await net.enableMic(); $("pz-voice").classList.add("on"); $("pz-voice").textContent = "🎤 Sesli sohbet: AÇIK (V ile bas-konuş)"; mpMsg("Mikrofon hazır — konuşmak için V'ye basılı tut."); }
@@ -2943,7 +3016,11 @@ $("pz-resume").addEventListener("click", () => closePause());
 $("pz-menu").addEventListener("click", () => location.reload());
 
 net.onStatus = (s) => mpMsg(s);
-net.onJoin = (id, meta) => { remoteName[id] = (meta && meta.name) || id; toast("🟢 Katıldı: " + remoteName[id], "good"); renderFriends(); };
+net.onJoin = (id, meta) => {
+  remoteName[id] = (meta && meta.name) || id; toast("🟢 Katıldı: " + remoteName[id], "good"); renderFriends();
+  // HOST yetkilidir: yeni katılana üssün tam durumunu gönder (yapılar + tezgah + ateş)
+  if (net.host && S && scene) { try { net.sendTo(id, { t: "wsnap", log: worldLog, benchTier: S.benchTier, fireFed: S.fireFed }); } catch (e) {} }
+};
 net.onLeave = (id) => { toast("🔴 Ayrıldı: " + (remoteName[id] || id), "bad"); removeRemote(id); delete talkingPeers[id]; updateSpeakerHUD(); renderFriends(); };
 net.onState = (id, d) => updateRemote(id, d);
 net.onData = (id, d) => {
@@ -2952,6 +3029,11 @@ net.onData = (id, d) => {
   else if (d.t === "revived" && d.id === net.id) { if (S.downed) reviveSelf(); }                 // biri beni diriltti
   else if (d.t === "revived") { const r = remotes[d.id]; if (r) r.downed = false; }
   else if (d.t === "talk") { talkingPeers[id] = !!d.on; updateSpeakerHUD(); }                     // kim konuşuyor göstergesi
+  // ---- CO-OP paylaşımlı dünya (host gelen olayı diğerlerine iletir) ----
+  else if (d.t === "place") { if (!worldSeen(d)) applyPlace(d.kind, d.x, d.z, d.rot, true); if (net.host) net.relay(id, d); }
+  else if (d.t === "bench") { applyBench(d.tier); if (net.host) net.relay(id, d); }
+  else if (d.t === "fire") { applyFireLevel(d.fed); if (net.host) net.relay(id, d); }
+  else if (d.t === "wsnap") applyWorldSnapshot(d);
 };
 
 /* ESC: durdur / sosyal menü */

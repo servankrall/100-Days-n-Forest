@@ -179,3 +179,18 @@ canvas#fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-eve
 .note-empty { color: #9a9; padding: 8px; }
 
 @media (max-width: 560px) { .bar { width: 78px; } #topbar { font-size: 14px; } .inv { font-size: 13px; min-width: 40px; padding: 2px 5px; } #inventory { flex-wrap: wrap; max-width: 60%; } }
+
+/* ===== güncelleme uyarısı (ana menü) ===== */
+.update-banner { display: block; margin: 8px auto 4px; max-width: 460px; padding: 9px 14px; border-radius: 10px; background: linear-gradient(90deg, rgba(60,40,8,.85), rgba(90,64,12,.85)); border: 1px solid #e2b455; color: #ffe9b8; font-size: 14px; text-align: center; text-decoration: none; box-shadow: 0 0 14px rgba(226,180,85,.35); animation: upd-pulse 1.8s ease-in-out infinite; }
+.update-banner b { color: #fff4d6; }
+.update-banner:hover { background: linear-gradient(90deg, rgba(80,56,10,.95), rgba(120,86,16,.95)); }
+.update-banner.hidden { display: none; }
+@keyframes upd-pulse { 0%,100% { box-shadow: 0 0 10px rgba(226,180,85,.3); } 50% { box-shadow: 0 0 20px rgba(226,180,85,.6); } }
+
+/* ===== hızlı co-op (oda kodu) ===== */
+.qc { background: rgba(18,40,30,.5); border: 1px solid rgba(90,200,150,.35); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+.qc-label { color: #a8f0c8; font-size: 14px; font-weight: bold; margin-bottom: 8px; letter-spacing: .02em; }
+.qc-row { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
+.qc-row #qc-code { flex: 1 1 90px; min-width: 80px; text-align: center; font-size: 20px; letter-spacing: .25em; text-transform: uppercase; font-weight: bold; background: rgba(0,0,0,.4); border: 1px solid rgba(120,220,170,.5); border-radius: 8px; color: #d9ffe9; padding: 6px; }
+.qc-row .bigbtn.small { flex: 1 1 90px; margin: 0; }
+.qc-hint { color: #9fc9b3; font-size: 11.5px; margin-top: 7px; line-height: 1.4; }

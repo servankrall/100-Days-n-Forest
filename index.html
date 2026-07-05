@@ -120,6 +120,7 @@
     <div class="panel">
       <h1 class="title-creep">100 GÜN ORMANDA</h1>
       <p class="subtitle">Amazon'un derinliklerinde 3B hayatta kal... eğer <i>o</i> izin verirse.</p>
+      <a id="updateBanner" class="update-banner hidden" href="https://github.com/servankrall/100-Days-n-Forest/releases/latest" target="_blank" rel="noopener">🔔 <b>Yeni sürüm çıktı!</b> <span id="updateVer"></span> — güncellemek için tıkla</a>
       <div class="warn">⚠️ JUMP SCARE ve ani yüksek sesler içerir. Kulaklık + ses açık önerilir.</div>
       <div class="howto">
         <div class="howcol">
@@ -232,7 +233,17 @@
       <div id="pauseStatus" class="subtitle">Oyun duraklatıldı</div>
       <div class="social-cols">
         <div class="social-col">
-          <h3>CO-OP <span class="tag">5 kişiye kadar · beta</span></h3>
+          <h3>CO-OP <span class="tag">5 kişiye kadar</span></h3>
+          <div class="qc">
+            <div class="qc-label">⚡ HIZLI CO-OP — kısa oda kodunu paylaşın</div>
+            <div class="qc-row">
+              <input id="qc-code" type="text" maxlength="6" placeholder="KOD" autocomplete="off" autocapitalize="characters">
+              <button id="qc-host" class="bigbtn small">🟢 ODA KUR</button>
+              <button id="qc-join" class="bigbtn small">▶ KATIL</button>
+            </div>
+            <div class="qc-hint">Biriniz <b>ODA KUR</b>'a bassın (kod otomatik oluşur), kodu söylesin; diğeri aynı kodu yazıp <b>KATIL</b>'a bassın. Katılınca aynı üssü + birbirinizi görürsünüz. (İnternet gerekir, aynı WiFi şart değil.)</div>
+          </div>
+          <div class="or">— ya da Friend ID ile (gelişmiş) —</div>
           <div class="mp-mine">Senin Friend ID'n: <b id="mp-myid">—</b>
             <button id="mp-copy" class="minibtn" style="display:inline-block;margin-left:6px;padding:2px 10px">kopyala</button></div>
           <button id="mp-host" class="bigbtn small">🟢 ODA KUR (arkadaşların katılsın)</button>

@@ -80,6 +80,8 @@ export const net = {
   },
 
   broadcast(obj) { for (const id in this.conns) { try { this.conns[id].send(obj); } catch (e) {} } },
+  sendTo(id, obj) { const c = this.conns[id]; if (c) { try { c.send(obj); } catch (e) {} } },       // tek bir eşe gönder (dünya anlık görüntüsü)
+  relay(exceptId, obj) { for (const id in this.conns) { if (id === exceptId) continue; try { this.conns[id].send(obj); } catch (e) {} } },  // host: gelen olayı diğerlerine ilet
   peerCount() { return Object.keys(this.conns).length; },
   peerIds() { return Object.keys(this.conns); },
 

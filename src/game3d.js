@@ -13,6 +13,9 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
 const map = (v, a, b, c, d) => c + (clamp(v, a, b) - a) / (b - a) * (d - c);
 const choice = (arr) => arr[(Math.random() * arr.length) | 0];
+// PointLight yardımcı: three.js'te Object3D.position SALT-OKUNUR → Object.assign(light,{position})
+// katı modda (ES modülü) hata verir. Önce oluştur, sonra .position.set() ile konumlandır.
+function plight(color, intensity, dist, decay, x, y, z) { const l = new THREE.PointLight(color, intensity, dist, decay); l.position.set(x || 0, y || 0, z || 0); return l; }
 
 const CFG = { WORLD: 215, DAY_LENGTH: 165, WIN_DAY: 100, TREES: 1050, BUSHES: 430, ROCKS: 95, GRASS: 1500, VINES: 160, EYE: 1.7, SCRAP: 0, CHESTS: 40, HOUSES: 14 };
 
@@ -716,7 +719,7 @@ function makeCrystal(x, z) {
   const gemMat = new THREE.MeshStandardMaterial({ color: 0x7fe9ff, emissive: 0x36b6d8, emissiveIntensity: 0.9, roughness: 0.2, metalness: 0.3, flatShading: true, transparent: true, opacity: 0.92 });
   const shards = [];
   for (let i = 0; i < 5; i++) { const h = rnd(0.6, 1.4); const s = new THREE.Mesh(new THREE.ConeGeometry(rnd(0.12, 0.22), h, 5), gemMat); s.position.set(rnd(-0.35, 0.35), 0.3 + h / 2, rnd(-0.35, 0.35)); s.rotation.set(rnd(-0.3, 0.3), rnd(0, 6.3), rnd(-0.3, 0.3)); g.add(s); shards.push(s); }
-  g.add(Object.assign(new THREE.PointLight(0x6fe6ff, 0.7, 6, 2), { position: new THREE.Vector3(0, 0.9, 0) }));
+  g.add(plight(0x6fe6ff, 0.7, 6, 2, 0, 0.9, 0));
   if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   scene.add(g); const c = { x, z, group: g, hp: 3, mined: false, mat: gemMat }; crystals.push(c); return c;
 }
@@ -1034,7 +1037,7 @@ function makeAnimal(type) {
     const eyeM = new THREE.MeshStandardMaterial({ color: 0xffe23a, emissive: 0xffd000, emissiveIntensity: 3 });
     for (const sz of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), eyeM); e.position.set(1.05, 0.96, sz * 0.14); g.add(e); }
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) { const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.1, 0.7, 6), rock); leg.position.set(sx * 0.45, 0.35, sz * 0.32); g.add(leg); }
-    g.add(Object.assign(new THREE.PointLight(0xff5a1e, 1.0, 8, 1.8), { position: new THREE.Vector3(0.3, 0.9, 0) }));
+    g.add(plight(0xff5a1e, 1.0, 8, 1.8, 0.3, 0.9, 0));
     if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
     scene.add(g); return g;
   }
@@ -1043,7 +1046,7 @@ function makeAnimal(type) {
     const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.26, 0), new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 2.2, roughness: 0.4, flatShading: true })); core.position.y = 1.4; g.add(core);
     const wingM = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xbfe0ff, emissiveIntensity: 0.8, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
     for (const sz of [-1, 1]) { const w = new THREE.Mesh(new THREE.CircleGeometry(0.3, 8), wingM); w.position.set(0, 1.45, sz * 0.18); w.rotation.y = sz * 0.6; g.add(w); }
-    g.add(Object.assign(new THREE.PointLight(c, 0.8, 7, 1.8), { position: new THREE.Vector3(0, 1.4, 0) }));
+    g.add(plight(c, 0.8, 7, 1.8, 0, 1.4, 0));
     if (shadowsOn) core.castShadow = true; scene.add(g); return g;
   }
   if (type === "cultist") {                                   // CULTIST KING — volkan bossu, kukuletalı, asalı
@@ -1056,7 +1059,7 @@ function makeAnimal(type) {
     for (const sz of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), eyeM); e.position.set(0.34, 2.5, sz * 0.12); g.add(e); }
     const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 3.0, 6), gold); staff.position.set(0.6, 1.5, 0); g.add(staff);
     const orb = new THREE.Mesh(new THREE.IcosahedronGeometry(0.28, 0), new THREE.MeshStandardMaterial({ color: 0xff5a1e, emissive: 0xff3300, emissiveIntensity: 2.4, flatShading: true })); orb.position.set(0.6, 3.1, 0); g.add(orb);
-    g.add(Object.assign(new THREE.PointLight(0xff3a1e, 1.6, 12, 1.6), { position: new THREE.Vector3(0.6, 3.1, 0) }));
+    g.add(plight(0xff3a1e, 1.6, 12, 1.6, 0.6, 3.1, 0));
     g.scale.setScalar(1.35);
     if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
     scene.add(g); return g;
@@ -1640,13 +1643,13 @@ function doEat() {
 function placeFront(buildFn, dist) { const [x, z] = placeInFront(dist || 2.6); camera.getWorldDirection(_fwd); _fwd.y = 0; _fwd.normalize(); return buildFn(x, z, Math.atan2(-_fwd.x, -_fwd.z)); }
 function makeBed(x, z) { const g = new THREE.Group(); g.position.set(x, 0, z); const wood = new THREE.MeshStandardMaterial({ color: 0x6b4a26, roughness: 1 }); const m = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.3, 2.0), new THREE.MeshStandardMaterial({ color: 0x9a8d76, roughness: 1 })); m.position.y = 0.35; g.add(m); for (const sx of [-1, 1]) for (const sz of [-1, 1]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.35, 0.14), wood); leg.position.set(sx * 0.42, 0.17, sz * 0.9); g.add(leg); } const pil = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.18, 0.4), new THREE.MeshStandardMaterial({ color: 0xd8cdb6 })); pil.position.set(0, 0.55, -0.75); g.add(pil); if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; }); scene.add(g); props.push({ x, z, group: g, kind: "bed" }); }
 function makeFarm(x, z) { const g = new THREE.Group(); g.position.set(x, 0, z); const soil = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.18, 2.0), new THREE.MeshStandardMaterial({ color: 0x4a3526, roughness: 1 })); soil.position.y = 0.09; g.add(soil); const f = { x, z, group: g, kind: "farm", t: 0, sprouts: [] }; for (let i = 0; i < 9; i++) { const sp = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.3, 5), new THREE.MeshStandardMaterial({ color: 0x4f8a3a, flatShading: true })); sp.position.set(((i % 3) - 1) * 0.6, 0.3, ((i / 3 | 0) - 1) * 0.6); g.add(sp); f.sprouts.push(sp); } if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; }); scene.add(g); props.push(f); farms.push(f); }
-function makeTorch(x, z) { const g = new THREE.Group(); g.position.set(x, 0, z); const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 1.8, 6), new THREE.MeshStandardMaterial({ color: 0x4a3420, roughness: 1 })); pole.position.y = 0.9; g.add(pole); const fl = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.5, 7), new THREE.MeshBasicMaterial({ color: 0xff9a3c, transparent: true, opacity: 0.95 })); fl.position.y = 1.95; g.add(fl); g.add(Object.assign(new THREE.PointLight(0xffa850, 1.4, 11, 1.6), { position: new THREE.Vector3(0, 2, 0) })); if (shadowsOn) pole.castShadow = true; scene.add(g); torches.push({ x, z, group: g, safeR: 7, flame: fl }); }
+function makeTorch(x, z) { const g = new THREE.Group(); g.position.set(x, 0, z); const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 1.8, 6), new THREE.MeshStandardMaterial({ color: 0x4a3420, roughness: 1 })); pole.position.y = 0.9; g.add(pole); const fl = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.5, 7), new THREE.MeshBasicMaterial({ color: 0xff9a3c, transparent: true, opacity: 0.95 })); fl.position.y = 1.95; g.add(fl); g.add(plight(0xffa850, 1.4, 11, 1.6, 0, 2, 0)); if (shadowsOn) pole.castShadow = true; scene.add(g); torches.push({ x, z, group: g, safeR: 7, flame: fl }); }
 function makeGate(x, z, rot) { const w = makeWall(x, z, rot); w.gate = true; return w; }
 function makeLantern(x, z) {   // kristal fener: güçlü kalıcı ışık + geniş güvenli alan (meşale+)
   const g = new THREE.Group(); g.position.set(x, 0, z);
   const post = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 2.2, 6), new THREE.MeshStandardMaterial({ color: 0x40464e, metalness: 0.5, roughness: 0.6 })); post.position.y = 1.1; g.add(post);
   const orb = new THREE.Mesh(new THREE.IcosahedronGeometry(0.32, 0), new THREE.MeshStandardMaterial({ color: 0x9ff0ff, emissive: 0x55d6f0, emissiveIntensity: 1.4, roughness: 0.2, transparent: true, opacity: 0.95, flatShading: true })); orb.position.y = 2.3; g.add(orb);
-  g.add(Object.assign(new THREE.PointLight(0x8fe8ff, 2.0, 16, 1.5), { position: new THREE.Vector3(0, 2.3, 0) }));
+  g.add(plight(0x8fe8ff, 2.0, 16, 1.5, 0, 2.3, 0));
   if (shadowsOn) post.castShadow = true; scene.add(g);
   torches.push({ x, z, group: g, safeR: 11, flame: orb });   // meşale gibi ama daha geniş güvenli alan
 }
@@ -1656,7 +1659,7 @@ function makeTotem(x, z) {     // koruyucu totem: çevresinde sanity yenilenir +
   for (let i = 0; i < 3; i++) { const seg = new THREE.Mesh(new THREE.CylinderGeometry(0.34 - i * 0.04, 0.38 - i * 0.04, 0.8, 6), woodM); seg.position.y = 0.4 + i * 0.8; seg.rotation.y = i * 0.5; g.add(seg); }
   const gemMat = new THREE.MeshStandardMaterial({ color: 0x9ff0ff, emissive: 0x52c8e6, emissiveIntensity: 1.0, roughness: 0.2, flatShading: true, transparent: true, opacity: 0.95 });
   const top = new THREE.Mesh(new THREE.IcosahedronGeometry(0.36, 0), gemMat); top.position.y = 2.9; g.add(top);
-  g.add(Object.assign(new THREE.PointLight(0x7fe6ff, 1.0, 9, 2), { position: new THREE.Vector3(0, 2.9, 0) }));
+  g.add(plight(0x7fe6ff, 1.0, 9, 2, 0, 2.9, 0));
   if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   scene.add(g); totems.push({ x, z, group: g, r: 13 });
 }
@@ -2058,7 +2061,7 @@ function makeHeli() {
   heliRotor = new THREE.Mesh(new THREE.BoxGeometry(7.5, 0.08, 0.4), new THREE.MeshStandardMaterial({ color: 0x11150f })); heliRotor.position.y = 1.2; g.add(heliRotor);
   const tr = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.6, 0.3), new THREE.MeshStandardMaterial({ color: 0x11150f })); tr.position.set(-3.9, 0.4, 0); g.add(tr);
   for (const sx of [-1, 1]) { const sk = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 3.4, 6), new THREE.MeshStandardMaterial({ color: 0x1a1f18 })); sk.rotation.z = Math.PI / 2; sk.position.set(0, -1.1, sx * 0.8); g.add(sk); }
-  g.add(Object.assign(new THREE.PointLight(0xfff2c0, 2, 30, 1.4), { position: new THREE.Vector3(1.8, -0.4, 0) }));
+  g.add(plight(0xfff2c0, 2, 30, 1.4, 1.8, -0.4, 0));
   scene.add(g); return g;
 }
 function startRescue() {

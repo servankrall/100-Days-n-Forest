@@ -271,7 +271,7 @@ async function setupPostFX() {
     const w = window.innerWidth, h = window.innerHeight;
     const comp = new EC.EffectComposer(renderer);
     comp.addPass(new RP.RenderPass(scene, camera));
-    const bloom = new BLOOM.UnrealBloomPass(new THREE.Vector2(w, h), 1.08, 0.66, 0.66); comp.addPass(bloom); // ateş/gözler/ay/lav parlar (daha zengin)
+    const bloom = new BLOOM.UnrealBloomPass(new THREE.Vector2(w, h), 0.8, 0.6, 0.82); comp.addPass(bloom); // yalnızca GERÇEK parlak şeyler (ateş/lav/gözler) — gökyüzü/su artık yıkanmıyor
     // sinematik: kromatik sapma + renk derecelendirme (teal-turuncu) + güçlü vignette + film grain
     grainPass = new SP.ShaderPass({
       uniforms: { tDiffuse: { value: null }, t: { value: 0 }, vig: { value: 1.15 }, grain: { value: 0.06 }, ca: { value: 1.0 } },
@@ -1167,7 +1167,7 @@ function spawnBeast(type) {
   let x = clamp(camera.position.x + Math.cos(ang) * d, -CFG.WORLD, CFG.WORLD), z = clamp(camera.position.z + Math.sin(ang) * d, -CFG.WORLD, CFG.WORLD);
   animals.push({ group: makeAnimal(type), x, z, type, hp: B.hp, maxhp: B.hp, state: "chase", dir: 0, atkCd: 0, bite: 0, slow: 0, hostile: true, boss: !!B.boss });
 }
-function spawnCultistKing() { if (bossAlive) return; bossAlive = true; spawnBeast("cultist"); Sound.growl(); whisperText("CULTIST KING uyandı..."); toast("🌋👑 CULTIST KING beliriyor!", "bad"); jumpscare(null, 8, 0); }
+function spawnCultistKing() { if (bossAlive) return; bossAlive = true; spawnBeast("cultist"); Sound.growl(); whisperText("CULTIST KING uyandı..."); toast("🌋👑 CULTIST KING beliriyor!", "bad"); S.shake = Math.max(S.shake, 0.6); }
 
 /* ----- ateş modeli ----- */
 function makeFire(x, z) {
@@ -1842,13 +1842,26 @@ function doSleep() {
 }
 
 /* ----------------------- JUMPSCARE ----------------------- */
-let jumpT = 0, jumpFace = 0;
-function jumpscare(face, san, hp) {
+let jumpT = 0, jumpFace = 0, jumpModel = null;
+function jumpscare(face, san, hp) {   // eski çizili yüz korkusu (yalnızca yaratık modeli yoksa yedek)
   jumpT = 1.0; jumpFace = face != null ? face : rndi(0, 2);
   S.shake = Math.max(S.shake, 0.9);
   S.sanity = clamp(S.sanity - (san || 12), 0, 100);
   if (hp) { S.health = clamp(S.health - hp, 0, 100); S.hurt = 0.6; if (S.health <= 0) playerDied("kalp krizi"); }
   Sound.screech();
+}
+// YARATIK SENİ YAKALADI: gerçek 3B modeli ekrana sokar (jumpscare = yaratığın kendisi) + TEK VURUŞTA öldürür
+function catchKill(group, reason) {
+  if (S.over || S.downed) return;
+  if (group) {
+    camera.getWorldDirection(_fwd);
+    group.position.set(camera.position.x + _fwd.x * 1.7, camera.position.y + _fwd.y * 1.7 - 0.8, camera.position.z + _fwd.z * 1.7);
+    group.rotation.y = Math.atan2(camera.position.x - group.position.x, camera.position.z - group.position.z);
+    group.scale.setScalar(3.4); group.visible = true;
+  }
+  jumpModel = group || null; jumpFace = -1; jumpT = 1.3; S.shake = 1.0; S.hurt = 1.0;
+  Sound.screech();
+  S.sanity = 0; playerDied(reason || "yaratık seni yakaladı");
 }
 function drawScaryFace(w, h) {
   fxc.save();
@@ -2321,11 +2334,8 @@ function update(dt) {
   else if (S.hunger > 40 && S.warmth > 40 && S.sanity > 25 && S.thirst > 40 && S.sick <= 0) S.health = clamp(S.health + 0.8 * dt, 0, 100);
   if (S.health <= 0) { playerDied(S.deathReason || "bilinmeyen"); if (S.over || S.downed) return; }
 
-  // korku — İzleyen
+  // korku — İzleyen (jumpscare YALNIZCA yaratık seni yakalayınca gelir — rastgele jumpscare kaldırıldı)
   updateWatcher(dt, night);
-  // jumpscare zamanlayıcı
-  S.jumpCd -= dt;
-  if (jumpT <= 0 && S.jumpCd <= 0 && night) { const p = (0.02 + (1 - S.sanity / 100) * 0.07) * (1 + dread * 1.6); if (Math.random() < p) { jumpscare(null, 11, 0); S.jumpCd = rnd(16, 38) * (1 - dread * 0.45); } }
   // ÖZEL DEHŞET: ekrana yumruk atan kanlı kadın + sahte sistem bozulması (nadir; gece + ilerleyen günlerde)
   S.glitchCd -= dt;
   if (night && glitch == null && S.glitchCd <= 0 && S.day >= 3 && Math.random() < (0.0008 + dread * 0.004)) { triggerGlitchScare(); S.glitchCd = rnd(120, 260); }
@@ -2347,8 +2357,9 @@ function update(dt) {
       }
     }
   }
-  if (night && S.day === 1 && !S.scripted && S.time > 0.80) { S.scripted = true; setTimeout(() => { if (S.running) jumpscare(1, 10, 0); }, rndi(3000, 8000)); }
-  if (jumpT > 0) jumpT -= dt;
+  // İlk gece: yalnızca atmosfer (fısıltı + kalp sesi) — jumpscare YOK. Jumpscare sadece yaratık yakalayınca.
+  if (night && S.day === 1 && !S.scripted && S.time > 0.80) { S.scripted = true; setTimeout(() => { if (S.running) { whisperText("burada yalnız değilsin..."); Sound.whisper(); S.heartLevel = Math.max(S.heartLevel, 0.7); S.shake = Math.max(S.shake, 0.2); } }, rndi(3000, 8000)); }
+  if (jumpT > 0) { jumpT -= dt; if (jumpT <= 0) jumpModel = null; }
 
   // gece jaguarı
   if (night && S.day > 1 && Math.random() < 0.0009 && animals.filter((a) => a.type === "jaguar").length < 2) { spawnJaguar(); Sound.growl(); whisperText("bir hırıltı..."); }
@@ -2467,9 +2478,9 @@ function updateWatcher(dt, night) {
     w.z += (camera.position.z - w.z) * Math.min(1, dt * 6);
     w.group.position.set(w.x, Math.sin(performance.now() / 35) * 0.06, w.z);
     w.group.rotation.y = Math.atan2(camera.position.x - w.x, camera.position.z - w.z);
-    w.group.scale.setScalar(1 + (0.5 - Math.max(0, w.lunge)) * 1.8);
-    S.shake = 0.6;
-    if (w.lunge <= 0) { jumpscare(0, 22, 11); w.group.scale.setScalar(1); vanishWatcher(true); wCd = rnd(20, 34); }
+    w.group.scale.setScalar(1 + (0.5 - Math.max(0, w.lunge)) * 3.0);   // ekranı kaplayacak kadar büyür
+    S.shake = 0.7;
+    if (w.lunge <= 0) { w.lunge = null; catchKill(w.group, "İzleyen seni yakaladı"); wCd = rnd(20, 34); }   // yakaladı → tek vuruş + jumpscare (yaratığın kendisi)
     return;
   }
   const d = Math.hypot(w.x - camera.position.x, w.z - camera.position.z);
@@ -2532,11 +2543,9 @@ function updateAnimals(dt) {
     } else if (a.type === "mimic") {                            // TAKLİTÇİ — arkadaş taklidi, yaklaşınca atılır
       a.dir = Math.atan2(pz - a.z, px - a.x);
       if (a.bite > 0) a.bite -= dt;
-      if (d < 4.8 && a.bite <= 0) {                             // maske düşer → saldırı
+      if (d < 4.8 && a.bite <= 0) {                             // maske düşer → YAKALAR: tek vuruş + jumpscare (taklitçinin kendisi)
         if (a.group.userData.eyeMat) a.group.userData.eyeMat.emissiveIntensity = 4;
-        hurt(13); S.sanity = clamp(S.sanity - 14, 0, 100); S.hurt = 0.6; S.shake = 0.7; Sound.screech(); jumpscare(0, 0, 0);
-        S.deathReason = "taklitçi"; if (S.health <= 0) { playerDied("taklitçi"); return; }
-        scene.remove(a.group); animals.splice(i, 1); continue;   // saldırıp kaybolur
+        catchKill(a.group, "Taklitçi seni yakaladı"); animals.splice(i, 1); return;
       }
       a.x += Math.cos(a.dir) * 0.7 * dt; a.z += Math.sin(a.dir) * 0.7 * dt;   // yavaşça yaklaşır (tuhaf)
       if (!isNight() || d > 40) { scene.remove(a.group); animals.splice(i, 1); continue; }
@@ -2699,7 +2708,14 @@ function loop() {
     if (S.sleeping > 0) { fxc.fillStyle = "rgba(0,0,0," + clamp(1 - Math.abs(S.sleeping - 1) , 0, 1) * 0.96 + ")"; fxc.fillRect(0, 0, w, h); }  // uyku karartması
     if (S.flash > 0) { fxc.fillStyle = "rgba(225,232,255," + S.flash * 0.55 + ")"; fxc.fillRect(0, 0, w, h); }   // şimşek çakması
   }
-  if (jumpT > 0 && !glitch) { fxc.fillStyle = Math.random() > 0.5 ? "#120000" : "#3a0000"; fxc.fillRect(0, 0, w, h); drawScaryFace(w, h, jumpFace); }
+  if (jumpT > 0 && !glitch) {
+    if (jumpModel) {   // gerçek yaratık ekranda — üstüne yüz çizme, sadece kırmızı vinyet + çakma
+      const vg = fxc.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.18, w / 2, h / 2, Math.max(w, h) * 0.62);
+      vg.addColorStop(0, "rgba(70,0,0,0)"); vg.addColorStop(1, "rgba(85,0,0," + (0.55 + Math.random() * 0.3) + ")");
+      fxc.fillStyle = vg; fxc.fillRect(0, 0, w, h);
+      if (Math.random() < 0.45) { fxc.fillStyle = "rgba(120,0,0,0.22)"; fxc.fillRect(0, 0, w, h); }
+    } else { fxc.fillStyle = Math.random() > 0.5 ? "#120000" : "#3a0000"; fxc.fillRect(0, 0, w, h); drawScaryFace(w, h, jumpFace); }
+  }
   if (glitch) drawGlitchScare(w, h, glitch, dt);
   if (camScare && camScare.img) drawCamScare(w, h, dt);
 }
@@ -2749,7 +2765,7 @@ function startGame(continueSave) {
   if (!built) { try { buildScene(); built = true; } catch (e) { $("loadNote").textContent = "3B başlatılamadı: " + e.message + " — 'npm install' yaptın mı?"; throw e; } }
   applySettings();
   S = newState();
-  glitch = null; jumpT = 0;
+  glitch = null; jumpT = 0; jumpModel = null;
   // dünyayı sıfırla
   for (let i = 0; i < trees.length; i++) { trees[i].alive = true; trees[i].hp = 4; trees[i].regrow = 0; }
   refreshTrees();

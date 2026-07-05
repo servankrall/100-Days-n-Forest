@@ -397,7 +397,7 @@ function waterTexture() {
 }
 function buildWater() {
   const tex = waterTexture(), nrm = groundNormalTexture(); nrm.repeat.set(6, 6);
-  waterMat = new THREE.MeshStandardMaterial({ map: tex, normalMap: nrm, normalScale: new THREE.Vector2(0.7, 0.7), color: 0x6fa6c8, transparent: true, opacity: 0.84, metalness: 0.7, roughness: 0.12, emissive: 0x0a2230, emissiveIntensity: 0.4 });
+  waterMat = new THREE.MeshStandardMaterial({ map: tex, normalMap: nrm, normalScale: new THREE.Vector2(0.35, 0.35), color: 0x4488b0, transparent: true, opacity: 0.8, metalness: 0.1, roughness: 0.42, emissive: 0x123245, emissiveIntensity: 0.28 });
   waterNrm = nrm;
   for (let i = 0; i < 5; i++) {
     const [x, z] = farFromSpawn(30); const r = rnd(6, 13);
@@ -914,7 +914,7 @@ function newState() {
     benchTier: 1, hasMap: false, hasCompass: false, hasLightningRod: false, hasCrockpot: false, farms: 0, oilDrills: 0,
     placeables: {},  // tezgahta üretilen ama henüz kurulmamış yapılar {kind:adet}
     fireFed: 0,   // ateşe atılan toplam odun (seviye için)
-    swingCd: 0, stepT: 0, sick: 0, hurt: 0, bob: 0,
+    swingCd: 0, stepT: 0, sick: 0, hurt: 0, bob: 0, py: 0, vy: 0,
     cookT: 0, fireCrackleT: 0, deathReason: "",
     heart: 0, heartLevel: 0, jumpCd: 12, firstNightDone: false, scripted: false, bloodMoon: false, dreadT: null, glitchCd: 35,
     shake: 0,
@@ -1287,7 +1287,7 @@ function vanishWatcher(quiet) { if (watcherGroup) watcherGroup.visible = false; 
 /* ----------------------- INPUT ----------------------- */
 const keys = {};
 let yaw = 0, pitch = 0, locked = false, isTouch = false;
-const inp = { jx: 0, jy: 0, joy: false, sprint: false, action: false, fire: false, eat: false, bandage: false, sleep: false, shoot: false };
+const inp = { jx: 0, jy: 0, joy: false, sprint: false, action: false, fire: false, eat: false, bandage: false, sleep: false, shoot: false, jump: false };
 let actionDown = false;   // aksiyon basılı mı (motorlu testere ile sürekli kesim için)
 let shootDown = false;    // ateş basılı mı (menzilli silahla sürekli ateş)
 
@@ -1296,7 +1296,8 @@ addEventListener("keydown", (e) => {
   if (typingInField(e)) return;            // input/şifre/e-posta alanına yazarken oyun tuşlarını yok say
   const k = e.key.toLowerCase(); const first = !keys[k]; keys[k] = true;
   if (["w", "a", "s", "d", " ", "shift"].includes(k)) e.preventDefault();
-  if (k === "e" || k === " ") inp.action = true;
+  if (k === "e") inp.action = true;
+  if (k === " ") inp.jump = true;   // zıpla
   if (k === "f") inp.fire = true;
   if (k === "g") inp.eat = true;
   if (k === "r") { inp.shoot = true; shootDown = true; }   // ateş et (menzilli silah)
@@ -1351,6 +1352,7 @@ bindBtn("btn-action", () => (inp.action = true));
 bindBtn("btn-fire", () => (inp.fire = true));
 bindBtn("btn-eat", () => (inp.eat = true));
 bindBtn("btn-bandage", () => (inp.bandage = true));
+bindBtn("btn-jump", () => (inp.jump = true));
 bindBtn("btn-shoot", () => (inp.shoot = true));
 { const bs = $("btn-shoot"); if (bs) { const d = () => { shootDown = true; }, u = () => { shootDown = false; }; bs.addEventListener("touchstart", d, { passive: false }); bs.addEventListener("touchend", u); bs.addEventListener("touchcancel", u); bs.addEventListener("mousedown", d); bs.addEventListener("mouseup", u); } }
 { const bw = $("btn-weapon"); if (bw) { bw.addEventListener("touchstart", (e) => { isTouch = true; cycleWeapon(); e.preventDefault(); }, { passive: false }); bw.addEventListener("click", () => cycleWeapon()); } }
@@ -2190,7 +2192,10 @@ function update(dt) {
     const nb = ic ? "caves" : biomeAt(nx, nz); if (nb !== curBiome) { curBiome = nb; toast(ic ? "🕳️ Mağaraya girdin — fenerini aç (L)!" : "Bölge: " + BIOMES[nb].name, "good"); } }
   // baş sallanması + sarsıntı
   if (m > 0.1) { S.bob += dt * (sprinting ? 14 : 9); S.stepT -= dt; if (S.stepT <= 0) { Sound.step(); S.stepT = sprinting ? 0.3 : 0.45; } } else S.bob *= 0.9;
-  let camY = CFG.EYE + Math.sin(S.bob) * 0.06;
+  // zıplama (yerçekimi)
+  if (inp.jump) { inp.jump = false; if (S.py <= 0.02 && S.vy <= 0) { S.vy = 5.4; Sound.step(); } }
+  S.vy -= 20 * dt; S.py = Math.max(0, S.py + S.vy * dt); if (S.py <= 0) S.vy = 0;
+  let camY = CFG.EYE + Math.sin(S.bob) * 0.06 + S.py;
   if (S.shake > 0) { S.shake = Math.max(0, S.shake - dt * 1.6); camY += rnd(-S.shake, S.shake) * 0.15; yaw += rnd(-S.shake, S.shake) * 0.01; }
   camera.position.y = camY;
 
@@ -2713,21 +2718,30 @@ document.addEventListener("fullscreenchange", () => {
   if (!isNativeApp() && !document.fullscreenElement && S && S.running && !pauseOpen) openPause();
 });
 let micStream = null, talking = false, voiceHinted = false;
+const talkingPeers = {};   // co-op: o an konuşan uzak oyuncular {id:true}
+function updateSpeakerHUD() {
+  const el = $("voice"); if (!el) return;
+  const names = [];
+  if (talking) names.push("Sen");
+  for (const id in talkingPeers) if (talkingPeers[id]) names.push(remoteName[id] || id);
+  if (names.length) { el.textContent = "🎤 " + names.join(", ") + (names.length === 1 && names[0] === "Sen" ? " konuşuyorsun" : " konuşuyor"); el.classList.remove("hidden"); }
+  else el.classList.add("hidden");
+}
 function startTalk() {
   if (talking || !S || !S.running) return; talking = true;
-  $("voice").classList.remove("hidden");
   const vb = $("btn-voice"); if (vb) vb.classList.add("on");
-  if (net.online) net.setMic(true);
+  if (net.online) { net.setMic(true); try { net.broadcast({ t: "talk", on: true }); } catch (e) {} }
   else if (!micStream && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
     navigator.mediaDevices.getUserMedia({ audio: true }).then((s) => { micStream = s; }).catch(() => {});
   }
+  updateSpeakerHUD();
   if (!voiceHinted) { voiceHinted = true; toast(net.online ? "🎤 Konuşuyorsun (co-op)" : "🎤 Bas-konuş — co-op'ta arkadaşlara iletilir", "good"); }
 }
 function stopTalk() {
   if (!talking) return; talking = false;
-  $("voice").classList.add("hidden");
   const vb = $("btn-voice"); if (vb) vb.classList.remove("on");
-  if (net.online) net.setMic(false);
+  if (net.online) { net.setMic(false); try { net.broadcast({ t: "talk", on: false }); } catch (e) {} }
+  updateSpeakerHUD();
 }
 
 /* ----------------------- BOOT / MENU ----------------------- */
@@ -2914,13 +2928,14 @@ $("pz-menu").addEventListener("click", () => location.reload());
 
 net.onStatus = (s) => mpMsg(s);
 net.onJoin = (id, meta) => { remoteName[id] = (meta && meta.name) || id; toast("🟢 Katıldı: " + remoteName[id], "good"); renderFriends(); };
-net.onLeave = (id) => { toast("🔴 Ayrıldı: " + (remoteName[id] || id), "bad"); removeRemote(id); renderFriends(); };
+net.onLeave = (id) => { toast("🔴 Ayrıldı: " + (remoteName[id] || id), "bad"); removeRemote(id); delete talkingPeers[id]; updateSpeakerHUD(); renderFriends(); };
 net.onState = (id, d) => updateRemote(id, d);
 net.onData = (id, d) => {
   if (!d || !S) return;
   if (d.t === "down") { toast("🩸 " + (remoteName[id] || "Arkadaşın") + " yere düştü — bandajla diriltin!", "bad"); const r = remotes[id]; if (r) r.downed = true; }
   else if (d.t === "revived" && d.id === net.id) { if (S.downed) reviveSelf(); }                 // biri beni diriltti
   else if (d.t === "revived") { const r = remotes[d.id]; if (r) r.downed = false; }
+  else if (d.t === "talk") { talkingPeers[id] = !!d.on; updateSpeakerHUD(); }                     // kim konuşuyor göstergesi
 };
 
 /* ESC: durdur / sosyal menü */

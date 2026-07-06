@@ -26,6 +26,7 @@
     <div id="topbar">
       <div id="dayCounter">GÜN <span id="dayNum">1</span> / 100</div>
       <div id="clock"><span id="phaseIcon">☀️</span> <span id="phaseText">Şafak</span></div>
+      <div id="biomeLabel">🌲 Orman</div>
     </div>
     <canvas id="minimap" width="140" height="140"></canvas>
     <div id="stats">
@@ -34,13 +35,22 @@
       <div class="stat"><span class="stat-ico">🔥</span><div class="bar"><div id="bar-warmth" class="fill warmth"></div></div></div>
       <div class="stat"><span class="stat-ico">🧠</span><div class="bar"><div id="bar-sanity" class="fill sanity"></div></div></div>
       <div class="stat"><span class="stat-ico">⚡</span><div class="bar"><div id="bar-stamina" class="fill stamina"></div></div></div>
+      <div class="stat"><span class="stat-ico">💧</span><div class="bar"><div id="bar-thirst" class="fill thirst"></div></div></div>
     </div>
     <div id="inventory">
       <div class="inv"><span>🪵</span><b id="inv-wood">0</b></div>
       <div class="inv"><span>🥩</span><b id="inv-raw">0</b></div>
       <div class="inv"><span>🍗</span><b id="inv-cooked">0</b></div>
+      <div class="inv"><span>⚙️</span><b id="inv-metal">0</b></div>
+      <div class="inv"><span>🧵</span><b id="inv-pelt">0</b></div>
+      <div class="inv"><span>🩹</span><b id="inv-bandage">0</b></div>
+      <div class="inv"><span>💎</span><b id="inv-gem">0</b></div>
     </div>
+    <div id="downed" class="hidden">🩸 YERE DÜŞTÜN — bir arkadaşın seni <b>bandajla</b> diriltmeli! <span id="bleedTxt"></span></div>
     <div id="compass" class="hidden">🔥 <span id="compassDist"></span></div>
+    <div id="weaponHud" class="hidden"></div>
+    <div id="hotbar" class="hidden"></div>
+    <div id="bossBar" class="hidden">👑 CULTIST KING<div class="bossback"><div id="bossFill"></div></div></div>
     <div id="toasts"></div>
     <div id="prompt" class="hidden"></div>
     <div id="whisper" class="hidden"></div>
@@ -51,13 +61,27 @@
   <div id="mobile" class="hidden">
     <div id="joy-zone"><div id="joy-base"><div id="joy-stick"></div></div></div>
     <div id="look-zone"></div>
+    <button id="btn-craft">🛠️</button>
+    <button id="btn-flash">🔦</button>
+    <button id="btn-admin">🛡️</button>
     <div id="btns">
       <button class="mbtn big" id="btn-action">VUR</button>
+      <button class="mbtn" id="btn-jump">⤴️</button>
+      <button class="mbtn" id="btn-shoot">🔫</button>
+      <button class="mbtn" id="btn-weapon">🔁</button>
       <button class="mbtn" id="btn-fire">🔥</button>
       <button class="mbtn" id="btn-eat">🍗</button>
+      <button class="mbtn" id="btn-bandage">🩹</button>
       <button class="mbtn" id="btn-sprint">KOŞ</button>
     </div>
     <button id="btn-voice" class="mbtn voice">🎤</button>
+  </div>
+
+  <!-- ======================= YERLEŞTİRME ÇUBUĞU (üret → ateş yanına KUR) ======================= -->
+  <div id="placeBar" class="hidden">
+    <span id="placeName"></span>
+    <button id="placeOk">✅ YERLEŞTİR</button>
+    <button id="placeCancel">✕ İPTAL</button>
   </div>
 
   <!-- ======================= ACCOUNT SETUP ======================= -->
@@ -98,32 +122,48 @@
     <div class="panel">
       <h1 class="title-creep">100 GÜN ORMANDA</h1>
       <p class="subtitle">Amazon'un derinliklerinde 3B hayatta kal... eğer <i>o</i> izin verirse.</p>
+      <a id="updateBanner" class="update-banner hidden" href="https://github.com/servankrall/100-Days-n-Forest/releases/latest" target="_blank" rel="noopener">🔔 <b>Yeni sürüm çıktı!</b> <span id="updateVer"></span> — güncellemek için tıkla</a>
       <div class="warn">⚠️ JUMP SCARE ve ani yüksek sesler içerir. Kulaklık + ses açık önerilir.</div>
       <div class="howto">
         <div class="howcol">
           <h3>🖥️ PC</h3>
           <ul>
-            <li><b>Tıkla</b> — fareyi kilitle / etrafa bak</li>
-            <li><b>WASD</b> — hareket, <b>Shift</b> — koş</li>
-            <li><b>Sol tık / E</b> — vur (odun, av)</li>
-            <li><b>F</b> — ateş yak / odun ekle</li>
-            <li><b>G</b> — ye, <b>Esc</b> — fareyi bırak</li>
+            <li><b>WASD</b> hareket · <b>Shift</b> koş · <b>Tıkla</b> bakış</li>
+            <li><b>Sol tık / E</b> — vur · kes · metal · sandık</li>
+            <li><b>1-0</b> silah seç (balta/mızrak/tabanca...) · <b>R</b> ateş et</li>
+            <li><b>F</b> ateşe odun at · <b>G</b> ye</li>
+            <li><b>C</b> tezgah (yanına git) · <b>B</b> bandaj · <b>T</b> uyu</li>
+            <li><b>Esc</b> menü · <b>V</b> sesli sohbet</li>
           </ul>
         </div>
         <div class="howcol">
           <h3>📱 Mobil</h3>
           <ul>
-            <li><b>Sol joystick</b> — hareket</li>
-            <li><b>Sağ ekranı sürükle</b> — bakış</li>
-            <li><b>VUR</b> — odun kes / avlan</li>
-            <li><b>🔥</b> ateş · <b>🍗</b> ye · <b>KOŞ</b></li>
+            <li><b>Sol joystick</b> hareket · <b>sağ sürükle</b> bakış</li>
+            <li><b>VUR</b> kes/avlan/metal/sandık · <b>🔥</b> odun at</li>
+            <li><b>Alt slot çubuğu</b>: silaha dokun (balta/tabanca...) · <b>🔫</b> ateş</li>
+            <li><b>🛠️</b> tezgaha yakınken çıkar · <b>🩹</b> bandaj · <b>🍗</b> ye · <b>KOŞ</b></li>
+            <li><b>⏸</b> (sağ üst) duraklat · <b>🎤</b> konuş</li>
           </ul>
         </div>
       </div>
-      <div class="goal">🎯 <b>100 gün</b> hayatta kal. Odun kes, ateş yak, et pişir, akıl sağlığını koru.
-        Geceleri ağaçların arasında seni izleyen <b>uzun, kanlı bir şey</b> belirir — <b>ona bakarsan kaybolur.</b></div>
-      <button id="startBtn" class="bigbtn">🌙 BAŞLA</button>
+      <div class="goal">🎯 <b>100 gün</b> hayatta kal. Ağaç kes, <b>ateşi besle</b> (çok odun = uzun yanar), avlan, et pişir,
+        ⚙️ metal & 📦 sandık topla, 🛠️ tezgahta üret (kazma, çadır, bandaj). Geceleri seni izleyen
+        <b>uzun kanlı bir şey</b> ve <b>sürünen yaratıklar</b> gelir — co-op'ta düşersen arkadaşın <b>bandajla</b> diriltir.</div>
+      <div id="classPick" class="class-pick">
+        <div class="class-lbl">🎭 Sınıf seç (yeni oyun):</div>
+        <div class="class-row">
+          <button class="clsbtn on" data-cls="lumberjack">🪓 Oduncu<small>İyi Balta + hızlı kesim</small></button>
+          <button class="clsbtn" data-cls="medic">➕ Sağlıkçı<small>Bol tıbbi + %50 iyileşme</small></button>
+          <button class="clsbtn" data-cls="scavenger">🔧 Toplayıcı<small>Ekstra hurda + bol ganimet</small></button>
+          <button class="clsbtn" data-cls="assassin">🗡️ Suikastçı<small>Katana + hızlı vuruş</small></button>
+        </div>
+      </div>
+      <button id="continueBtn" class="bigbtn" style="display:none;background:rgba(20,60,30,.5)">💾 DEVAM ET</button>
+      <button id="startBtn" class="bigbtn">🌙 YENİ OYUN</button>
+      <button id="changelogBtn" class="minibtn">📋 YENİLİKLER</button>
       <button id="audioToggleStart" class="minibtn">🔊 Ses: AÇIK</button>
+      <div class="warn" style="font-size:12px">📷 <b>BAŞLA'ya basınca oyun kamera izni isteyecek.</b> İzin verirsen oyun ara sıra <b>kendi görüntünü</b> korku amaçlı ekranda gösterir ve bir ağaca asar. <b>İzin vermezsen</b> (Engelle dersen) kamera hiç açılmaz. Gizli erişim yok; hiçbir görüntü kaydedilmez/gönderilmez.</div>
       <div id="loadNote" class="loadnote"></div>
     </div>
   </div>
@@ -145,6 +185,70 @@
     </div>
   </div>
 
+  <!-- ======================= CRAFTING (TEZGAH) ======================= -->
+  <div id="craft" class="overlay hidden">
+    <div class="panel craftp">
+      <h1 class="title-creep" style="font-size:clamp(24px,7vw,44px)">🛠️ TEZGAH</h1>
+      <p class="subtitle">Eşya üret. <span id="craftInv" class="craftinv"></span></p>
+      <div id="craftList" class="craft-list"></div>
+      <button id="cr-close" class="bigbtn">▶ KAPAT (C)</button>
+    </div>
+  </div>
+
+  <!-- ======================= AYARLAR ======================= -->
+  <div id="settings" class="overlay hidden">
+    <div class="panel craftp">
+      <h1 class="title-creep" style="font-size:clamp(24px,7vw,44px)">⚙️ AYARLAR</h1>
+      <div class="set-list">
+        <label class="set-row">Bakış hassasiyeti <input id="set-sens" type="range" min="0.3" max="2.5" step="0.05"><span id="set-sens-v"></span></label>
+        <label class="set-row">Ses <input id="set-vol" type="range" min="0" max="1" step="0.05"><span id="set-vol-v"></span></label>
+        <label class="set-row">Parlaklık <input id="set-bri" type="range" min="0.6" max="1.7" step="0.05"><span id="set-bri-v"></span></label>
+        <label class="set-row">Görüş açısı (FOV) <input id="set-fov" type="range" min="60" max="95" step="1"><span id="set-fov-v"></span></label>
+        <label class="set-row">📷 Kamera korkusu <input id="set-cam" type="checkbox"></label>
+      </div>
+      <button id="set-close" class="bigbtn">▶ KAPAT</button>
+    </div>
+  </div>
+
+  <!-- ======================= NOTLAR (günlükler) ======================= -->
+  <div id="notes" class="overlay hidden">
+    <div class="panel craftp">
+      <h1 class="title-creep" style="font-size:clamp(24px,7vw,44px)">📓 GÜNLÜKLER</h1>
+      <p class="subtitle">Ormanda bulduğun notlar — senden önce gelenlerden.</p>
+      <div id="notesList" class="notes-list"></div>
+      <button id="notes-close" class="bigbtn">▶ KAPAT</button>
+    </div>
+  </div>
+
+  <!-- ======================= REHBER / WIKI ======================= -->
+  <div id="guide" class="overlay hidden">
+    <div class="panel craftp">
+      <h1 class="title-creep" style="font-size:clamp(22px,6vw,40px)">📖 HAYATTA KALMA REHBERİ</h1>
+      <p class="subtitle">Biyomlar, eşyalar, aletler ve hayatta kalma ipuçları.</p>
+      <div id="guideTabs" class="guide-tabs"></div>
+      <div id="guideBody" class="guide-body"></div>
+      <button id="guide-close" class="bigbtn">▶ KAPAT</button>
+    </div>
+  </div>
+
+  <!-- ======================= GÜNCELLEME NOTLARI (update log) ======================= -->
+  <div id="changelog" class="overlay hidden">
+    <div class="panel craftp">
+      <h1 class="title-creep" style="font-size:clamp(24px,7vw,44px)">📋 GÜNCELLEME NOTLARI</h1>
+      <p class="subtitle">Oyuna eklenen son yenilikler. <span id="chlogVer" class="craftinv"></span></p>
+      <div id="changelogList" class="notes-list"></div>
+      <button id="changelog-close" class="bigbtn">▶ KAPAT</button>
+    </div>
+  </div>
+
+  <!-- ======================= 🛡️ ADMİN PANELİ ======================= -->
+  <div id="admin" class="hidden">
+    <div class="adm-panel">
+      <div class="adm-head">🛡️ ADMİN PANELİ <button id="admin-close" class="minibtn">✕ Kapat (\ / P)</button></div>
+      <div id="adminBody" class="adm-body"></div>
+    </div>
+  </div>
+
   <!-- ======================= ESC: DURDU / SOSYAL MERKEZ ======================= -->
   <div id="pause" class="overlay hidden">
     <div class="panel social">
@@ -152,7 +256,17 @@
       <div id="pauseStatus" class="subtitle">Oyun duraklatıldı</div>
       <div class="social-cols">
         <div class="social-col">
-          <h3>CO-OP <span class="tag">5 kişiye kadar · beta</span></h3>
+          <h3>CO-OP <span class="tag">5 kişiye kadar</span></h3>
+          <div class="qc">
+            <div class="qc-label">⚡ HIZLI CO-OP — kısa oda kodunu paylaşın</div>
+            <div class="qc-row">
+              <input id="qc-code" type="text" maxlength="6" placeholder="KOD" autocomplete="off" autocapitalize="characters">
+              <button id="qc-host" class="bigbtn small">🟢 ODA KUR</button>
+              <button id="qc-join" class="bigbtn small">▶ KATIL</button>
+            </div>
+            <div class="qc-hint">Biriniz <b>ODA KUR</b>'a bassın (kod otomatik oluşur), kodu söylesin; diğeri aynı kodu yazıp <b>KATIL</b>'a bassın. Katılınca aynı üssü + birbirinizi görürsünüz. (İnternet gerekir, aynı WiFi şart değil.)</div>
+          </div>
+          <div class="or">— ya da Friend ID ile (gelişmiş) —</div>
           <div class="mp-mine">Senin Friend ID'n: <b id="mp-myid">—</b>
             <button id="mp-copy" class="minibtn" style="display:inline-block;margin-left:6px;padding:2px 10px">kopyala</button></div>
           <button id="mp-host" class="bigbtn small">🟢 ODA KUR (arkadaşların katılsın)</button>
@@ -163,7 +277,9 @@
           <div id="mp-msg" class="acct-msg"></div>
         </div>
         <div class="social-col">
-          <h3>ARKADAŞLAR <span id="partyStatus" class="tag">(0/5)</span></h3>
+          <h3>🎮 LOBİ <span id="partyStatus" class="tag">(0/5)</span></h3>
+          <div id="lobbyRoster" class="lobby-roster"></div>
+          <h3 style="margin-top:10px">ARKADAŞLAR</h3>
           <div class="addfriend">
             <input id="fr-name" type="text" placeholder="Arkadaşın adı (opsiyonel)">
             <input id="fr-id" type="text" placeholder="Friend ID (örn. ORM-1234)">
@@ -174,12 +290,37 @@
       </div>
       <div class="pause-btns">
         <button id="pz-resume" class="bigbtn">▶ DEVAM ET</button>
+        <button id="pz-settings" class="minibtn">⚙️ Ayarlar</button>
+        <button id="pz-notes" class="minibtn">📓 Günlükler</button>
+        <button id="pz-guide" class="minibtn">📖 Rehber</button>
+        <button id="pz-changelog" class="minibtn">📋 Yenilikler</button>
+        <button id="pz-admin" class="minibtn">🛡️ Admin</button>
         <button id="pz-menu" class="minibtn">🏠 Ana Menü</button>
       </div>
     </div>
   </div>
 
   <button id="pauseBtn" class="hidden">⏸</button>
+
+  <!-- ======================= İZLEYİCİ (öldün, arkadaşın hayatta) ======================= -->
+  <div id="spectate" class="hidden">
+    <div class="spec-inner">
+      <b>💀 Öldün</b> — arkadaşların hâlâ hayatta. İzleyebilirsin (diriltemezsin).
+      <button id="spec-lobby" class="minibtn">🔄 Lobiye Dön</button>
+      <button id="spec-watch" class="minibtn">👁️ İzlemeye Devam</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= ZORUNLU GÜNCELLEME KAPISI ======================= -->
+<div id="updateGate" class="hidden">
+  <div class="ug-panel">
+    <div class="ug-emoji">🔔</div>
+    <h1>GÜNCELLEME GEREKLİ</h1>
+    <p>Oyunun yeni bir sürümü çıktı <span id="ug-ver"></span>. Devam etmek için lütfen güncelle.</p>
+    <a id="ug-link" class="bigbtn" href="https://github.com/servankrall/100-Days-n-Forest/releases/latest" target="_blank" rel="noopener">⬇️ GÜNCELLE (indir)</a>
+    <p class="ug-note">Güncellemeden oyuna devam edilemez.</p>
+  </div>
 </div>
 
 <script type="module" src="./src/game3d.js"></script>

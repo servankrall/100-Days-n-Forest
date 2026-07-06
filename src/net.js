@@ -22,7 +22,7 @@ const ICE_SERVERS = [
 export const net = {
   peer: null, id: null, conns: {}, calls: {}, localStream: null, micOn: false,
   online: false, host: false,
-  onJoin: null, onLeave: null, onState: null, onChat: null, onStatus: null,
+  onJoin: null, onLeave: null, onState: null, onChat: null, onStatus: null, onData: null,
 
   async _load() {
     if (PeerCtor) return true;
@@ -73,12 +73,15 @@ export const net = {
       if (!d) return;
       if (d.t === "state" && this.onState) this.onState(c.peer, d);
       else if (d.t === "chat" && this.onChat) this.onChat(c.peer, d);
+      else if (this.onData) this.onData(c.peer, d);   // down / revive / revived vb. özel mesajlar
     });
     c.on("close", () => { delete this.conns[c.peer]; if (this.onLeave) this.onLeave(c.peer); });
     c.on("error", () => {});
   },
 
   broadcast(obj) { for (const id in this.conns) { try { this.conns[id].send(obj); } catch (e) {} } },
+  sendTo(id, obj) { const c = this.conns[id]; if (c) { try { c.send(obj); } catch (e) {} } },       // tek bir eşe gönder (dünya anlık görüntüsü)
+  relay(exceptId, obj) { for (const id in this.conns) { if (id === exceptId) continue; try { this.conns[id].send(obj); } catch (e) {} } },  // host: gelen olayı diğerlerine ilet
   peerCount() { return Object.keys(this.conns).length; },
   peerIds() { return Object.keys(this.conns); },
 

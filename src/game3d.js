@@ -1524,7 +1524,7 @@ function doAction() {
   S.swingCd = 0.4; S.stamina = clamp(S.stamina - 4, 0, 100);
   if (t.kind === "tree") {
     Sound.chop(); const tr = t.obj;
-    let dmg = S.tools.chainsaw ? 4 : [1, 2, 4][S.tools.axe || 0];   // eski/iyi/güçlü balta
+    let dmg = S.tools.chainsaw ? 4 : [1, 2, 4, 999][S.tools.axe || 0];   // eski/iyi/güçlü/ADMIN balta (tier 3 = tek vuruş)
     if (!S.tools.chainsaw && S.melee === "iceaxe") dmg = Math.max(dmg, 2);   // buz baltası iyi balta gibi keser
     if (S.cls === "lumberjack") dmg += 1;   // Oduncu perk: daha hızlı kesim
     if (S.tools.chainsaw) S.swingCd = 0.12;                            // motorlu testere: basılı tut → sürekli kesim
@@ -1601,8 +1601,9 @@ const RANGED = {
   rifle:    { label: "🎯 Tüfek",   ammo: "rifleAmmo",  dmg: 22, range: 130, cd: 1.1,  pellets: 1, cone: 0.997, silent: false },
   bow:      { label: "🏹 Yay",     ammo: "arrows",     dmg: 10, range: 42,  cd: 0.9,  pellets: 1, cone: 0.985, silent: true  },
   crossbow: { label: "🏹 Arbalet", ammo: "arrows",     dmg: 17, range: 60,  cd: 1.3,  pellets: 1, cone: 0.99,  silent: true  },
+  admingun: { label: "🔫 Admin Silahı", ammo: "adminAmmo", dmg: 99999, range: 400, cd: 0.1, pellets: 5, cone: 0.82, silent: false, admin: true },   // ⭐ admin: sınırsız, her şeyi tek atar
 };
-const RANGED_ORDER = ["pistol", "shotgun", "rifle", "bow", "crossbow"];
+const RANGED_ORDER = ["pistol", "shotgun", "rifle", "bow", "crossbow", "admingun"];
 const ownedRanged = () => RANGED_ORDER.filter((k) => S.weapons[k]);
 function cycleWeapon() {
   const owned = ownedRanged();
@@ -1620,8 +1621,8 @@ function doShoot() {
   if (!S.equip) { if (ownedRanged().length) cycleWeapon(); else toast("Menzilli silah yok (sandıklardan bul / yay üret) 🔫", "bad"); return; }
   const spec = RANGED[S.equip];
   if (S.shootCd > 0) return;
-  if ((S.inv[spec.ammo] || 0) <= 0) { toast("Mermi bitti: " + spec.label + " (1-0 ile silah değiştir)", "bad"); return; }
-  S.shootCd = spec.cd; S.inv[spec.ammo]--;
+  if (!spec.admin && (S.inv[spec.ammo] || 0) <= 0) { toast("Mermi bitti: " + spec.label + " (1-0 ile silah değiştir)", "bad"); return; }
+  S.shootCd = spec.cd; if (!spec.admin) S.inv[spec.ammo]--;   // admin silahı sınırsız (mermi tüketmez)
   if (spec.silent) Sound.bow(); else Sound.gun();
   muzzleFlash();
   pitch = clamp(pitch + (spec.pellets > 1 ? 0.05 : 0.03), -1.45, 1.45);   // geri tepme
@@ -2876,7 +2877,7 @@ function updateHUD(night) {
     promptEl.textContent = (nearCamp ? "📦 " + carried.item.label + " → KAMPA BIRAK " : "🎒 " + carried.item.label + " taşıyorsun — ateşe/tezgaha götür ") + akey;
     promptEl.classList.remove("hidden");
   } else if (t) {
-    const axeTxt = S.tools.chainsaw ? "🪚 Kes (basılı tut) " : ["🪓 Odun kes ", "🪓 Odun kes (iyi) ", "🪓 Odun kes (güçlü) "][S.tools.axe || 0];
+    const axeTxt = S.tools.chainsaw ? "🪚 Kes (basılı tut) " : (["🪓 Odun kes ", "🪓 Odun kes (iyi) ", "🪓 Odun kes (güçlü) ", "🪓 Admin Balta (tek vuruş) "][S.tools.axe || 0] || "🪓 Odun kes ");
     const txt = t.kind === "pickup" ? "✋ " + t.obj.item.label + " AL " : t.kind === "bench" ? "🛠️ Tezgah " : t.kind === "scav" ? "🤝 Takas (5⚙️) " : t.kind === "pelt" ? "🧵 Kürk takası (5 post) " : t.kind === "tree" ? axeTxt : t.kind === "scrap" ? "⚙️ Metal topla " : t.kind === "crystal" ? (S.tools.pickaxe ? "💎 Kristal kaz " : "💎 Kristal (⛏️ gerek) ") : t.kind === "chest" ? "📦 Sandığı aç " : t.kind === "wall" ? (S.tools.hammer ? "🔨 Duvarı tamir et " : "🔨 Çekiç gerek ") : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ");
     promptEl.textContent = txt + akey; promptEl.classList.remove("hidden");
   } else promptEl.classList.add("hidden");
@@ -3066,7 +3067,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 51;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 52;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 async function checkForUpdate() {
   try {
     const url = "https://raw.githubusercontent.com/servankrall/100-Days-n-Forest/main/version.json?t=" + Date.now();
@@ -3369,8 +3370,11 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "2.0";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "2.1";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "2.1", d: "6 Tem", items: [
+    "⭐ Admin özel eşyaları (99 Nights wiki): 🔫 Admin Silahı (sınırsız mermi, her şeyi tek atar), 🪓 Admin Baltası (ağaçları tek vuruşta devirir), ⭐ Admin Eşyaları (hepsini tek tuşla ver).",
+  ] },
   { v: "2.0", d: "6 Tem", items: [
     "🔒 Admin artık GİZLİ KOD ile açılıyor (SHA-256; kod repoda yok, sadece hash) — e-posta git'te göründüğü için çok daha güçlü. Kodu bir kez gir, cihaza kaydedilir.",
     "💥 Admin: 'Tek Vuruş Öldür' — vurduğun her yaratık anında ölür.",
@@ -3464,6 +3468,10 @@ function giveWeapons() { for (const k in S.weapons) S.weapons[k] = true; for (co
 function giveTools() { S.tools.axe = Math.max(S.tools.axe || 0, 2); S.tools.pickaxe = true; S.tools.hammer = true; S.tools.chainsaw = true; S.flashlight = true; S.battery = 100; S.inv.batteries += 10; S.hasMap = true; S.hasCompass = true; adminMsg("Tüm aletler"); }
 function giveMedical() { S.inv.bandage += 20; S.inv.medkit += 10; S.inv.pills += 10; adminMsg("Tıbbi malzeme"); }
 function giveAll() { giveResources(); giveFoodWater(); giveWeapons(); giveTools(); giveMedical(); giveArmor(0.5, "Mücevher Zırhı"); adminMsg("🎁 HERŞEY verildi!"); }
+// ⭐ ADMIN ÖZEL EŞYALARI (99 Nights wiki: Admin Gun / Admin Axe / Admin Items)
+function giveAdminGun() { S.weapons.admingun = true; S.inv.adminAmmo = 999; S.equip = "admingun"; adminMsg("🔫 Admin Silahı — sınırsız mermi, her şeyi tek atar"); updateHotbarHUD(); }
+function giveAdminAxe() { S.tools.axe = 3; adminMsg("🪓 Admin Baltası — ağaçlar tek vuruşta devrilir"); }
+function giveAdminItems() { giveAdminGun(); giveAdminAxe(); for (const k of MELEE_ORDER) giveMelee(k); giveArmor(0.5, "Mücevher Zırhı"); S.inv.gem += 99; giveTools(); giveMedical(); S.tools.chainsaw = true; adminMsg("⭐ Tüm admin eşyaları verildi"); updateHotbarHUD(); }
 function adminHeal() { S.health = 100; S.hurt = 0; S.sick = 0; S.bleed = 0; adminMsg("İyileştin %100"); }
 function adminMaxNeeds() { S.hunger = 100; S.thirst = 100; S.warmth = 100; S.stamina = 100; adminMsg("İhtiyaçlar dolu"); }
 function adminClearEffects() { S.sick = 0; S.bleed = 0; S.sanity = 100; S.warmth = Math.max(S.warmth, 70); adminMsg("Efektler temizlendi"); }
@@ -3519,6 +3527,8 @@ function buildAdminPanel() {
   add(admSec("5) 👹 Yaratık & Sunucu"),
     admRow(admBtn("👁️ İzleyen", () => adminSpawn("watcher")), admBtn("🐆 Jaguar", () => adminSpawn("jaguar")), admBtn("🕷️ Sürünen", () => adminSpawn("crawler")), admBtn("🎭 Taklitçi", () => adminSpawn("mimic")), admBtn("👑 BOSS", () => adminSpawn("boss"))),
     admRow(admTog("AI Kapat (dondur)", "noAI"), admTog("💥 Tek Vuruş Öldür", "oneHit"), admBtn("🧹 Tümünü temizle", adminKillAll)));
+  add(admSec("6) ⭐ Admin Eşyaları"),
+    admRow(admBtn("🔫 Admin Silahı", giveAdminGun), admBtn("🪓 Admin Baltası", giveAdminAxe), admBtn("⭐ Admin Eşyaları (hepsi)", giveAdminItems)));
   if (net.online && net.peerCount() > 0) { const r = admRow(); for (const id of net.peerIds()) r.appendChild(admBtn("🚪 " + (remoteName[id] || id) + " at", () => adminKick(id))); add(admSec("👥 Oyuncuları At"), r); }
 }
 function toggleAdmin() {

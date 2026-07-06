@@ -1,6 +1,6 @@
 {
-  "build": 49,
+  "build": 50,
   "version": "1.9",
   "url": "https://github.com/servankrall/100-Days-n-Forest/releases/latest",
-  "notes": "🛡️ Admin paneli eklendi (\\ / P / Duraklat menüsü / mobil buton): God Mode, uçuş, noclip, sonsuz enerji, hız, ışınlanma, zaman/hava/gün kontrolü, ihtiyaç doldurma, eşya çağırma, yaratık çağırma/temizleme, AI kapatma, oyuncu atma."
+  "notes": "🛡️ Admin paneli artık YALNIZCA hesap sahibine açık (e-posta hash kilidi). God Mode, uçuş, noclip, sonsuz enerji, hız, ışınlanma, zaman/hava/gün, eşya çağırma, yaratık çağırma/temizleme, AI kapatma, oyuncu atma."
 }

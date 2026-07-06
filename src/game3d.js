@@ -3063,10 +3063,10 @@ const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "
 function acctMsg(t, ok) { const m = $("ac-msg"); m.textContent = t; m.className = "acct-msg" + (ok ? " ok" : ""); }
 function showMe() { if (!account) return; $("ac-me").classList.remove("hidden"); $("ac-name").textContent = account.user; $("ac-id").textContent = account.id; }
 
-loadAccount(); if (account) showMe();
+loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 49;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 50;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 async function checkForUpdate() {
   try {
     const url = "https://raw.githubusercontent.com/servankrall/100-Days-n-Forest/main/version.json?t=" + Date.now();
@@ -3092,7 +3092,7 @@ $("ac-create").addEventListener("click", () => {
   if (user.length < 2) return acctMsg("Kullanıcı adı en az 2 karakter.");
   if (p.length < 4) return acctMsg("Şifre en az 4 karakter.");
   if (p !== p2) return acctMsg("Şifreler eşleşmiyor.");
-  account = { email, user, pass: p, id: genFriendId() }; saveAccount(); showMe(); acctMsg("Hesap oluşturuldu! ID: " + account.id, true);
+  account = { email, user, pass: p, id: genFriendId() }; saveAccount(); showMe(); applyAdminVisibility(); acctMsg("Hesap oluşturuldu! ID: " + account.id, true);
 });
 $("ac-login").addEventListener("click", () => {
   const u = $("ac-luser").value.trim(), p = $("ac-lpass").value;
@@ -3102,6 +3102,7 @@ $("ac-login").addEventListener("click", () => {
 $("ac-copy").addEventListener("click", () => { if (account && navigator.clipboard) navigator.clipboard.writeText(account.id).then(() => acctMsg("ID kopyalandı.", true), () => {}); });
 $("ac-continue").addEventListener("click", () => {
   if (!account) { account = { email: "", user: "Gezgin" + Math.floor(Math.random() * 900 + 100), pass: "", id: genFriendId() }; saveAccount(); }
+  applyAdminVisibility();
   $("account").classList.add("hidden"); $("start").classList.remove("hidden");
   $("continueBtn").style.display = hasSave() ? "" : "none";   // kayıt varsa DEVAM ET göster
 });
@@ -3371,7 +3372,7 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 const GAME_VERSION = "1.9";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
   { v: "1.9", d: "6 Tem", items: [
-    "🛡️ ADMİN PANELİ eklendi (\\ veya P tuşu · Duraklat → Admin · mobilde 🛡️ buton): God Mode, Uçuş, Noclip, Sonsuz Enerji, hız ayarı, ışınlanma.",
+    "🛡️ ADMİN PANELİ eklendi — YALNIZCA hesap sahibine açık (kendi e-postanla giriş yap). \\ veya P tuşu · Duraklat → Admin · mobilde 🛡️ buton: God Mode, Uçuş, Noclip, Sonsuz Enerji, hız, ışınlanma.",
     "🌍 Admin: gün/saat/hava/Kanlı Ay kontrolü, zamanı dondur, ihtiyaç doldurma, olumsuz efekt temizleme.",
     "🎒 Admin: eşya çağırma (kaynak/silah/alet/tıbbi/yiyecek) + tek tuşla HEPSİNİ VER.",
     "👹 Admin: yaratık/boss çağırma, tümünü temizleme, AI kapatma; co-op'ta oyuncu atma (host).",
@@ -3443,6 +3444,12 @@ function closeChangelog() { changelogOpen = false; $("changelog").classList.add(
 { const pc = $("pz-changelog"); if (pc) pc.addEventListener("click", () => { closePause(); openChangelog(); }); }
 
 /* ===================== 🛡️ ADMİN PANELİ (oyun içi hile menüsü) ===================== */
+// SAHİPLİK KİLİDİ: admin YALNIZCA hesap sahibine açık. E-posta düz metin gömülmez;
+// yalnızca hash karşılaştırılır (kimlik sızmaz). Not: istemci-taraf olduğundan mutlak değil.
+function strHash(s) { s = (s || "").trim().toLowerCase(); let a = 0x811c9dc5, b = 5381; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); a ^= c; a = Math.imul(a, 0x01000193); b = ((b << 5) + b + c) | 0; } return (a >>> 0).toString(16) + "-" + (b >>> 0).toString(16); }
+const OWNER_HASH = "6f8eef70-cf0665bc";
+function isOwner() { return !!(account && account.email && strHash(account.email) === OWNER_HASH); }
+function applyAdminVisibility() { const own = isOwner(); const pa = $("pz-admin"), ba = $("btn-admin"); if (pa) pa.style.display = own ? "" : "none"; if (ba) ba.style.display = own ? "" : "none"; }
 let adminOpen = false;
 const adminMsg = (t) => toast("🛡️ " + t, "good");
 function giveResources() { for (const k of ["wood", "metal", "cloth", "rope", "pelt"]) S.inv[k] += 50; S.inv.gem += 10; adminMsg("Kaynaklar +50 · 💎+10"); if (craftOpen) renderCraft(); }
@@ -3500,6 +3507,7 @@ function buildAdminPanel() {
 }
 function toggleAdmin() {
   const el = $("admin"); if (!el || !S || !S.running) return;
+  if (!isOwner()) { toast("🔒 Admin paneli yalnızca hesap sahibine açık — kendi hesabınla (e-posta) giriş yap.", "bad"); return; }
   adminOpen = !adminOpen;
   if (adminOpen) { buildAdminPanel(); el.classList.remove("hidden"); if (document.exitPointerLock) document.exitPointerLock(); }
   else { el.classList.add("hidden"); if (!isTouch && threeCanvas.requestPointerLock) threeCanvas.requestPointerLock(); }

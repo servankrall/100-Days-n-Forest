@@ -1,6 +1,6 @@
 {
-  "build": 47,
-  "version": "1.7",
+  "build": 48,
+  "version": "1.8",
   "url": "https://github.com/servankrall/100-Days-n-Forest/releases/latest",
-  "notes": "Co-op ölüm akışı (herkes düşünce oyun biter, ölünce izle/lobiye dön), co-op isim karışması düzeltmesi, zorunlu güncelleme kapısı, tezgah listesi kaydırma düzeltmesi."
+  "notes": "Dünya ~%45 büyüdü + kenar sınır uyarısı. Sandıklar tek eşya düşürüyor ve ışınlanmıyor — sürükle/taşı ile kampa getir. Co-op lobi listesi (doğru isimler)."
 }

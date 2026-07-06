@@ -3067,7 +3067,30 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 52;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 53;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
+// Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
+function openExternal(url) {
+  try { const t = window.__TAURI__; if (t) {                                   // Tauri v2 opener eklentisi
+    if (t.opener && t.opener.openUrl) { t.opener.openUrl(url); return true; }
+    if (t.core && t.core.invoke) { t.core.invoke("plugin:opener|open_url", { url }); return true; }
+  } } catch (e) {}
+  try { const w = window.open(url, "_system"); if (w) return true; } catch (e) {}   // Capacitor (Android) → sistem tarayıcı
+  try { const w = window.open(url, "_blank");  if (w) return true; } catch (e) {}    // Electron (setWindowOpenHandler) / web
+  return false;
+}
+function doUpdate() {
+  const url = updateURL;
+  if (!isNativeApp()) {   // WEB: sayfayı yenilemek = KENDİNİ GÜNCELLE (yeni sürümü çeker)
+    try { toast("🔄 Güncelleniyor — yeni sürüm yükleniyor...", "good"); } catch (e) {}
+    setTimeout(() => { try { location.replace(location.pathname + "?u=" + Date.now()); } catch (e) { location.reload(); } }, 500);
+    return;
+  }
+  const ok = openExternal(url);                                                // NATIVE: sistem tarayıcıda indirme sayfası
+  try { if (navigator.clipboard) navigator.clipboard.writeText(url); } catch (e) {}
+  const man = $("ug-manual");
+  if (man) { man.textContent = (ok ? "↗️ Tarayıcı açıldı. Açılmadıysa link panoda: " : "🔗 Link panoya kopyalandı, tarayıcıda aç: ") + url; man.classList.remove("hidden"); }
+}
 async function checkForUpdate() {
   try {
     const url = "https://raw.githubusercontent.com/servankrall/100-Days-n-Forest/main/version.json?t=" + Date.now();
@@ -3077,14 +3100,17 @@ async function checkForUpdate() {
     const j = await res.json();
     if (j && typeof j.build === "number" && j.build > GAME_BUILD) {
       const ver = j.version ? "(v" + j.version + ")" : "";
-      // ZORUNLU güncelleme kapısı: güncellemeden devam edilemez (kullanıcı isteği)
+      if (j.url) updateURL = j.url;
       const gate = $("updateGate");
-      if (gate) { const gv = $("ug-ver"); if (gv) gv.textContent = ver; const gl = $("ug-link"); if (gl && j.url) gl.href = j.url; gate.classList.remove("hidden"); }
+      if (gate) { const gv = $("ug-ver"); if (gv) gv.textContent = ver; gate.classList.remove("hidden"); }
       const b = $("updateBanner");
-      if (b) { const uv = $("updateVer"); if (uv) uv.textContent = ver; if (j.url) b.href = j.url; b.classList.remove("hidden"); }
+      if (b) { const uv = $("updateVer"); if (uv) uv.textContent = ver; b.classList.remove("hidden"); }
     }
-  } catch (e) { /* ağ yok / native kısıt: sessizce geç, uyarı gösterme */ }
+  } catch (e) { /* ağ yok / native kısıt: sessizce geç */ }
 }
+// güncelleme butonları: varsayılan link davranışı yerine doUpdate (native'de sistem tarayıcı / web'de yenile)
+{ const gl = $("ug-link"); if (gl) gl.addEventListener("click", (e) => { e.preventDefault(); doUpdate(); }); }
+{ const b = $("updateBanner"); if (b) b.addEventListener("click", (e) => { e.preventDefault(); doUpdate(); }); }
 checkForUpdate();
 
 $("ac-create").addEventListener("click", () => {
@@ -3370,8 +3396,12 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "2.1";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "2.2";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "2.2", d: "6 Tem", items: [
+    "🔧 'Güncelle' butonu düzeltildi: artık indirme sayfasını SİSTEM tarayıcısında açıyor (Windows/Tauri · macOS-Linux/Electron · Android). Açılmazsa link panoya kopyalanır.",
+    "🔄 Web sürümünde 'güncelle' butonu kendini günceller (sayfa yenilenip yeni sürümü çeker).",
+  ] },
   { v: "2.1", d: "6 Tem", items: [
     "⭐ Admin özel eşyaları (99 Nights wiki): 🔫 Admin Silahı (sınırsız mermi, her şeyi tek atar), 🪓 Admin Baltası (ağaçları tek vuruşta devirir), ⭐ Admin Eşyaları (hepsini tek tuşla ver).",
   ] },

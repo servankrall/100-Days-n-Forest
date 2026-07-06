@@ -1,6 +1,6 @@
 {
-  "build": 52,
-  "version": "2.1",
+  "build": 53,
+  "version": "2.2",
   "url": "https://github.com/servankrall/100-Days-n-Forest/releases/latest",
-  "notes": "⭐ Admin özel eşyaları: Admin Silahı (sınırsız, her şeyi tek atar), Admin Baltası (ağaçları tek vuruşta devirir), Admin Eşyaları (hepsi)."
+  "notes": "🔧 'Güncelle' butonu düzeltildi — indirme sayfasını sistem tarayıcısında açar (Tauri/Electron/Capacitor); web sürümü kendini yeniler. Açılmazsa link panoya kopyalanır."
 }

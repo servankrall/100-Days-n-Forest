@@ -1,5 +1,5 @@
 // Electron ana süreç — oyunu native bir masaüstü penceresinde açar (tarayıcı/website DEĞİL).
-const { app, BrowserWindow, Menu, globalShortcut } = require("electron");
+const { app, BrowserWindow, Menu, globalShortcut, shell } = require("electron");
 const path = require("path");
 
 function createWindow() {
@@ -22,6 +22,15 @@ function createWindow() {
 
   Menu.setApplicationMenu(null);
   win.loadFile("index.html");
+
+  // Dış linkleri (güncelleme/indirme) SİSTEM tarayıcısında aç, uygulama içinde değil
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) { shell.openExternal(url); return { action: "deny" }; }
+    return { action: "allow" };
+  });
+  win.webContents.on("will-navigate", (e, url) => {
+    if (/^https?:\/\//i.test(url) && !url.startsWith("file:")) { e.preventDefault(); shell.openExternal(url); }
+  });
 
   // F11 ile tam ekran
   globalShortcut.register("F11", () => win.setFullScreen(!win.isFullScreen()));

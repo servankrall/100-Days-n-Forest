@@ -236,3 +236,22 @@ canvas#fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-eve
 .lob-p { background: rgba(20,60,40,.5); border: 1px solid rgba(90,200,150,.4); border-radius: 14px; padding: 3px 10px; font-size: 13px; color: #cfeede; }
 .lob-p.me { background: rgba(30,70,50,.7); border-color: #6ad0a0; color: #eaffef; font-weight: bold; }
 .lob-off { color: #9a9a86; font-size: 13px; font-style: italic; padding: 3px 2px; }
+
+/* ===== 🛡️ admin paneli (yan panel — oyun arkada görünür) ===== */
+#admin { position: fixed; top: 0; right: 0; bottom: 0; z-index: 40; width: 350px; max-width: 93vw; pointer-events: none; }
+#admin.hidden { display: none; }
+.adm-panel { pointer-events: auto; height: 100%; display: flex; flex-direction: column; background: rgba(10,14,12,.95); border-left: 2px solid rgba(120,200,160,.5); box-shadow: -8px 0 30px rgba(0,0,0,.55); }
+.adm-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; font-size: 16px; color: #a8f0c8; font-weight: bold; letter-spacing: .05em; border-bottom: 1px solid rgba(120,200,160,.3); background: rgba(20,40,30,.6); }
+.adm-head .minibtn { padding: 4px 10px; font-size: 12px; }
+.adm-body { flex: 1; overflow-y: auto; padding: 10px 12px 34px; }
+.adm-sec { color: #ffd98a; font-size: 13.5px; font-weight: bold; margin: 13px 0 6px; letter-spacing: .04em; }
+.adm-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.adm-btn { flex: 1 1 auto; min-width: 84px; padding: 8px 9px; font-size: 12.5px; font-family: inherit; background: rgba(40,50,44,.85); color: #eaf2ec; border: 1px solid rgba(255,255,255,.18); border-radius: 8px; cursor: pointer; }
+.adm-btn:active { transform: scale(.95); }
+.adm-tog.on { background: rgba(30,95,52,.92); border-color: #6ad0a0; color: #eaffef; box-shadow: 0 0 8px rgba(80,220,140,.4); }
+.adm-slider { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; color: #cfe6d8; font-size: 13px; }
+.adm-slider span { min-width: 50px; }
+.adm-slider input[type=range] { flex: 1; accent-color: #4a9; }
+.adm-slider input.adm-num { width: 62px; background: rgba(0,0,0,.4); border: 1px solid rgba(120,220,170,.5); border-radius: 6px; color: #d9ffe9; padding: 4px 6px; font-family: inherit; }
+.adm-slider b { color: #ffd98a; min-width: 28px; }
+#btn-admin { position: absolute; left: 10px; top: 112px; z-index: 14; width: 44px; height: 44px; border-radius: 10px; background: rgba(30,44,24,.7); color: #b8f0c8; border: 1px solid rgba(150,255,180,.4); font-size: 20px; pointer-events: auto; touch-action: none; }

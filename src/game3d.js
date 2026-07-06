@@ -18,6 +18,8 @@ const choice = (arr) => arr[(Math.random() * arr.length) | 0];
 function plight(color, intensity, dist, decay, x, y, z) { const l = new THREE.PointLight(color, intensity, dist, decay); l.position.set(x || 0, y || 0, z || 0); return l; }
 
 const CFG = { WORLD: 260, DAY_LENGTH: 165, WIN_DAY: 100, TREES: 1520, BUSHES: 620, ROCKS: 138, GRASS: 2150, VINES: 230, EYE: 1.7, SCRAP: 0, CHESTS: 58, HOUSES: 20 };   // daha büyük dünya (~%45 alan; ağaç/çalı/çim InstancedMesh olduğu için ucuz)
+// 🛡️ ADMİN GÜÇLERİ — oyun içi hile paneli (\ tuşu veya duraklat menüsü). Tümü YEREL/oyun içi.
+const admin = { god: false, fly: false, noclip: false, infStam: false, freezeTime: false, noAI: false, speed: 1 };
 
 /* ----- BİYOMLAR: merkez Orman; dış halka açıya göre Kar / Peri / Volkan ----- */
 const BIOMES = {
@@ -1331,6 +1333,7 @@ addEventListener("keydown", (e) => {
   if (first && k === "z") cycleMelee();                     // yakın dövüş silahı değiştir (eski usül)
   if (first && k >= "1" && k <= "9") selectSlot(+k - 1);    // HIZLI SLOT: 1..9 ile silah seç
   if (first && k === "0") selectSlot(9);                    // HIZLI SLOT: 0 = 10. slot
+  if (first && (k === "\\" || k === "p")) toggleAdmin();    // 🛡️ ADMİN paneli (\\ veya P)
   if (first && k === "l") toggleFlash();                    // el feneri aç/kapa
   if (first && k === "h") inp.shoot = true;                 // alternatif ateş tuşu
   if (k === "v") startTalk();           // bas-konuş (sesli sohbet)
@@ -1991,6 +1994,7 @@ function jumpscare(face, san, hp) {   // eski çizili yüz korkusu (yalnızca ya
 // (jumpscare = yaratığın YÜZÜ, bacakları değil) + aydınlatır + TEK VURUŞTA öldürür
 let jumpLight = null;
 function catchKill(group, reason) {
+  if (admin.god) return;   // 🛡️ God Mode: yaratık yakalayamaz
   if (S.over || S.downed) return;
   if (group) {
     camera.getWorldDirection(_fwd);
@@ -2179,6 +2183,7 @@ function drawCamScare(w, h, dt) {
 // Tek başınaysan (peer yok) doğrudan ölürsün.
 // yaratık hasarı: zırh varsa bir kısmını emer ve yıpranır (açlık/soğuk/sıcak gibi çevre hasarı zırhı by-pass eder)
 function hurt(dmg) {
+  if (admin.god) return S.health;   // 🛡️ God Mode: hasar yok
   if (S.armor > 0 && S.armorDef > 0) {
     const absorbed = dmg * S.armorDef;
     S.armor = Math.max(0, S.armor - (absorbed * 1.4 + 1));
@@ -2196,6 +2201,7 @@ function giveArmor(def, label) {   // zırh kuşan: daha iyisini giy, dayanıkl�
 function carryWeight() { return S.inv.wood * 0.4 + S.inv.metal * 0.6 + (S.inv.gem || 0) * 0.3; }
 function carryLimit() { return 80 + (S.backpack || 0) * 45; }
 function playerDied(reason) {
+  if (admin.god) { S.health = 100; S.hurt = 0; return; }   // 🛡️ God Mode: ölüm yok
   if (S.over || S.downed) return;
   S.deathReason = reason || S.deathReason || "bilinmeyen";
   if (net.online && net.peerCount() > 0) goDown(S.deathReason);
@@ -2307,8 +2313,9 @@ function applySave() {
 /* ----------------------- UPDATE ----------------------- */
 function update(dt) {
   if (S.rescuing) { updateRescue(dt); return; }   // 100. gün kurtarma sineması — normal oyun durur
+  if (admin.infStam) S.stamina = 100;              // ♾️ Sonsuz Enerji
   // zaman / gün
-  S.time += dt / CFG.DAY_LENGTH;
+  if (!admin.freezeTime) S.time += dt / CFG.DAY_LENGTH;   // ⏸️ Zamanı Dondur
   if (S.time >= 1) {
     S.time -= 1; S.day++; S.firstNightDone = false; S.scripted = false;
     if (S.day > CFG.WIN_DAY) { startRescue(); return; }
@@ -2368,30 +2375,38 @@ function update(dt) {
   if (inp.joy) { mx += inp.jx; mz += -inp.jy; }
   const m = Math.hypot(mx, mz); if (m > 1) { mx /= m; mz /= m; }
   const sprinting = (inp.sprint || keys["shift"] || sprintBtn._held) && S.stamina > 1 && m > 0.1;
-  let spd = (sprinting ? 8.5 : 5) * dt;
+  let spd = (sprinting ? 8.5 : 5) * dt * (admin.speed || 1);   // ⚡ admin hız çarpanı
   if (S.hunger <= 0 || S.warmth <= 0) spd *= 0.62;
   if (carryWeight() > carryLimit()) spd *= 0.6;   // aşırı yük → yavaşlama (çanta yükseltmesi limiti artırır)
-  camera.getWorldDirection(_fwd); _fwd.y = 0; _fwd.normalize();
+  camera.getWorldDirection(_fwd); const fy = _fwd.y; _fwd.y = 0; _fwd.normalize();
+  const flying = admin.fly, mul = flying ? 2.2 : 1;
   const rightX = -_fwd.z, rightZ = _fwd.x; // sağ = cross(forward, up)
-  let nx = camera.position.x + (_fwd.x * mz + rightX * mx) * spd;
-  let nz = camera.position.z + (_fwd.z * mz + rightZ * mx) * spd;
-  // ağaç çarpışması
-  for (const t of trees) { if (!t.alive) continue; const dx = nx - t.x, dz = nz - t.z, rr = t.r + 0.5; if (dx * dx + dz * dz < rr * rr) { const d = Math.hypot(dx, dz) || 0.001; nx = t.x + dx / d * rr; nz = t.z + dz / d * rr; } }
-  // barikat duvarı çarpışması
-  for (const w of walls) { const dx = nx - w.x, dz = nz - w.z, rr = w.r + 0.4; if (dx * dx + dz * dz < rr * rr) { const d = Math.hypot(dx, dz) || 0.001; nx = w.x + dx / d * rr; nz = w.z + dz / d * rr; } }
-  nx = clamp(nx, -CFG.WORLD, CFG.WORLD); nz = clamp(nz, -CFG.WORLD, CFG.WORLD);
+  let nx = camera.position.x + (_fwd.x * mz + rightX * mx) * spd * mul;
+  let nz = camera.position.z + (_fwd.z * mz + rightZ * mx) * spd * mul;
+  if (!admin.noclip) {   // noclip: ağaç/duvar çarpışması ATLANIR
+    for (const t of trees) { if (!t.alive) continue; const dx = nx - t.x, dz = nz - t.z, rr = t.r + 0.5; if (dx * dx + dz * dz < rr * rr) { const d = Math.hypot(dx, dz) || 0.001; nx = t.x + dx / d * rr; nz = t.z + dz / d * rr; } }
+    for (const w of walls) { const dx = nx - w.x, dz = nz - w.z, rr = w.r + 0.4; if (dx * dx + dz * dz < rr * rr) { const d = Math.hypot(dx, dz) || 0.001; nx = w.x + dx / d * rr; nz = w.z + dz / d * rr; } }
+  }
+  const lim = admin.noclip ? CFG.WORLD + 60 : CFG.WORLD;
+  nx = clamp(nx, -lim, lim); nz = clamp(nz, -lim, lim);
   camera.position.x = nx; camera.position.z = nz;
-  if (Math.abs(nx) >= CFG.WORLD - 0.6 || Math.abs(nz) >= CFG.WORLD - 0.6) { S.edgeT = (S.edgeT || 0) - dt; if (S.edgeT <= 0) { S.edgeT = 6; toast("🌲 Ormanın sınırındasın — buradan öteye geçilmez, geri dön.", "bad"); } }   // dünya kenarı belirgin
+  if (!admin.noclip && (Math.abs(nx) >= CFG.WORLD - 0.6 || Math.abs(nz) >= CFG.WORLD - 0.6)) { S.edgeT = (S.edgeT || 0) - dt; if (S.edgeT <= 0) { S.edgeT = 6; toast("🌲 Ormanın sınırındasın — buradan öteye geçilmez, geri dön.", "bad"); } }   // dünya kenarı belirgin
   { let ic = false; for (const c of caves) { if (Math.hypot(c.x - nx, c.z - nz) < c.r) { ic = true; break; } } inCave = ic;
     const nb = ic ? "caves" : biomeAt(nx, nz); if (nb !== curBiome) { curBiome = nb; toast(ic ? "🕳️ Mağaraya girdin — fenerini aç (L)!" : "Bölge: " + BIOMES[nb].name, "good"); } }
   // baş sallanması + sarsıntı
-  if (m > 0.1) { S.bob += dt * (sprinting ? 14 : 9); S.stepT -= dt; if (S.stepT <= 0) { Sound.step(); S.stepT = sprinting ? 0.3 : 0.45; } } else S.bob *= 0.9;
-  // zıplama (yerçekimi)
-  if (inp.jump) { inp.jump = false; if (S.py <= 0.02 && S.vy <= 0) { S.vy = 5.4; Sound.step(); } }
-  S.vy -= 20 * dt; S.py = Math.max(0, S.py + S.vy * dt); if (S.py <= 0) S.vy = 0;
-  let camY = CFG.EYE + Math.sin(S.bob) * 0.06 + S.py;
-  if (S.shake > 0) { S.shake = Math.max(0, S.shake - dt * 1.6); camY += rnd(-S.shake, S.shake) * 0.15; yaw += rnd(-S.shake, S.shake) * 0.01; }
-  camera.position.y = camY;
+  if (m > 0.1) { S.bob += dt * (sprinting ? 14 : 9); if (!flying) { S.stepT -= dt; if (S.stepT <= 0) { Sound.step(); S.stepT = sprinting ? 0.3 : 0.45; } } } else S.bob *= 0.9;
+  if (flying) {   // 🕊️ UÇUŞ: bakış yönünün dikey bileşeniyle uç + Space yüksel / Shift alçal, yerçekimi yok
+    let ny = camera.position.y + fy * mz * spd * mul;
+    if (keys[" "] || inp.jump) { ny += spd * mul; inp.jump = false; }
+    if (keys["shift"] || keys["control"]) ny -= spd * mul;
+    camera.position.y = clamp(ny, 0.6, 220); S.py = 0; S.vy = 0;
+  } else {   // yerçekimi + zıplama
+    if (inp.jump) { inp.jump = false; if (S.py <= 0.02 && S.vy <= 0) { S.vy = 5.4; Sound.step(); } }
+    S.vy -= 20 * dt; S.py = Math.max(0, S.py + S.vy * dt); if (S.py <= 0) S.vy = 0;
+    let camY = CFG.EYE + Math.sin(S.bob) * 0.06 + S.py;
+    if (S.shake > 0) { S.shake = Math.max(0, S.shake - dt * 1.6); camY += rnd(-S.shake, S.shake) * 0.15; yaw += rnd(-S.shake, S.shake) * 0.01; }
+    camera.position.y = camY;
+  }
 
   // stamina
   S.stamina = clamp(S.stamina + (sprinting ? -18 : 12) * dt, 0, 100);
@@ -2642,6 +2657,7 @@ function inCampSafe() {   // yanan ateş VEYA meşale güvenli alanı içinde mi
   return false;
 }
 function updateWatcher(dt, night) {
+  if (admin.noAI) return;   // 🧠❌ Disable AI: İzleyen donar
   const dread = dreadLevel();
   const safe = inCampSafe();
   if (watcher && (S.downed || S.over)) { vanishWatcher(true); wCd = rnd(8, 16); return; }   // düşünce/ölünce İzleyen geri çekilir (sahnede dev gibi takılı kalmasın)
@@ -2700,6 +2716,7 @@ function updateWatcher(dt, night) {
 }
 
 function updateAnimals(dt) {
+  if (admin.noAI) return;   // 🧠❌ Disable AI: yaratıklar/hayvanlar donar
   const px = camera.position.x, pz = camera.position.z;
   for (let i = animals.length - 1; i >= 0; i--) {
     const a = animals[i], d = Math.hypot(a.x - px, a.z - pz);
@@ -2982,6 +2999,7 @@ function startGame(continueSave) {
   if (pendingWorld) { const pw = pendingWorld; pendingWorld = null; applyWorldSnapshot(pw); }   // menüde katıldıysam gecikmiş üs durumunu şimdi uygula
   craftOpen = false; pauseOpen = false;
   $("craft").classList.add("hidden"); $("pause").classList.add("hidden"); $("downed").classList.add("hidden"); { const sp = $("spectate"); if (sp) sp.classList.add("hidden"); }
+  adminOpen = false; { const ad = $("admin"); if (ad) ad.classList.add("hidden"); }
   $("start").classList.add("hidden"); $("gameover").classList.add("hidden"); $("win").classList.add("hidden");
   $("hud").classList.remove("hidden"); crosshair.classList.remove("hidden"); $("pauseBtn").classList.remove("hidden");
   $("btn-craft").style.display = "none";   // tezgah artık fiziksel — butonla değil, yanına gidip açılır
@@ -3021,7 +3039,7 @@ $("cr-close").addEventListener("click", () => closeCraft());
 const pauseBtn = $("pauseBtn");
 pauseBtn.addEventListener("click", () => togglePause());
 pauseBtn.addEventListener("touchstart", (e) => { isTouch = true; togglePause(); e.preventDefault(); }, { passive: false });
-addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); if (placeMode) exitPlace(); else if (guideOpen) closeGuide(); else if (changelogOpen) closeChangelog(); else if (settingsOpen) closeSettings(); else if (notesOpen) closeNotes(); else if (craftOpen) closeCraft(); else togglePause(); } });
+addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); if (placeMode) exitPlace(); else if (adminOpen) toggleAdmin(); else if (guideOpen) closeGuide(); else if (changelogOpen) closeChangelog(); else if (settingsOpen) closeSettings(); else if (notesOpen) closeNotes(); else if (craftOpen) closeCraft(); else togglePause(); } });
 document.addEventListener("visibilitychange", () => { if (document.hidden && S && S.running) { S.paused = true; pauseBtn.textContent = "▶"; } });
 addEventListener("touchstart", () => { isTouch = true; }, { once: true, passive: true });
 const vBtn = $("btn-voice");
@@ -3048,7 +3066,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe();
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 48;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 49;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 async function checkForUpdate() {
   try {
     const url = "https://raw.githubusercontent.com/servankrall/100-Days-n-Forest/main/version.json?t=" + Date.now();
@@ -3350,8 +3368,14 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "1.8";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "1.9";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "1.9", d: "6 Tem", items: [
+    "🛡️ ADMİN PANELİ eklendi (\\ veya P tuşu · Duraklat → Admin · mobilde 🛡️ buton): God Mode, Uçuş, Noclip, Sonsuz Enerji, hız ayarı, ışınlanma.",
+    "🌍 Admin: gün/saat/hava/Kanlı Ay kontrolü, zamanı dondur, ihtiyaç doldurma, olumsuz efekt temizleme.",
+    "🎒 Admin: eşya çağırma (kaynak/silah/alet/tıbbi/yiyecek) + tek tuşla HEPSİNİ VER.",
+    "👹 Admin: yaratık/boss çağırma, tümünü temizleme, AI kapatma; co-op'ta oyuncu atma (host).",
+  ] },
   { v: "1.8", d: "6 Tem", items: [
     "🌍 Dünya ~%45 büyüdü (215→260m) + kenarda belirgin sınır uyarısı (artık 200m sonrası boşluk yok).",
     "📦 Sandıklar artık TEK eşya düşürüyor (ışınlanmıyor): yerden AL, taşı, ateşe/tezgaha götürüp bırak (sürükle-taşı). Mobilde VUR ile al/bırak.",
@@ -3417,6 +3441,72 @@ function closeChangelog() { changelogOpen = false; $("changelog").classList.add(
 { const cc = $("changelog-close"); if (cc) cc.addEventListener("click", closeChangelog); }
 { const cb = $("changelogBtn"); if (cb) { cb.textContent = "📋 YENİLİKLER · v" + GAME_VERSION; cb.addEventListener("click", openChangelog); } }
 { const pc = $("pz-changelog"); if (pc) pc.addEventListener("click", () => { closePause(); openChangelog(); }); }
+
+/* ===================== 🛡️ ADMİN PANELİ (oyun içi hile menüsü) ===================== */
+let adminOpen = false;
+const adminMsg = (t) => toast("🛡️ " + t, "good");
+function giveResources() { for (const k of ["wood", "metal", "cloth", "rope", "pelt"]) S.inv[k] += 50; S.inv.gem += 10; adminMsg("Kaynaklar +50 · 💎+10"); if (craftOpen) renderCraft(); }
+function giveFoodWater() { S.inv.cooked += 20; S.inv.canned += 10; S.inv.water += 20; S.inv.soda += 5; S.inv.choco += 5; adminMsg("Yiyecek/içecek dolduruldu"); }
+function giveWeapons() { for (const k in S.weapons) S.weapons[k] = true; for (const k of ["pistolAmmo", "shells", "rifleAmmo", "arrows"]) S.inv[k] += 99; for (const k of MELEE_ORDER) giveMelee(k); S.tools.axe = 2; S.tools.chainsaw = true; adminMsg("Tüm silahlar + mermi"); updateHotbarHUD(); }
+function giveTools() { S.tools.axe = Math.max(S.tools.axe || 0, 2); S.tools.pickaxe = true; S.tools.hammer = true; S.tools.chainsaw = true; S.flashlight = true; S.battery = 100; S.inv.batteries += 10; S.hasMap = true; S.hasCompass = true; adminMsg("Tüm aletler"); }
+function giveMedical() { S.inv.bandage += 20; S.inv.medkit += 10; S.inv.pills += 10; adminMsg("Tıbbi malzeme"); }
+function giveAll() { giveResources(); giveFoodWater(); giveWeapons(); giveTools(); giveMedical(); giveArmor(0.5, "Mücevher Zırhı"); adminMsg("🎁 HERŞEY verildi!"); }
+function adminHeal() { S.health = 100; S.hurt = 0; S.sick = 0; S.bleed = 0; adminMsg("İyileştin %100"); }
+function adminMaxNeeds() { S.hunger = 100; S.thirst = 100; S.warmth = 100; S.stamina = 100; adminMsg("İhtiyaçlar dolu"); }
+function adminClearEffects() { S.sick = 0; S.bleed = 0; S.sanity = 100; S.warmth = Math.max(S.warmth, 70); adminMsg("Efektler temizlendi"); }
+function adminTeleportCamp() { if (baseFire) { camera.position.set(baseFire.x, CFG.EYE, baseFire.z + 3); adminMsg("Kampa ışınlandın"); } }
+function adminTeleportSpawn() { camera.position.set(0, CFG.EYE, 0); adminMsg("Başlangıca ışınlandın"); }
+function adminSetDay(d) { S.day = clamp(d | 0, 1, 100); adminMsg("Gün → " + S.day); }
+function adminSetTime(f) { S.time = clamp(f, 0, 0.999); }
+function adminSkipNight() { S.time = 0.72; adminMsg("Geceye atlandı"); }
+function adminSkipDay() { S.time = 0.18; S.day = Math.min(100, S.day + 1); adminMsg("Ertesi gün"); }
+function adminWeather(w) { S.weather = w; S.weatherT = rnd(30, 60); adminMsg("Hava: " + w); }
+function adminBloodMoon() { S.bloodMoon = !S.bloodMoon; adminMsg("Kanlı Ay: " + (S.bloodMoon ? "AÇIK" : "kapalı")); }
+function adminKillAll() { for (const a of animals) scene.remove(a.group); animals.length = 0; bossAlive = false; if (watcher) vanishWatcher(true); adminMsg("Tüm yaratıklar temizlendi"); }
+function adminSpawn(kind) {
+  if (kind === "watcher") spawnWatcher(true); else if (kind === "jaguar") spawnJaguar(); else if (kind === "crawler") spawnCrawler();
+  else if (kind === "mimic") spawnMimic(); else if (kind === "boss") spawnCultistKing(); else spawnBeast(kind);
+  adminMsg(kind + " çağrıldı");
+}
+function adminKick(id) { const c = net.conns[id]; if (c) { try { c.close(); } catch (e) {} } adminMsg("Atıldı: " + (remoteName[id] || id)); }
+function admBtn(label, fn) { const b = document.createElement("button"); b.className = "adm-btn"; b.textContent = label; b.addEventListener("click", () => { if (S && S.running) fn(); }); return b; }
+function admTog(label, key) {
+  const b = document.createElement("button"); const paint = () => { b.className = "adm-btn adm-tog" + (admin[key] ? " on" : ""); b.textContent = (admin[key] ? "✅ " : "⬜ ") + label; }; paint();
+  b.addEventListener("click", () => { admin[key] = !admin[key]; paint(); adminMsg(label + ": " + (admin[key] ? "AÇIK" : "kapalı")); }); return b;
+}
+function admSec(t) { const h = document.createElement("div"); h.className = "adm-sec"; h.textContent = t; return h; }
+function admRow(...els) { const r = document.createElement("div"); r.className = "adm-row"; els.forEach((e) => r.appendChild(e)); return r; }
+function buildAdminPanel() {
+  const body = $("adminBody"); if (!body || !S) return; body.innerHTML = "";
+  const add = (...e) => e.forEach((x) => body.appendChild(x));
+  add(admSec("1) 🧍 Oyuncu"),
+    admRow(admTog("God Mode", "god"), admTog("Uçuş", "fly"), admTog("Noclip", "noclip"), admTog("Sonsuz Enerji", "infStam")),
+    admRow(admBtn("❤️ İyileş", adminHeal), admBtn("💀 Kendini öldür", () => die("admin")), admBtn("🏕️ Kampa ışınlan", adminTeleportCamp), admBtn("📍 Başlangıca", adminTeleportSpawn)));
+  { const r = document.createElement("div"); r.className = "adm-slider"; r.innerHTML = "<span>⚡ Hız</span>"; const s = document.createElement("input"); s.type = "range"; s.min = "0.5"; s.max = "6"; s.step = "0.5"; s.value = admin.speed; const v = document.createElement("b"); v.textContent = admin.speed + "x"; s.addEventListener("input", () => { admin.speed = +s.value; v.textContent = admin.speed + "x"; }); r.append(s, v); add(r); }
+  add(admSec("2) 🌍 Zaman & Dünya"),
+    admRow(admTog("Zamanı Dondur", "freezeTime"), admBtn("🌙 Geceye atla", adminSkipNight), admBtn("☀️ Ertesi gün", adminSkipDay), admBtn("🔴 Kanlı Ay", adminBloodMoon)));
+  { const r = document.createElement("div"); r.className = "adm-slider"; r.innerHTML = "<span>📅 Gün</span>"; const n = document.createElement("input"); n.type = "number"; n.min = "1"; n.max = "100"; n.value = S.day; n.className = "adm-num"; r.append(n, admBtn("Ayarla", () => adminSetDay(+n.value))); add(r); }
+  { const r = document.createElement("div"); r.className = "adm-slider"; r.innerHTML = "<span>🕐 Saat</span>"; const t = document.createElement("input"); t.type = "range"; t.min = "0"; t.max = "0.99"; t.step = "0.01"; t.value = S.time; t.addEventListener("input", () => adminSetTime(+t.value)); r.append(t); add(r); }
+  add(admRow(admBtn("☀️ Açık hava", () => adminWeather("clear")), admBtn("🌧️ Yağmur", () => adminWeather("rain"))));
+  add(admSec("3) 🍖 Hayatta Kalma"),
+    admRow(admBtn("🍖 Açlık dolu", () => { S.hunger = 100; adminMsg("Açlık %100"); }), admBtn("💧 Susuzluk dolu", () => { S.thirst = 100; adminMsg("Susuzluk %100"); }), admBtn("🧊 İhtiyaçlar dolu", adminMaxNeeds), admBtn("✨ Efektleri temizle", adminClearEffects)));
+  add(admSec("4) 🎒 Eşya Çağırma"),
+    admRow(admBtn("🪵 Kaynaklar", giveResources), admBtn("🍗 Yiyecek/Su", giveFoodWater), admBtn("🔫 Silahlar", giveWeapons), admBtn("🛠️ Aletler", giveTools), admBtn("🩹 Tıbbi", giveMedical)),
+    admRow(admBtn("🎁 HEPSİNİ VER", giveAll)));
+  add(admSec("5) 👹 Yaratık & Sunucu"),
+    admRow(admBtn("👁️ İzleyen", () => adminSpawn("watcher")), admBtn("🐆 Jaguar", () => adminSpawn("jaguar")), admBtn("🕷️ Sürünen", () => adminSpawn("crawler")), admBtn("🎭 Taklitçi", () => adminSpawn("mimic")), admBtn("👑 BOSS", () => adminSpawn("boss"))),
+    admRow(admTog("AI Kapat (dondur)", "noAI"), admBtn("💥 Tümünü temizle", adminKillAll)));
+  if (net.online && net.peerCount() > 0) { const r = admRow(); for (const id of net.peerIds()) r.appendChild(admBtn("🚪 " + (remoteName[id] || id) + " at", () => adminKick(id))); add(admSec("👥 Oyuncuları At"), r); }
+}
+function toggleAdmin() {
+  const el = $("admin"); if (!el || !S || !S.running) return;
+  adminOpen = !adminOpen;
+  if (adminOpen) { buildAdminPanel(); el.classList.remove("hidden"); if (document.exitPointerLock) document.exitPointerLock(); }
+  else { el.classList.add("hidden"); if (!isTouch && threeCanvas.requestPointerLock) threeCanvas.requestPointerLock(); }
+}
+{ const ac = $("admin-close"); if (ac) ac.addEventListener("click", () => { adminOpen = false; $("admin").classList.add("hidden"); }); }
+{ const pa = $("pz-admin"); if (pa) pa.addEventListener("click", () => { closePause(); toggleAdmin(); }); }
+{ const ab = $("btn-admin"); if (ab) { ab.addEventListener("click", () => toggleAdmin()); ab.addEventListener("touchstart", (e) => { isTouch = true; toggleAdmin(); e.preventDefault(); }, { passive: false }); } }
 
 resize();
 // Render döngüsü: sahne kurulmadan da (menüde) FX katmanını temiz tutar; START ile sahne kurulur.

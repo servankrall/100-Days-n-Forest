@@ -1,6 +1,6 @@
 {
-  "build": 48,
-  "version": "1.8",
+  "build": 49,
+  "version": "1.9",
   "url": "https://github.com/servankrall/100-Days-n-Forest/releases/latest",
-  "notes": "Dünya ~%45 büyüdü + kenar sınır uyarısı. Sandıklar tek eşya düşürüyor ve ışınlanmıyor — sürükle/taşı ile kampa getir. Co-op lobi listesi (doğru isimler)."
+  "notes": "🛡️ Admin paneli eklendi (\\ / P / Duraklat menüsü / mobil buton): God Mode, uçuş, noclip, sonsuz enerji, hız, ışınlanma, zaman/hava/gün kontrolü, ihtiyaç doldurma, eşya çağırma, yaratık çağırma/temizleme, AI kapatma, oyuncu atma."
 }

@@ -1,6 +1,6 @@
 {
-  "build": 44,
-  "version": "1.4",
+  "build": 45,
+  "version": "1.5",
   "url": "https://github.com/servankrall/100-Days-n-Forest/releases/latest",
-  "notes": "Ana menüye 'Güncelleme Notları' (update log) eklendi — her sürümde ne değiştiğini gösterir."
+  "notes": "Hata düzeltmeleri: co-op'ta yakalayan yaratığın ekranda takılı kalması giderildi, tezgah açma mesafesi rahatlatıldı, mobil hızlı silah çubuğu joystick'i engellemiyor."
 }

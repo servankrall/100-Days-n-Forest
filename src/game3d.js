@@ -1907,7 +1907,7 @@ function renderCraft() {
   }
 }
 let craftOpen = false;
-function nearBench() { return !!(S && S.running && camera && Math.hypot(camera.position.x - BENCH.x, camera.position.z - BENCH.z) <= 4.5); }
+function nearBench() { return !!(S && S.running && camera && Math.hypot(camera.position.x - BENCH.x, camera.position.z - BENCH.z) <= 6); }
 function openCraft() {
   if (!S || !S.running || S.downed) return;
   if (!nearBench()) { toast("🛠️ Tezgahtan uzaksın — yanına git de öyle aç", "bad"); return; }   // uzaktan açılmaz
@@ -2466,7 +2466,11 @@ function update(dt) {
   }
   // İlk gece: yalnızca atmosfer (fısıltı + kalp sesi) — jumpscare YOK. Jumpscare sadece yaratık yakalayınca.
   if (night && S.day === 1 && !S.scripted && S.time > 0.80) { S.scripted = true; setTimeout(() => { if (S.running) { whisperText("burada yalnız değilsin..."); Sound.whisper(); S.heartLevel = Math.max(S.heartLevel, 0.7); S.shake = Math.max(S.shake, 0.2); } }, rndi(3000, 8000)); }
-  if (jumpT > 0) { jumpT -= dt; if (jumpT <= 0) jumpModel = null; }
+  if (jumpT > 0) { jumpT -= dt; if (jumpT <= 0 && jumpModel) {   // jumpscare bitince yaratık modelini temizle (co-op'ta oyun sürdüğü için şart)
+    jumpModel.visible = false; if (jumpModel.scale) jumpModel.scale.setScalar(1);
+    if (jumpModel !== watcherGroup && jumpModel.parent) jumpModel.parent.remove(jumpModel);   // taklitçi vb. sahneden kaldır (İzleyen kalıcı grup, sadece gizle)
+    jumpModel = null;
+  } }
 
   // gece jaguarı
   if (night && S.day > 1 && Math.random() < 0.0009 && animals.filter((a) => a.type === "jaguar").length < 2) { spawnJaguar(); Sound.growl(); whisperText("bir hırıltı..."); }
@@ -2565,6 +2569,7 @@ function inCampSafe() {   // yanan ateş VEYA meşale güvenli alanı içinde mi
 function updateWatcher(dt, night) {
   const dread = dreadLevel();
   const safe = inCampSafe();
+  if (watcher && (S.downed || S.over)) { vanishWatcher(true); wCd = rnd(8, 16); return; }   // düşünce/ölünce İzleyen geri çekilir (sahnede dev gibi takılı kalmasın)
   if (!watcher) {
     wCd -= dt;
     if (wCd <= 0) {
@@ -2587,7 +2592,7 @@ function updateWatcher(dt, night) {
     w.group.rotation.y = Math.atan2(camera.position.x - w.x, camera.position.z - w.z);
     w.group.scale.setScalar(1 + (0.5 - Math.max(0, w.lunge)) * 3.0);   // ekranı kaplayacak kadar büyür
     S.shake = 0.7;
-    if (w.lunge <= 0) { w.lunge = null; catchKill(w.group, "İzleyen seni yakaladı"); wCd = rnd(20, 34); }   // yakaladı → tek vuruş + jumpscare (yaratığın kendisi)
+    if (w.lunge <= 0) { catchKill(w.group, "İzleyen seni yakaladı"); watcher = null; wCd = rnd(20, 34); return; }   // yakaladı → tek vuruş + jumpscare; İzleyen AI'sını durdur (grup jumpscare için kalır)
     return;
   }
   const d = Math.hypot(w.x - camera.position.x, w.z - camera.position.z);
@@ -2958,7 +2963,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe();
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 44;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 45;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 async function checkForUpdate() {
   try {
     const url = "https://raw.githubusercontent.com/servankrall/100-Days-n-Forest/main/version.json?t=" + Date.now();
@@ -3234,8 +3239,13 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "1.4";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "1.5";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "1.5", d: "6 Tem", items: [
+    "🐛 Co-op'ta seni yakalayan yaratığın ekranda dev gibi takılı kalması giderildi.",
+    "🛠️ Tezgah açma mesafesi biraz genişletildi (daha rahat).",
+    "📱 Mobilde hızlı silah çubuğu artık joystick'i engellemiyor.",
+  ] },
   { v: "1.4", d: "6 Tem", items: [
     "📋 Ana menüye 'Güncelleme Notları' (bu ekran) eklendi — her sürümde ne değiştiğini gör.",
   ] },

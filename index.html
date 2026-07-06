@@ -160,6 +160,7 @@
       </div>
       <button id="continueBtn" class="bigbtn" style="display:none;background:rgba(20,60,30,.5)">💾 DEVAM ET</button>
       <button id="startBtn" class="bigbtn">🌙 YENİ OYUN</button>
+      <button id="changelogBtn" class="minibtn">📋 YENİLİKLER</button>
       <button id="audioToggleStart" class="minibtn">🔊 Ses: AÇIK</button>
       <div class="warn" style="font-size:12px">📷 <b>BAŞLA'ya basınca oyun kamera izni isteyecek.</b> İzin verirsen oyun ara sıra <b>kendi görüntünü</b> korku amaçlı ekranda gösterir ve bir ağaca asar. <b>İzin vermezsen</b> (Engelle dersen) kamera hiç açılmaz. Gizli erişim yok; hiçbir görüntü kaydedilmez/gönderilmez.</div>
       <div id="loadNote" class="loadnote"></div>
@@ -229,6 +230,16 @@
     </div>
   </div>
 
+  <!-- ======================= GÜNCELLEME NOTLARI (update log) ======================= -->
+  <div id="changelog" class="overlay hidden">
+    <div class="panel craftp">
+      <h1 class="title-creep" style="font-size:clamp(24px,7vw,44px)">📋 GÜNCELLEME NOTLARI</h1>
+      <p class="subtitle">Oyuna eklenen son yenilikler. <span id="chlogVer" class="craftinv"></span></p>
+      <div id="changelogList" class="notes-list"></div>
+      <button id="changelog-close" class="bigbtn">▶ KAPAT</button>
+    </div>
+  </div>
+
   <!-- ======================= ESC: DURDU / SOSYAL MERKEZ ======================= -->
   <div id="pause" class="overlay hidden">
     <div class="panel social">
@@ -271,6 +282,7 @@
         <button id="pz-settings" class="minibtn">⚙️ Ayarlar</button>
         <button id="pz-notes" class="minibtn">📓 Günlükler</button>
         <button id="pz-guide" class="minibtn">📖 Rehber</button>
+        <button id="pz-changelog" class="minibtn">📋 Yenilikler</button>
         <button id="pz-menu" class="minibtn">🏠 Ana Menü</button>
       </div>
     </div>

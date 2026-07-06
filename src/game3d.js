@@ -2931,7 +2931,7 @@ $("cr-close").addEventListener("click", () => closeCraft());
 const pauseBtn = $("pauseBtn");
 pauseBtn.addEventListener("click", () => togglePause());
 pauseBtn.addEventListener("touchstart", (e) => { isTouch = true; togglePause(); e.preventDefault(); }, { passive: false });
-addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); if (placeMode) exitPlace(); else if (guideOpen) closeGuide(); else if (settingsOpen) closeSettings(); else if (notesOpen) closeNotes(); else if (craftOpen) closeCraft(); else togglePause(); } });
+addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); if (placeMode) exitPlace(); else if (guideOpen) closeGuide(); else if (changelogOpen) closeChangelog(); else if (settingsOpen) closeSettings(); else if (notesOpen) closeNotes(); else if (craftOpen) closeCraft(); else togglePause(); } });
 document.addEventListener("visibilitychange", () => { if (document.hidden && S && S.running) { S.paused = true; pauseBtn.textContent = "▶"; } });
 addEventListener("touchstart", () => { isTouch = true; }, { once: true, passive: true });
 const vBtn = $("btn-voice");
@@ -2958,7 +2958,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe();
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 43;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 44;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 async function checkForUpdate() {
   try {
     const url = "https://raw.githubusercontent.com/servankrall/100-Days-n-Forest/main/version.json?t=" + Date.now();
@@ -3232,6 +3232,55 @@ function openGuide() { guideOpen = true; renderGuide(); $("guide").classList.rem
 function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const gc = $("guide-close"); if (gc) gc.addEventListener("click", closeGuide); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
+
+/* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
+const GAME_VERSION = "1.4";   // görünen sürüm (version.json ile aynı tut)
+const CHANGELOG = [
+  { v: "1.4", d: "6 Tem", items: [
+    "📋 Ana menüye 'Güncelleme Notları' (bu ekran) eklendi — her sürümde ne değiştiğini gör.",
+  ] },
+  { v: "1.3", d: "6 Tem", items: [
+    "🖤→✨ Metaller ve su artık siyah-mavi görünmüyor — gökyüzü yansıması (env) eklendi.",
+    "🛠️ Tezgah yalnızca yanına gidince açılır (uzaktan C ile açılmaz).",
+    "🔢 1-0 tuşları / dokunmatik slot çubuğuyla kolay silah değiştirme (mobil dahil).",
+  ] },
+  { v: "1.2", d: "5 Tem", items: [
+    "🌐 Co-op üs senkronu: kurulan yapılar, tezgah tier'ı ve ateş seviyesi herkeste görünür.",
+    "⚡ 4 haneli oda koduyla kolay co-op — uzun ID kopyalamaya son.",
+    "🔔 Açılışta 'yeni sürüm var' uyarısı.",
+  ] },
+  { v: "1.1", d: "5 Tem", items: [
+    "☀️🌙 Güneş ve ay renk düzeltmesi (artık mavi-siyah değil).",
+    "👹 Jumpscare yalnızca yaratık seni yakalayınca gelir ve o yaratığın kendisidir — tek vuruşta öldürür.",
+  ] },
+  { v: "1.0", d: "4 Tem", items: [
+    "🦘 Zıplama (SPACE / ⤴️ butonu).",
+    "🎤 'Kim konuşuyor' ses göstergesi (mobil dahil).",
+    "💧 Su render + başlangıç çökmesi düzeltmeleri.",
+  ] },
+  { v: "0.9", d: "3 Tem", items: [
+    "🗺️ 5 biyom: Orman · Karlı · Peri · Mağaralar · Volkanik.",
+    "🌋👑 Cultist King boss + karanlık, içine girilen mağaralar.",
+  ] },
+  { v: "0.8", d: "2 Tem", items: [
+    "🪓🔫 Tam eşya sistemi: baltalar+testere, ateşli silahlar+mermi, özel yakın dövüş, tıbbi, yiyecek/içecek+susuzluk, el feneri.",
+    "💎 Değerli taş ekonomisi + Tier 1-5 tezgah üretimi.",
+  ] },
+];
+function renderChangelog() {
+  const list = $("changelogList"); if (!list) return;
+  list.innerHTML = CHANGELOG.map((e) =>
+    `<div class="chlog-entry"><div class="chlog-head"><b>v${e.v}</b><span>${e.d}</span></div>` +
+    `<ul class="chlog-items">${e.items.map((i) => `<li>${escapeHtml(i)}</li>`).join("")}</ul></div>`
+  ).join("");
+  const cv = $("chlogVer"); if (cv) cv.textContent = "Şu anki sürüm: v" + GAME_VERSION;
+}
+let changelogOpen = false;
+function openChangelog() { changelogOpen = true; renderChangelog(); $("changelog").classList.remove("hidden"); if (document.exitPointerLock) document.exitPointerLock(); }
+function closeChangelog() { changelogOpen = false; $("changelog").classList.add("hidden"); }
+{ const cc = $("changelog-close"); if (cc) cc.addEventListener("click", closeChangelog); }
+{ const cb = $("changelogBtn"); if (cb) { cb.textContent = "📋 YENİLİKLER · v" + GAME_VERSION; cb.addEventListener("click", openChangelog); } }
+{ const pc = $("pz-changelog"); if (pc) pc.addEventListener("click", () => { closePause(); openChangelog(); }); }
 
 resize();
 // Render döngüsü: sahne kurulmadan da (menüde) FX katmanını temiz tutar; START ile sahne kurulur.

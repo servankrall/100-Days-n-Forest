@@ -205,3 +205,11 @@ canvas#fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-eve
 .hb-slot.on { border-color: #ffcf5a; background: rgba(90,60,16,.85); box-shadow: 0 0 10px rgba(255,200,80,.55); }
 .hb-slot:active { transform: scale(.92); }
 @media (pointer: coarse) { .hb-slot { width: 42px; height: 42px; } .hb-slot span { font-size: 19px; } #hotbar { bottom: 10px; } }
+
+/* ===== güncelleme notları (update log) ===== */
+.chlog-entry { background: rgba(30,26,18,.5); border: 1px solid rgba(180,150,90,.3); border-left: 3px solid #b9863c; border-radius: 8px; padding: 8px 14px; margin-bottom: 8px; text-align: left; }
+.chlog-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.chlog-head b { color: #ffd98a; font-size: 16px; letter-spacing: .04em; }
+.chlog-head span { color: #9a9a86; font-size: 12px; }
+.chlog-items { margin: 0; padding-left: 18px; color: #e8dcc2; font-size: 13.5px; }
+.chlog-items li { margin: 3px 0; line-height: 1.42; }

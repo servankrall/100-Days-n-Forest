@@ -1,6 +1,6 @@
 {
-  "build": 43,
-  "version": "1.3",
+  "build": 44,
+  "version": "1.4",
   "url": "https://github.com/servankrall/100-Days-n-Forest/releases/latest",
-  "notes": "Metaller/su artık siyah-mavi değil (gökyüzü yansıması), tezgah yalnızca yanına gidince açılır, silahlar 1-0 tuşları veya dokunmatik slot çubuğuyla kolayca değişir (mobil dahil)."
+  "notes": "Ana menüye 'Güncelleme Notları' (update log) eklendi — her sürümde ne değiştiğini gösterir."
 }

@@ -19,7 +19,7 @@ function plight(color, intensity, dist, decay, x, y, z) { const l = new THREE.Po
 
 const CFG = { WORLD: 260, DAY_LENGTH: 165, WIN_DAY: 100, TREES: 1520, BUSHES: 620, ROCKS: 138, GRASS: 2150, VINES: 230, EYE: 1.7, SCRAP: 0, CHESTS: 58, HOUSES: 20 };   // daha büyük dünya (~%45 alan; ağaç/çalı/çim InstancedMesh olduğu için ucuz)
 // 🛡️ ADMİN GÜÇLERİ — oyun içi hile paneli (\ tuşu veya duraklat menüsü). Tümü YEREL/oyun içi.
-const admin = { god: false, fly: false, noclip: false, infStam: false, freezeTime: false, noAI: false, speed: 1 };
+const admin = { god: false, fly: false, noclip: false, infStam: false, freezeTime: false, noAI: false, oneHit: false, speed: 1 };
 
 /* ----- BİYOMLAR: merkez Orman; dış halka açıya göre Kar / Peri / Volkan ----- */
 const BIOMES = {
@@ -1562,7 +1562,7 @@ function doAction() {
   if (t.kind === "animal") {
     Sound.chop(); const a = t.obj;
     const mw = S.melee && MELEE[S.melee];
-    a.hp -= mw ? mw.dmg : 3;
+    a.hp -= admin.oneHit ? 99999 : (mw ? mw.dmg : 3);   // 💥 admin tek vuruş
     if (mw) { S.swingCd = mw.cd * (S.cls === "assassin" ? 0.65 : 1);   // Suikastçı perk: hızlı vuruş
       if (mw.poison) a.poison = Math.max(a.poison || 0, 4.0);
       if (mw.fire) a.burn = Math.max(a.burn || 0, 3.2);
@@ -1636,7 +1636,7 @@ function doShoot() {
     if (watcher) { const dx = watcher.x - px, dz = watcher.z - pz, d = Math.hypot(dx, dz); if (d <= spec.range) { const dot = (dx / d) * _fwd.x + (dz / d) * _fwd.z; if (dot >= spec.cone && (dot - d * 0.003) > bestScore) { wHit = true; best = null; } } }
     if (wHit) { hits++; vanishWatcher(false); S.sanity = clamp(S.sanity + 6, 0, 100); toast("👁️ İzleyen'i kovaladın!", "good"); continue; }
     if (best) {
-      hits++; best.hp -= spec.dmg;
+      hits++; best.hp -= admin.oneHit ? 99999 : spec.dmg;   // 💥 admin tek vuruş
       if (spec.silent) { if (!best.hostile) { best.state = "flee"; best.dir = Math.atan2(best.z - pz, best.x - px); } }
       else if (best.type === "boar" || best.type === "jaguar" || best.hostile) { best.hostile = true; best.state = "chase"; }
       if (best.hp <= 0) { killAnimal(best); kills++; }
@@ -3066,7 +3066,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 50;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 51;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 async function checkForUpdate() {
   try {
     const url = "https://raw.githubusercontent.com/servankrall/100-Days-n-Forest/main/version.json?t=" + Date.now();
@@ -3369,8 +3369,13 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "1.9";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "2.0";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "2.0", d: "6 Tem", items: [
+    "🔒 Admin artık GİZLİ KOD ile açılıyor (SHA-256; kod repoda yok, sadece hash) — e-posta git'te göründüğü için çok daha güçlü. Kodu bir kez gir, cihaza kaydedilir.",
+    "💥 Admin: 'Tek Vuruş Öldür' — vurduğun her yaratık anında ölür.",
+    "🔔 Zorunlu güncelleme kapısı artık ana dalda canlı (yeni sürüm çıkınca eski istemcilerde 'güncelle' ekranı çıkar).",
+  ] },
   { v: "1.9", d: "6 Tem", items: [
     "🛡️ ADMİN PANELİ eklendi — YALNIZCA hesap sahibine açık (kendi e-postanla giriş yap). \\ veya P tuşu · Duraklat → Admin · mobilde 🛡️ buton: God Mode, Uçuş, Noclip, Sonsuz Enerji, hız, ışınlanma.",
     "🌍 Admin: gün/saat/hava/Kanlı Ay kontrolü, zamanı dondur, ihtiyaç doldurma, olumsuz efekt temizleme.",
@@ -3444,12 +3449,13 @@ function closeChangelog() { changelogOpen = false; $("changelog").classList.add(
 { const pc = $("pz-changelog"); if (pc) pc.addEventListener("click", () => { closePause(); openChangelog(); }); }
 
 /* ===================== 🛡️ ADMİN PANELİ (oyun içi hile menüsü) ===================== */
-// SAHİPLİK KİLİDİ: admin YALNIZCA hesap sahibine açık. E-posta düz metin gömülmez;
-// yalnızca hash karşılaştırılır (kimlik sızmaz). Not: istemci-taraf olduğundan mutlak değil.
-function strHash(s) { s = (s || "").trim().toLowerCase(); let a = 0x811c9dc5, b = 5381; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); a ^= c; a = Math.imul(a, 0x01000193); b = ((b << 5) + b + c) | 0; } return (a >>> 0).toString(16) + "-" + (b >>> 0).toString(16); }
-const OWNER_HASH = "6f8eef70-cf0665bc";
-function isOwner() { return !!(account && account.email && strHash(account.email) === OWNER_HASH); }
-function applyAdminVisibility() { const own = isOwner(); const pa = $("pz-admin"), ba = $("btn-admin"); if (pa) pa.style.display = own ? "" : "none"; if (ba) ba.style.display = own ? "" : "none"; }
+// SAHİPLİK KİLİDİ: admin GİZLİ KOD ile açılır (SHA-256). Kod repoda/bundle'da YOK — yalnızca
+// tersine çevrilemez hash var. Kodu bir kez girince cihaza kaydedilir. (E-posta git commit'lerinde
+// göründüğü için artık kullanılmıyor; kod çok daha güçlü.)
+async function sha256hex(s) { const b = new TextEncoder().encode(s); const h = await crypto.subtle.digest("SHA-256", b); return [...new Uint8Array(h)].map((x) => x.toString(16).padStart(2, "0")).join(""); }
+const ADMIN_HASH = "06973d7c5b268b5185517b7df738e1ac8e805e95561fd8870fea0862e1da80a9";
+function adminUnlocked() { try { return LS.getItem("orm_adminOK") === "1"; } catch (e) { return false; } }
+function applyAdminVisibility() { const pa = $("pz-admin"), ba = $("btn-admin"); if (pa) pa.style.display = ""; if (ba) ba.style.display = ""; }   // buton herkese görünür; asıl kilit KODDADIR
 let adminOpen = false;
 const adminMsg = (t) => toast("🛡️ " + t, "good");
 function giveResources() { for (const k of ["wood", "metal", "cloth", "rope", "pelt"]) S.inv[k] += 50; S.inv.gem += 10; adminMsg("Kaynaklar +50 · 💎+10"); if (craftOpen) renderCraft(); }
@@ -3483,8 +3489,18 @@ function admTog(label, key) {
 }
 function admSec(t) { const h = document.createElement("div"); h.className = "adm-sec"; h.textContent = t; return h; }
 function admRow(...els) { const r = document.createElement("div"); r.className = "adm-row"; els.forEach((e) => r.appendChild(e)); return r; }
+function buildAdminUnlock(body) {   // kilitliyken: gizli kod iste
+  const s = admSec("🔒 Admin kilitli — gizli kodu gir"); body.appendChild(s);
+  const inp = document.createElement("input"); inp.type = "password"; inp.className = "adm-num"; inp.style.width = "100%"; inp.style.marginBottom = "8px"; inp.placeholder = "Admin kodu";
+  const msg = document.createElement("div"); msg.style.cssText = "color:#ff9a9a;font-size:12.5px;min-height:16px;margin-top:6px";
+  const go = async () => { try { const h = await sha256hex((inp.value || "").trim()); if (h === ADMIN_HASH) { try { LS.setItem("orm_adminOK", "1"); } catch (e) {} adminMsg("Admin kilidi açıldı ✓"); buildAdminPanel(); } else msg.textContent = "❌ Yanlış kod."; } catch (e) { msg.textContent = "Hata: " + e.message; } };
+  const btn = admBtn("🔓 Kilidi Aç", go); btn.style.marginTop = "4px";
+  inp.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+  body.append(inp, btn, msg);
+}
 function buildAdminPanel() {
   const body = $("adminBody"); if (!body || !S) return; body.innerHTML = "";
+  if (!adminUnlocked()) { buildAdminUnlock(body); return; }   // kod girilmemişse yalnızca kilit ekranı
   const add = (...e) => e.forEach((x) => body.appendChild(x));
   add(admSec("1) 🧍 Oyuncu"),
     admRow(admTog("God Mode", "god"), admTog("Uçuş", "fly"), admTog("Noclip", "noclip"), admTog("Sonsuz Enerji", "infStam")),
@@ -3502,12 +3518,11 @@ function buildAdminPanel() {
     admRow(admBtn("🎁 HEPSİNİ VER", giveAll)));
   add(admSec("5) 👹 Yaratık & Sunucu"),
     admRow(admBtn("👁️ İzleyen", () => adminSpawn("watcher")), admBtn("🐆 Jaguar", () => adminSpawn("jaguar")), admBtn("🕷️ Sürünen", () => adminSpawn("crawler")), admBtn("🎭 Taklitçi", () => adminSpawn("mimic")), admBtn("👑 BOSS", () => adminSpawn("boss"))),
-    admRow(admTog("AI Kapat (dondur)", "noAI"), admBtn("💥 Tümünü temizle", adminKillAll)));
+    admRow(admTog("AI Kapat (dondur)", "noAI"), admTog("💥 Tek Vuruş Öldür", "oneHit"), admBtn("🧹 Tümünü temizle", adminKillAll)));
   if (net.online && net.peerCount() > 0) { const r = admRow(); for (const id of net.peerIds()) r.appendChild(admBtn("🚪 " + (remoteName[id] || id) + " at", () => adminKick(id))); add(admSec("👥 Oyuncuları At"), r); }
 }
 function toggleAdmin() {
   const el = $("admin"); if (!el || !S || !S.running) return;
-  if (!isOwner()) { toast("🔒 Admin paneli yalnızca hesap sahibine açık — kendi hesabınla (e-posta) giriş yap.", "bad"); return; }
   adminOpen = !adminOpen;
   if (adminOpen) { buildAdminPanel(); el.classList.remove("hidden"); if (document.exitPointerLock) document.exitPointerLock(); }
   else { el.classList.add("hidden"); if (!isTouch && threeCanvas.requestPointerLock) threeCanvas.requestPointerLock(); }

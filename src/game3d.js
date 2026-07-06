@@ -136,6 +136,29 @@ let composer = null, postOn = false, postTried = false, grainPass = null;
 const clock = new THREE.Clock();
 let built = false;
 
+// Prosedürel gökyüzü env haritası (PMREM). Metalik materyaller (silah/metal/zırh/su)
+// yansıtacak bir ortam olmayınca KAPKARA/mavi-siyah render olur; bu onu düzeltir.
+function makeEnvMap() {
+  try {
+    const c = document.createElement("canvas"); c.width = 64; c.height = 32;
+    const g = c.getContext("2d"); if (!g) return null;
+    const grd = g.createLinearGradient(0, 0, 0, 32);
+    grd.addColorStop(0.0, "#6f86ac");   // zenit — soluk gök mavisi (loş: geceyi yıkamaz)
+    grd.addColorStop(0.55, "#8f988a");  // ufuk — nötr
+    grd.addColorStop(1.0, "#2c352a");   // zemin — yeşilimsi (orman)
+    g.fillStyle = grd; g.fillRect(0, 0, 64, 32);
+    const tex = new THREE.CanvasTexture(c);
+    if (THREE.EquirectangularReflectionMapping) tex.mapping = THREE.EquirectangularReflectionMapping;
+    if (renderer && THREE.PMREMGenerator) {   // gerçek renderer varsa düzgün PMREM üret
+      const pm = new THREE.PMREMGenerator(renderer);
+      const env = pm.fromEquirectangular(tex).texture;
+      pm.dispose(); tex.dispose();
+      return env;
+    }
+    return tex;   // yedek: ham eşdörtgen doku (yine de siyah metali kırar)
+  } catch (e) { return null; }   // headless/gerçek olmayan renderer: sessizce atla
+}
+
 function buildScene() {
   renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, antialias: true, powerPreference: "high-performance" });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -150,6 +173,7 @@ function buildScene() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x9fb7a0);
   scene.fog = new THREE.FogExp2(0x9fb7a0, 0.014);
+  { const env = makeEnvMap(); if (env) scene.environment = env; }   // metallere gökyüzü yansıması ver → "siyah-mavi" metaller düzelir
 
   camera = new THREE.PerspectiveCamera(Settings.fov, window.innerWidth / window.innerHeight, 0.1, 600);
   camera.rotation.order = "YXZ";
@@ -1301,8 +1325,10 @@ addEventListener("keydown", (e) => {
   if (k === "f") inp.fire = true;
   if (k === "g") inp.eat = true;
   if (k === "r") { inp.shoot = true; shootDown = true; }   // ateş et (menzilli silah)
-  if (first && k === "q") cycleWeapon();                    // menzilli silah değiştir
-  if (first && k === "z") cycleMelee();                     // yakın dövüş silahı değiştir
+  if (first && k === "q") cycleWeapon();                    // menzilli silah değiştir (eski usül)
+  if (first && k === "z") cycleMelee();                     // yakın dövüş silahı değiştir (eski usül)
+  if (first && k >= "1" && k <= "9") selectSlot(+k - 1);    // HIZLI SLOT: 1..9 ile silah seç
+  if (first && k === "0") selectSlot(9);                    // HIZLI SLOT: 0 = 10. slot
   if (first && k === "l") toggleFlash();                    // el feneri aç/kapa
   if (first && k === "h") inp.shoot = true;                 // alternatif ateş tuşu
   if (k === "v") startTalk();           // bas-konuş (sesli sohbet)
@@ -1356,6 +1382,12 @@ bindBtn("btn-jump", () => (inp.jump = true));
 bindBtn("btn-shoot", () => (inp.shoot = true));
 { const bs = $("btn-shoot"); if (bs) { const d = () => { shootDown = true; }, u = () => { shootDown = false; }; bs.addEventListener("touchstart", d, { passive: false }); bs.addEventListener("touchend", u); bs.addEventListener("touchcancel", u); bs.addEventListener("mousedown", d); bs.addEventListener("mouseup", u); } }
 { const bw = $("btn-weapon"); if (bw) { bw.addEventListener("touchstart", (e) => { isTouch = true; cycleWeapon(); e.preventDefault(); }, { passive: false }); bw.addEventListener("click", () => cycleWeapon()); } }
+// HIZLI SLOT çubuğu: slota dokun/tıkla → o silahı kuşan (masaüstü + mobil)
+{ const hb = $("hotbar"); if (hb) {
+  const pick = (e) => { const el = e.target.closest && e.target.closest(".hb-slot"); if (!el) return; const n = +el.getAttribute("data-slot"); if (!isNaN(n)) selectSlot(n); e.preventDefault(); };
+  hb.addEventListener("touchstart", (e) => { isTouch = true; pick(e); }, { passive: false });
+  hb.addEventListener("click", pick);
+} }
 { const bf = $("btn-flash"); if (bf) { bf.addEventListener("touchstart", (e) => { isTouch = true; toggleFlash(); e.preventDefault(); }, { passive: false }); bf.addEventListener("click", () => toggleFlash()); } }
 const sprintBtn = bindBtn("btn-sprint", null, true);
 { const cb = $("btn-craft"); if (cb) { cb.addEventListener("touchstart", (e) => { isTouch = true; toggleCraft(); e.preventDefault(); }, { passive: false }); cb.addEventListener("click", () => toggleCraft()); } }
@@ -1555,7 +1587,7 @@ function doShoot() {
   if (!S.equip) { if (ownedRanged().length) cycleWeapon(); else toast("Menzilli silah yok (sandıklardan bul / yay üret) 🔫", "bad"); return; }
   const spec = RANGED[S.equip];
   if (S.shootCd > 0) return;
-  if ((S.inv[spec.ammo] || 0) <= 0) { toast("Mermi bitti: " + spec.label + " (Q ile değiştir)", "bad"); return; }
+  if ((S.inv[spec.ammo] || 0) <= 0) { toast("Mermi bitti: " + spec.label + " (1-0 ile silah değiştir)", "bad"); return; }
   S.shootCd = spec.cd; S.inv[spec.ammo]--;
   if (spec.silent) Sound.bow(); else Sound.gun();
   muzzleFlash();
@@ -1603,6 +1635,45 @@ function cycleMelee() {
   if (!owned.length) { toast("Özel yakın dövüş silahı yok (sandık/tezgah) 🗡️", "bad"); return; }
   const list = [null, ...owned]; let i = list.indexOf(S.melee); S.melee = list[(i + 1) % list.length];
   toast(S.melee ? "Kuşanıldı: " + MELEE[S.melee].label : "👊 Yumruk/balta", "good");
+}
+
+/* ===== HIZLI SİLAH SLOTLARI (1-0 tuşları / mobilde dokun) — envanteri Q/Z yerine kolayca değiştir ===== */
+function buildHotbar() {
+  if (!S) return [];
+  const slots = [{ type: "unarmed", icon: "🪓", label: "Balta/El" }];   // slot 1: silahsız (balta/el/yumruk)
+  for (const k of MELEE_ORDER) if (S.meleeOwned[k] || (k === "spear" && S.tools.spear)) slots.push({ type: "melee", key: k, icon: MELEE[k].label.split(" ")[0], label: MELEE[k].label });
+  for (const k of RANGED_ORDER) if (S.weapons[k]) slots.push({ type: "ranged", key: k, icon: RANGED[k].label.split(" ")[0], label: RANGED[k].label });
+  return slots;
+}
+function slotActive(s) {   // bu slot şu an kuşanılı mı?
+  if (s.type === "ranged") return S.equip === s.key;
+  if (S.equip) return false;                      // menzilli kuşanılıyken yakın slotlar pasif
+  if (s.type === "unarmed") return !S.melee;
+  return S.melee === s.key;
+}
+function selectSlot(n) {   // n = 0 tabanlı
+  const slots = buildHotbar(); if (n < 0 || n >= slots.length) return;
+  const s = slots[n];
+  if (s.type === "ranged") { S.equip = s.key; toast("Kuşanıldı: " + RANGED[s.key].label + " · " + (S.inv[RANGED[s.key].ammo] || 0) + " mermi", "good"); }
+  else if (s.type === "melee") { S.equip = null; S.melee = s.key; toast("Kuşanıldı: " + MELEE[s.key].label, "good"); }
+  else { S.equip = null; S.melee = null; toast("🪓 Balta/El", "good"); }
+  Sound.step && Sound.step(); updateHotbarHUD();
+}
+let _hbSig = "";
+function updateHotbarHUD() {
+  const hb = $("hotbar"); if (!hb) return;
+  if (!S || !S.running) { if (_hbSig !== "off") { hb.classList.add("hidden"); hb.innerHTML = ""; _hbSig = "off"; } return; }
+  const slots = buildHotbar();
+  if (slots.length <= 1) { if (_hbSig !== "none") { hb.classList.add("hidden"); hb.innerHTML = ""; _hbSig = "none"; } return; }   // sadece balta varsa gösterme
+  let sig = "", html = "";
+  slots.forEach((s, i) => {
+    const num = i < 9 ? (i + 1) : (i === 9 ? 0 : "");   // 1..9,0 (maks 10 slot)
+    const on = slotActive(s), ammo = s.type === "ranged" ? (S.inv[RANGED[s.key].ammo] || 0) : -1;
+    sig += `${s.type}${s.key || "-"}${on ? 1 : 0}${ammo}|`;
+    html += `<div class="hb-slot${on ? " on" : ""}" data-slot="${i}"><b>${num}</b><span>${s.icon}</span>${ammo >= 0 ? `<i>${ammo}</i>` : ""}</div>`;
+  });
+  if (sig === _hbSig) return;   // değişmediyse DOM'a dokunma (her kare çağrılabilir)
+  _hbSig = sig; hb.innerHTML = html; hb.classList.remove("hidden");
 }
 let flashLight = null;
 function toggleFlash() {
@@ -1836,7 +1907,12 @@ function renderCraft() {
   }
 }
 let craftOpen = false;
-function openCraft() { if (!S || !S.running || S.downed) return; craftOpen = true; renderCraft(); $("craft").classList.remove("hidden"); if (document.exitPointerLock) document.exitPointerLock(); }
+function nearBench() { return !!(S && S.running && camera && Math.hypot(camera.position.x - BENCH.x, camera.position.z - BENCH.z) <= 4.5); }
+function openCraft() {
+  if (!S || !S.running || S.downed) return;
+  if (!nearBench()) { toast("🛠️ Tezgahtan uzaksın — yanına git de öyle aç", "bad"); return; }   // uzaktan açılmaz
+  craftOpen = true; renderCraft(); $("craft").classList.remove("hidden"); if (document.exitPointerLock) document.exitPointerLock();
+}
 function closeCraft() { craftOpen = false; $("craft").classList.add("hidden"); if (!isTouch && S && S.running && threeCanvas.requestPointerLock) threeCanvas.requestPointerLock(); }
 function toggleCraft() { if (craftOpen) closeCraft(); else openCraft(); }
 
@@ -2693,6 +2769,8 @@ function updateHUD(night) {
     if (carryWeight() > carryLimit()) parts.push("⚖️ aşırı yük!");
     if (parts.length) { wh.textContent = parts.join("  ·  "); wh.classList.remove("hidden"); } else wh.classList.add("hidden");
   }
+  updateHotbarHUD();   // 1-0 hızlı silah çubuğu (mermi/aktif slot canlı güncellenir)
+  { const cb = $("btn-craft"); if (cb) cb.style.display = (isTouch && nearBench()) ? "" : "none"; }   // mobil: tezgaha yakınken 🛠️ butonu görünür
   const t = findTarget();
   if (t) {
     const key = isTouch ? "VUR" : "[Sol tık / E]";
@@ -2796,7 +2874,7 @@ function startGame(continueSave) {
   if (!built) { try { buildScene(); built = true; } catch (e) { $("loadNote").textContent = "3B başlatılamadı: " + e.message + " — 'npm install' yaptın mı?"; throw e; } }
   applySettings();
   S = newState();
-  glitch = null; jumpT = 0; jumpModel = null;
+  glitch = null; jumpT = 0; jumpModel = null; _hbSig = "";   // hızlı silah çubuğu yeniden kurulur
   // dünyayı sıfırla
   for (let i = 0; i < trees.length; i++) { trees[i].alive = true; trees[i].hp = 4; trees[i].regrow = 0; }
   refreshTrees();
@@ -2880,7 +2958,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe();
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 42;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 43;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 async function checkForUpdate() {
   try {
     const url = "https://raw.githubusercontent.com/servankrall/100-Days-n-Forest/main/version.json?t=" + Date.now();

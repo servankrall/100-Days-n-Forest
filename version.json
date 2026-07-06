@@ -1,6 +1,6 @@
 {
-  "build": 45,
-  "version": "1.5",
+  "build": 46,
+  "version": "1.6",
   "url": "https://github.com/servankrall/100-Days-n-Forest/releases/latest",
-  "notes": "Hata düzeltmeleri: co-op'ta yakalayan yaratığın ekranda takılı kalması giderildi, tezgah açma mesafesi rahatlatıldı, mobil hızlı silah çubuğu joystick'i engellemiyor."
+  "notes": "Jumpscare düzeltmesi: yaratık artık yüzüyle göz hizasında ekranı kaplıyor ve aydınlatılıyor (gerçekten canavara benziyor). Yakalayıştan sonra takılı kalan yaratık modeli giderildi."
 }

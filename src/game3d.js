@@ -1957,14 +1957,30 @@ function jumpscare(face, san, hp) {   // eski çizili yüz korkusu (yalnızca ya
   if (hp) { S.health = clamp(S.health - hp, 0, 100); S.hurt = 0.6; if (S.health <= 0) playerDied("kalp krizi"); }
   Sound.screech();
 }
-// YARATIK SENİ YAKALADI: gerçek 3B modeli ekrana sokar (jumpscare = yaratığın kendisi) + TEK VURUŞTA öldürür
+// YARATIK SENİ YAKALADI: gerçek 3B modeli YÜZÜ göz hizasında ekranı kaplayacak şekilde sokar
+// (jumpscare = yaratığın YÜZÜ, bacakları değil) + aydınlatır + TEK VURUŞTA öldürür
+let jumpLight = null;
 function catchKill(group, reason) {
   if (S.over || S.downed) return;
   if (group) {
     camera.getWorldDirection(_fwd);
-    group.position.set(camera.position.x + _fwd.x * 1.7, camera.position.y + _fwd.y * 1.7 - 0.8, camera.position.z + _fwd.z * 1.7);
-    group.rotation.y = Math.atan2(camera.position.x - group.position.x, camera.position.z - group.position.z);
-    group.scale.setScalar(3.4); group.visible = true;
+    const hlen = Math.hypot(_fwd.x, _fwd.z) || 1, dx = _fwd.x / hlen, dz = _fwd.z / hlen;   // yatay bakış yönü
+    group.scale.setScalar(1);
+    let s = 1.7, faceOff = 1.6;   // faceOff = grup orijininden yüze olan yerel yükseklik (güvenli varsayılan)
+    try {
+      if (group.updateWorldMatrix) group.updateWorldMatrix(true, true);
+      const box = new THREE.Box3().setFromObject(group);
+      const h = box.max.y - box.min.y;
+      if (isFinite(h) && h > 0.2) { s = 3.4 / h; faceOff = (box.min.y - group.position.y) + h * 0.88; }   // yüksekliği ~3.4 birime getir (ekranı kaplar); yüz ≈ tepeye yakın
+    } catch (e) {}
+    const dist = 2.1;
+    group.scale.setScalar(s);
+    group.position.set(camera.position.x + dx * dist, camera.position.y - faceOff * s + 0.1, camera.position.z + dz * dist);   // YÜZ göz hizasında
+    group.rotation.y = Math.atan2(camera.position.x - group.position.x, camera.position.z - group.position.z);   // yüzünü sana döner
+    group.visible = true;
+    if (!jumpLight) { jumpLight = new THREE.PointLight(0xffc2c2, 0, 16, 1.3); scene.add(jumpLight); }   // yaratığın yüzünü aydınlat (gece de görünsün)
+    jumpLight.position.set(camera.position.x + dx * 1.1, camera.position.y + 0.35, camera.position.z + dz * 1.1);
+    jumpLight.intensity = 5.5; jumpLight.visible = true;
   }
   jumpModel = group || null; jumpFace = -1; jumpT = 1.3; S.shake = 1.0; S.hurt = 1.0;
   Sound.screech();
@@ -2469,7 +2485,7 @@ function update(dt) {
   if (jumpT > 0) { jumpT -= dt; if (jumpT <= 0 && jumpModel) {   // jumpscare bitince yaratık modelini temizle (co-op'ta oyun sürdüğü için şart)
     jumpModel.visible = false; if (jumpModel.scale) jumpModel.scale.setScalar(1);
     if (jumpModel !== watcherGroup && jumpModel.parent) jumpModel.parent.remove(jumpModel);   // taklitçi vb. sahneden kaldır (İzleyen kalıcı grup, sadece gizle)
-    jumpModel = null;
+    jumpModel = null; if (jumpLight) { jumpLight.visible = false; jumpLight.intensity = 0; }
   } }
 
   // gece jaguarı
@@ -2879,11 +2895,16 @@ function startGame(continueSave) {
   if (!built) { try { buildScene(); built = true; } catch (e) { $("loadNote").textContent = "3B başlatılamadı: " + e.message + " — 'npm install' yaptın mı?"; throw e; } }
   applySettings();
   S = newState();
-  glitch = null; jumpT = 0; jumpModel = null; _hbSig = "";   // hızlı silah çubuğu yeniden kurulur
+  glitch = null; jumpT = 0; _hbSig = "";   // hızlı silah çubuğu yeniden kurulur
+  if (jumpModel) { jumpModel.visible = false; if (jumpModel.scale) jumpModel.scale.setScalar(1); if (jumpModel !== watcherGroup && jumpModel.parent) jumpModel.parent.remove(jumpModel); }   // önceki yakalayıştan kalan yaratık modelini (taklitçi vb.) temizle
+  jumpModel = null;
+  if (jumpLight) { jumpLight.visible = false; jumpLight.intensity = 0; }
   // dünyayı sıfırla
   for (let i = 0; i < trees.length; i++) { trees[i].alive = true; trees[i].hp = 4; trees[i].regrow = 0; }
   refreshTrees();
-  clearDynamic(); watcherGroup = null; wCd = 8; wEnc = 0;
+  clearDynamic();
+  if (watcherGroup) { watcherGroup.visible = false; if (watcherGroup.scale) watcherGroup.scale.setScalar(1); scene.remove(watcherGroup); }   // önceki oyundan kalan (yakalayış sonrası) İzleyen modelini sahneden kaldır
+  watcherGroup = null; wCd = 8; wEnc = 0;
   worldLog.length = 0;   // co-op paylaşımlı yapı kaydı sıfırlanır (yeni dünya)
   if (rain) rain.visible = false;
   for (let i = 0; i < 16; i++) spawnPrey();
@@ -2963,7 +2984,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe();
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 45;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 46;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 async function checkForUpdate() {
   try {
     const url = "https://raw.githubusercontent.com/servankrall/100-Days-n-Forest/main/version.json?t=" + Date.now();
@@ -3239,8 +3260,12 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "1.5";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "1.6";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "1.6", d: "6 Tem", items: [
+    "👹 Jumpscare düzeltmesi: yaratık artık YÜZÜYLE göz hizasında ekranı kaplıyor (eskiden bacaklarını görüyordun) ve aydınlatılıyor — gerçekten canavara benziyor.",
+    "🐛 Yakalayıştan sonra önceki oyundan kalan dev yaratık modeli (İzleyen/Taklitçi) sahnede takılı kalmıyor.",
+  ] },
   { v: "1.5", d: "6 Tem", items: [
     "🐛 Co-op'ta seni yakalayan yaratığın ekranda dev gibi takılı kalması giderildi.",
     "🛠️ Tezgah açma mesafesi biraz genişletildi (daha rahat).",

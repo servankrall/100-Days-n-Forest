@@ -942,7 +942,7 @@ function newState() {
     cookT: 0, fireCrackleT: 0, deathReason: "",
     heart: 0, heartLevel: 0, jumpCd: 12, firstNightDone: false, scripted: false, bloodMoon: false, dreadT: null, glitchCd: 35,
     shake: 0,
-    downed: false, bleed: 0, reviveT: 0,   // co-op: yere düşme / kan kaybı / diriltme ilerlemesi
+    downed: false, bleed: 0, reviveT: 0, spectating: false,   // co-op: yere düşme / kan kaybı / diriltme / izleyici modu
     sleeping: 0,                            // çadırda uyuma animasyonu
     weather: "clear", weatherT: rnd(25, 55), lightT: null, flash: 0, rainSndT: 0,  // hava durumu / şimşek
     notes: [],                              // bulunan günlük notları
@@ -2182,9 +2182,24 @@ function reviveSelf() {
   S.downed = false; S.bleed = 0; S.health = 35; S.sanity = clamp(S.sanity + 10, 0, 100);
   $("downed").classList.add("hidden"); toast("🩹 Arkadaşın seni dirilttin — ayaktasın!", "good");
 }
+// co-op: bağlı ve hâlâ ayakta (düşmemiş/ölmemiş) bir arkadaş var mı? (diriltebilecek biri)
+function anyoneAlive() { for (const id in remotes) { const r = remotes[id]; if (r && !r.downed && !r.dead) return true; } return false; }
+// bandaj süresi bitti ama arkadaş(lar) hayatta → izleyici modu (lobiye dön / izle). Diriltemezsin.
+function enterSpectate() {
+  S.downed = false; S.spectating = true; S.bleed = 0;
+  $("downed").classList.add("hidden");
+  const sp = $("spectate"); if (sp) sp.classList.remove("hidden");
+  document.exitPointerLock && document.exitPointerLock();
+  toast("💀 Öldün — arkadaşların hâlâ hayatta. İzleyebilir ya da lobiye dönebilirsin.", "bad");
+  try { net.broadcast({ t: "dead" }); } catch (e) {}   // arkadaşlar artık seni diriltmeye çalışmasın
+}
+function returnToLobby() { try { net.disconnect(); } catch (e) {} location.reload(); }   // co-op'tan çık + ana menü
 function die(reason) {
-  if (S.over) return; S.over = true; S.running = false; S.deathReason = reason; S.downed = false; $("downed").classList.add("hidden"); Sound.screech();
+  if (S.over) return; S.over = true; S.running = false; S.spectating = false; S.deathReason = reason; S.downed = false;
+  $("downed").classList.add("hidden"); { const sp = $("spectate"); if (sp) sp.classList.add("hidden"); }
+  Sound.screech();
   clearSave();   // ölünce kayıt silinir
+  if (net.online) { try { net.broadcast({ t: "dead" }); } catch (e) {} try { net.disconnect(); } catch (e) {} }   // co-op'ta ölünce oturumdan ayrıl (ölü oyuncu arkadaş DİRİLTEMEZ — "tekrar dene" hilesini engeller)
   document.exitPointerLock && document.exitPointerLock();
   setTimeout(() => { $("deathReason").textContent = "Sebep: " + reason; $("daysSurvived").textContent = S.day; $("gameover").classList.remove("hidden"); }, 700);
 }
@@ -2295,13 +2310,25 @@ function update(dt) {
     updateHUD(night); return;
   }
 
+  // İZLEYİCİ MODU (öldün ama arkadaşın hayatta) → hareket/etkileşim yok, sadece bak + izle
+  if (S.spectating) {
+    if (net.online) { S.netT = (S.netT || 0) - dt; if (S.netT <= 0) { S.netT = 0.3; try { net.broadcast({ t: "state", x: camera.position.x, z: camera.position.z, yaw, day: S.day, time: S.time, hp: 0, downed: false, dead: true }); } catch (e) {} } }
+    lerpRemotes(dt);
+    if (!net.online || !anyoneAlive()) { die(S.deathReason || "kan kaybı"); return; }   // izlerken herkes de gittiyse → oyun biter
+    updateHUD(night); return;
+  }
   // YERE DÜŞTÜ (co-op) → kan kaybı, hareket yok, diriltilmeyi bekle
   if (S.downed) {
+    if (net.online && net.peerCount() > 0 && !anyoneAlive()) { die("herkes yere düştü — oyun bitti"); return; }   // TÜM oyuncular düştü → oyun biter
     S.bleed -= dt; S.heartLevel = 1; if ((S.heart -= dt) <= 0) { Sound.thump(); S.heart = 0.5; }
     $("bleedTxt").textContent = Math.max(0, Math.ceil(S.bleed)) + " sn";
     if (net.online) { S.netT = (S.netT || 0) - dt; if (S.netT <= 0) { S.netT = 0.2; try { net.broadcast({ t: "state", x: camera.position.x, z: camera.position.z, yaw, day: S.day, time: S.time, hp: 0, downed: true }); } catch (e) {} } }
     lerpRemotes(dt);
-    if (S.bleed <= 0) { die(S.deathReason || "kan kaybı"); return; }
+    if (S.bleed <= 0) {   // bandaj süresi bitti
+      if (net.online && anyoneAlive()) enterSpectate();   // arkadaş hayatta → izle / lobiye dön (diriltemezsin)
+      else die(S.deathReason || "kan kaybı");             // kimse yok → oyun biter
+      return;
+    }
     updateHUD(night); return;
   }
 
@@ -2917,7 +2944,7 @@ function startGame(continueSave) {
   S.running = true;
   if (pendingWorld) { const pw = pendingWorld; pendingWorld = null; applyWorldSnapshot(pw); }   // menüde katıldıysam gecikmiş üs durumunu şimdi uygula
   craftOpen = false; pauseOpen = false;
-  $("craft").classList.add("hidden"); $("pause").classList.add("hidden"); $("downed").classList.add("hidden");
+  $("craft").classList.add("hidden"); $("pause").classList.add("hidden"); $("downed").classList.add("hidden"); { const sp = $("spectate"); if (sp) sp.classList.add("hidden"); }
   $("start").classList.add("hidden"); $("gameover").classList.add("hidden"); $("win").classList.add("hidden");
   $("hud").classList.remove("hidden"); crosshair.classList.remove("hidden"); $("pauseBtn").classList.remove("hidden");
   $("btn-craft").style.display = "none";   // tezgah artık fiziksel — butonla değil, yanına gidip açılır
@@ -2984,7 +3011,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe();
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 46;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 47;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 async function checkForUpdate() {
   try {
     const url = "https://raw.githubusercontent.com/servankrall/100-Days-n-Forest/main/version.json?t=" + Date.now();
@@ -2993,10 +3020,12 @@ async function checkForUpdate() {
     if (!res.ok) return;
     const j = await res.json();
     if (j && typeof j.build === "number" && j.build > GAME_BUILD) {
-      const b = $("updateBanner"); if (!b) return;
-      $("updateVer").textContent = j.version ? "(v" + j.version + ")" : "";
-      if (j.url) b.href = j.url;
-      b.classList.remove("hidden");
+      const ver = j.version ? "(v" + j.version + ")" : "";
+      // ZORUNLU güncelleme kapısı: güncellemeden devam edilemez (kullanıcı isteği)
+      const gate = $("updateGate");
+      if (gate) { const gv = $("ug-ver"); if (gv) gv.textContent = ver; const gl = $("ug-link"); if (gl && j.url) gl.href = j.url; gate.classList.remove("hidden"); }
+      const b = $("updateBanner");
+      if (b) { const uv = $("updateVer"); if (uv) uv.textContent = ver; if (j.url) b.href = j.url; b.classList.remove("hidden"); }
     }
   } catch (e) { /* ağ yok / native kısıt: sessizce geç, uyarı gösterme */ }
 }
@@ -3043,7 +3072,7 @@ function makeRemoteAvatar(name) {
 function updateRemote(id, d) {
   if (!scene) return; let r = remotes[id];
   if (!r) r = remotes[id] = { g: makeRemoteAvatar(remoteName[id] || id) };
-  r.tx = d.x; r.tz = d.z; r.yaw = d.yaw; r.downed = !!d.downed;
+  r.tx = d.x; r.tz = d.z; r.yaw = d.yaw; r.downed = !!d.downed; if (d.dead) r.dead = true;   // ölü/izleyici arkadaş → diriltme hedefi değil
   // host saat/gününü ben host DEĞİLSEM benimkine uygula (onda sabah bende akşam sorunu)
   if (!net.host && d.time != null && S && S.running) { S.time = d.time; S.day = d.day; }
 }
@@ -3118,10 +3147,21 @@ $("pz-voice").addEventListener("click", async () => {
 });
 $("pz-resume").addEventListener("click", () => closePause());
 $("pz-menu").addEventListener("click", () => location.reload());
+{ const sl = $("spec-lobby"); if (sl) sl.addEventListener("click", () => returnToLobby()); }   // izleyici → lobiye dön
+{ const sw = $("spec-watch"); if (sw) sw.addEventListener("click", () => { const sp = $("spectate"); if (sp) sp.classList.add("hidden"); }); }   // bandı gizle, izlemeye devam
 
 net.onStatus = (s) => mpMsg(s);
+const myName = () => (account && account.user) ? account.user : "Oyuncu";
+function setRemoteName(id, name) {   // ismi güncelle + avatar etiketini yenile (co-op isim karışması fix)
+  if (!name) return; remoteName[id] = name;
+  const r = remotes[id];
+  if (r && r.g && r.g.userData.tag) { r.g.remove(r.g.userData.tag); const tag = nameSprite(name); r.g.add(tag); r.g.userData.tag = tag; }
+  updateSpeakerHUD(); renderFriends();
+}
 net.onJoin = (id, meta) => {
-  remoteName[id] = (meta && meta.name) || id; toast("🟢 Katıldı: " + remoteName[id], "good"); renderFriends();
+  if (meta && meta.name) remoteName[id] = meta.name;   // ilk tahmin (yalnızca host tarafında doğru)
+  try { net.sendTo(id, { t: "hello", name: myName() }); } catch (e) {}   // İSİM EL SIKIŞMASI: her iki taraf da kendi adını gönderir → karışma biter
+  toast("🟢 Katıldı: " + (remoteName[id] || id), "good"); renderFriends();
   // HOST yetkilidir: yeni katılana üssün tam durumunu gönder (yapılar + tezgah + ateş)
   if (net.host && S && scene) { try { net.sendTo(id, { t: "wsnap", log: worldLog, benchTier: S.benchTier, fireFed: S.fireFed }); } catch (e) {} }
 };
@@ -3129,9 +3169,11 @@ net.onLeave = (id) => { toast("🔴 Ayrıldı: " + (remoteName[id] || id), "bad"
 net.onState = (id, d) => updateRemote(id, d);
 net.onData = (id, d) => {
   if (!d || !S) return;
-  if (d.t === "down") { toast("🩸 " + (remoteName[id] || "Arkadaşın") + " yere düştü — bandajla diriltin!", "bad"); const r = remotes[id]; if (r) r.downed = true; }
+  if (d.t === "hello") { setRemoteName(id, d.name); }                                             // gerçek isim geldi → düzelt
+  else if (d.t === "down") { toast("🩸 " + (remoteName[id] || "Arkadaşın") + " yere düştü — bandajla diriltin!", "bad"); const r = remotes[id]; if (r) { r.downed = true; r.dead = false; } }
+  else if (d.t === "dead") { const r = remotes[id]; if (r) { r.downed = false; r.dead = true; } toast("💀 " + (remoteName[id] || "Arkadaşın") + " öldü.", "bad"); }   // artık diriltilemez
   else if (d.t === "revived" && d.id === net.id) { if (S.downed) reviveSelf(); }                 // biri beni diriltti
-  else if (d.t === "revived") { const r = remotes[d.id]; if (r) r.downed = false; }
+  else if (d.t === "revived") { const r = remotes[d.id]; if (r) { r.downed = false; r.dead = false; } }
   else if (d.t === "talk") { talkingPeers[id] = !!d.on; updateSpeakerHUD(); }                     // kim konuşuyor göstergesi
   // ---- CO-OP paylaşımlı dünya (host gelen olayı diğerlerine iletir) ----
   else if (d.t === "place") { if (!worldSeen(d)) applyPlace(d.kind, d.x, d.z, d.rot, true); if (net.host) net.relay(id, d); }
@@ -3260,8 +3302,14 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "1.6";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "1.7";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "1.7", d: "6 Tem", items: [
+    "💀 Co-op ölüm akışı: TÜM oyuncular yere düşünce oyun biter. Bandaj süresi biterken arkadaşın hayattaysa 'İzle / Lobiye Dön' seçeneği gelir (ölü oyuncu artık kimseyi kurtaramaz).",
+    "🏷️ Co-op isim karışması düzeltildi — herkes doğru isimle görünür.",
+    "🔔 Zorunlu güncelleme kapısı: yeni sürüm çıkınca güncellemeden devam edilemez.",
+    "📜 Tezgah listesi artık kaydırılabiliyor — en üstteki tarif görünüyor.",
+  ] },
   { v: "1.6", d: "6 Tem", items: [
     "👹 Jumpscare düzeltmesi: yaratık artık YÜZÜYLE göz hizasında ekranı kaplıyor (eskiden bacaklarını görüyordun) ve aydınlatılıyor — gerçekten canavara benziyor.",
     "🐛 Yakalayıştan sonra önceki oyundan kalan dev yaratık modeli (İzleyen/Taklitçi) sahnede takılı kalmıyor.",

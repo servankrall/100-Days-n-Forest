@@ -289,6 +289,26 @@
   </div>
 
   <button id="pauseBtn" class="hidden">⏸</button>
+
+  <!-- ======================= İZLEYİCİ (öldün, arkadaşın hayatta) ======================= -->
+  <div id="spectate" class="hidden">
+    <div class="spec-inner">
+      <b>💀 Öldün</b> — arkadaşların hâlâ hayatta. İzleyebilirsin (diriltemezsin).
+      <button id="spec-lobby" class="minibtn">🔄 Lobiye Dön</button>
+      <button id="spec-watch" class="minibtn">👁️ İzlemeye Devam</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= ZORUNLU GÜNCELLEME KAPISI ======================= -->
+<div id="updateGate" class="hidden">
+  <div class="ug-panel">
+    <div class="ug-emoji">🔔</div>
+    <h1>GÜNCELLEME GEREKLİ</h1>
+    <p>Oyunun yeni bir sürümü çıktı <span id="ug-ver"></span>. Devam etmek için lütfen güncelle.</p>
+    <a id="ug-link" class="bigbtn" href="https://github.com/servankrall/100-Days-n-Forest/releases/latest" target="_blank" rel="noopener">⬇️ GÜNCELLE (indir)</a>
+    <p class="ug-note">Güncellemeden oyuna devam edilemez.</p>
+  </div>
 </div>
 
 <script type="module" src="./src/game3d.js"></script>

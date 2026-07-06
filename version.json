@@ -1,6 +1,6 @@
 {
-  "build": 46,
-  "version": "1.6",
+  "build": 47,
+  "version": "1.7",
   "url": "https://github.com/servankrall/100-Days-n-Forest/releases/latest",
-  "notes": "Jumpscare düzeltmesi: yaratık artık yüzüyle göz hizasında ekranı kaplıyor ve aydınlatılıyor (gerçekten canavara benziyor). Yakalayıştan sonra takılı kalan yaratık modeli giderildi."
+  "notes": "Co-op ölüm akışı (herkes düşünce oyun biter, ölünce izle/lobiye dön), co-op isim karışması düzeltmesi, zorunlu güncelleme kapısı, tezgah listesi kaydırma düzeltmesi."
 }

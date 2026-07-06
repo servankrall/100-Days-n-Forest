@@ -121,7 +121,7 @@ canvas#fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-eve
 /* ===== tezgah / crafting ===== */
 .panel.craftp { max-width: 640px; }
 .craftinv { font-size: 13px; color: #cfc8b6; letter-spacing: 0; }
-.craft-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 16px; text-align: left; }
+.craft-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 16px; text-align: left; max-height: 56vh; overflow-y: auto; padding-right: 6px; overscroll-behavior: contain; }
 .craft-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.12); border-radius: 10px; padding: 9px 12px; }
 .craft-row .ci { font-size: 15px; color: #f0ead2; }
 .craft-row .ci small { display: block; color: #a39; font-size: 12px; color: #b6a98c; }
@@ -213,3 +213,20 @@ canvas#fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-eve
 .chlog-head span { color: #9a9a86; font-size: 12px; }
 .chlog-items { margin: 0; padding-left: 18px; color: #e8dcc2; font-size: 13.5px; }
 .chlog-items li { margin: 3px 0; line-height: 1.42; }
+
+/* ===== izleyici (spectate) bandı ===== */
+#spectate { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 22; pointer-events: none; }
+#spectate.hidden { display: none; }
+.spec-inner { pointer-events: auto; background: rgba(20,8,8,.86); border: 1px solid rgba(200,60,60,.55); border-radius: 12px; padding: 12px 16px; color: #f0d8d8; font-size: 14px; text-align: center; box-shadow: 0 0 22px rgba(120,0,0,.4); max-width: 92vw; }
+.spec-inner b { color: #ff6a6a; }
+.spec-inner .minibtn { margin: 8px 6px 0; }
+
+/* ===== zorunlu güncelleme kapısı ===== */
+#updateGate { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center; padding: 20px; background: radial-gradient(ellipse at center, rgba(30,20,4,.96), rgba(0,0,0,.99)); }
+#updateGate.hidden { display: none; }
+.ug-panel { max-width: 460px; width: 100%; text-align: center; background: rgba(20,16,8,.9); border: 2px solid #e2b455; border-radius: 16px; padding: 28px 22px; box-shadow: 0 0 50px rgba(226,180,85,.4); }
+.ug-emoji { font-size: 52px; animation: upd-pulse 1.6s ease-in-out infinite; }
+.ug-panel h1 { color: #ffd98a; font-size: clamp(22px,6vw,34px); letter-spacing: .06em; margin: 6px 0 10px; }
+.ug-panel p { color: #e8dcc2; font-size: 15px; line-height: 1.5; margin: 8px 0; }
+.ug-panel .bigbtn { margin: 14px 0 6px; background: linear-gradient(90deg, rgba(90,64,12,.9), rgba(140,100,20,.9)); border-color: #e2b455; }
+.ug-note { color: #b09a72 !important; font-size: 12.5px !important; }

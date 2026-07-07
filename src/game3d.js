@@ -48,15 +48,23 @@ const toastsEl = $("toasts"), whisperEl = $("whisper"), promptEl = $("prompt"), 
 
 /* ----------------------- AYARLAR (kalıcı) ----------------------- */
 const Settings = {
-  lookSens: 1, volume: 0.85, brightness: 1, fov: 72, camScare: true,
+  lookSens: 1, volume: 0.85, brightness: 1, fov: 72, camScare: true, perf: null,   // perf: null=otomatik (mobilde açık), true/false=elle
   load() { try { Object.assign(this, JSON.parse(localStorage.getItem("orm_settings") || "{}")); } catch (e) {} },
-  save() { try { localStorage.setItem("orm_settings", JSON.stringify({ lookSens: this.lookSens, volume: this.volume, brightness: this.brightness, fov: this.fov, camScare: this.camScare })); } catch (e) {} },
+  save() { try { localStorage.setItem("orm_settings", JSON.stringify({ lookSens: this.lookSens, volume: this.volume, brightness: this.brightness, fov: this.fov, camScare: this.camScare, perf: this.perf })); } catch (e) {} },
 };
 Settings.load();
+function isMobileish() { return ("ontouchstart" in window) || (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) || window.innerWidth < 820; }
+let lowQuality = false;
+function applyPerf() {   // 🚀 PERFORMANS MODU: postFX'i (bloom/AO/vignette) atla + pixelRatio düşür → çok daha akıcı
+  lowQuality = Settings.perf != null ? !!Settings.perf : isMobileish();   // otomatik: mobilde açık
+  postOn = lowQuality ? false : !!composer;
+  resize();   // pixelRatio'yu yeni moda göre uygula
+}
 function applySettings() {
   Sound.setVol(Settings.volume);
   if (renderer) renderer.toneMappingExposure = 1.12 * Settings.brightness;
   if (camera) { camera.fov = Settings.fov; camera.updateProjectionMatrix(); }
+  applyPerf();
 }
 
 function toast(text, cls) {
@@ -1538,6 +1546,7 @@ addEventListener("keydown", (e) => {
   if (first && k === "b") inp.bandage = true;  // bandaj (can / dirilt)
   if (first && k === "t") inp.sleep = true;    // çadır/yatakta uyu
   if (first && k === "m") { if (S && S.hasMap) { S.bigMap = !S.bigMap; toast(S.bigMap ? "🗺️ Geniş harita AÇIK" : "🗺️ Harita kapandı", "good"); } else if (S && S.running) toast("Önce 🗺️ Harita üret (tezgah)", "bad"); }
+  if (first && (k === "y" || k === "enter")) openChat();   // 💬 co-op global sohbet
 });
 addEventListener("keyup", (e) => { if (typingInField(e)) return; const k = e.key.toLowerCase(); keys[k] = false; if (k === "v") stopTalk(); if (k === "r") shootDown = false; });
 
@@ -2526,6 +2535,7 @@ function applySave() {
 /* ----------------------- UPDATE ----------------------- */
 function update(dt) {
   if (S.rescuing) { updateRescue(dt); return; }   // 100. gün kurtarma sineması — normal oyun durur
+  S.saveT = (S.saveT || 0) - dt; if (S.saveT <= 0) { S.saveT = 25; saveProgress(); }   // 💾 otomatik kayıt (~25s) → güncelleme/çıkışta ilerleme kaybolmaz
   if (admin.infStam) S.stamina = 100;              // ♾️ Sonsuz Enerji
   // zaman / gün
   if (!admin.freezeTime) S.time += dt / CFG.DAY_LENGTH;   // ⏸️ Zamanı Dondur
@@ -3090,6 +3100,7 @@ function updateHUD(night) {
   }
   updateHotbarHUD();   // 1-0 hızlı silah çubuğu (mermi/aktif slot canlı güncellenir)
   { const cb = $("btn-craft"); if (cb) cb.style.display = (isTouch && nearBench()) ? "" : "none"; }   // mobil: tezgaha yakınken 🛠️ butonu görünür
+  { const bc = $("btn-chat"); if (bc) bc.style.display = (isTouch && net.online) ? "" : "none"; }   // 💬 buton yalnızca co-op'ta
   const t = findTarget();
   const akey = isTouch ? "VUR" : "[Sol tık / E]";
   if (carried) {   // elin dolu → taşıma göstergesi
@@ -3112,7 +3123,7 @@ function updateHUD(night) {
 
 /* ----------------------- RESIZE ----------------------- */
 function resize() {
-  const w = window.innerWidth, h = window.innerHeight, dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = window.innerWidth, h = window.innerHeight, dpr = lowQuality ? 1 : Math.min(window.devicePixelRatio || 1, 2);   // performans modu: 1x piksel
   if (renderer) { renderer.setPixelRatio(dpr); renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); }
   if (composer) { composer.setPixelRatio(dpr); composer.setSize(w, h); }
   fx.width = w * dpr; fx.height = h * dpr; fxc.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -3289,7 +3300,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 58;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 59;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -3324,6 +3335,8 @@ async function checkForUpdate() {
       const ver = j.version ? "(v" + j.version + ")" : "";
       if (j.url) updateURL = j.url;
       const gate = $("updateGate");
+      const firstShow = gate && gate.classList.contains("hidden");
+      if (firstShow && S && S.running) { saveProgress(); toast("💾 Oyun kaydedildi — güncelle, sonra DEVAM ET ile kaldığın yerden sürersin", "good"); if (document.exitPointerLock) document.exitPointerLock(); }   // güncelleme çıkmadan önce KAYDET
       if (gate) { const gv = $("ug-ver"); if (gv) gv.textContent = ver; gate.classList.remove("hidden"); }
       const b = $("updateBanner");
       if (b) { const uv = $("updateVer"); if (uv) uv.textContent = ver; b.classList.remove("hidden"); }
@@ -3334,6 +3347,7 @@ async function checkForUpdate() {
 { const gl = $("ug-link"); if (gl) gl.addEventListener("click", (e) => { e.preventDefault(); doUpdate(); }); }
 { const b = $("updateBanner"); if (b) b.addEventListener("click", (e) => { e.preventDefault(); doUpdate(); }); }
 checkForUpdate();
+setInterval(checkForUpdate, 240000);   // oyun içindeyken de her ~4 dk güncelleme kontrolü (çıkarsa kaydedip kapı gösterir)
 
 $("ac-create").addEventListener("click", () => {
   const email = $("ac-email").value.trim(), user = $("ac-user").value.trim(), p = $("ac-pass").value, p2 = $("ac-pass2").value;
@@ -3468,6 +3482,37 @@ $("pz-menu").addEventListener("click", () => location.reload());
 
 net.onStatus = (s) => mpMsg(s);
 const myName = () => (account && account.user) ? account.user : "Oyuncu";
+/* ----------------------- CO-OP GLOBAL SOHBET ----------------------- */
+let chatOpen = false;
+function addChatLine(who, msg, me) {
+  const log = $("chatLog"); if (!log) return;
+  const d = document.createElement("div"); d.className = "cl" + (me ? " me" : "");
+  d.innerHTML = "<b>" + escapeHtml(who) + ":</b> " + escapeHtml(msg);
+  log.appendChild(d); while (log.children.length > 6) log.removeChild(log.firstChild);
+  setTimeout(() => { d.style.opacity = "0"; setTimeout(() => { if (d.parentNode) d.parentNode.removeChild(d); }, 700); }, 9000);
+  const c = $("chat"); if (c) c.classList.remove("hidden");
+}
+function openChat() {
+  if (!net.online || !S || !S.running || chatOpen) return;   // sohbet yalnızca co-op'ta; tek oyuncuda sessizce yok say
+  const inp = $("chatInput"), c = $("chat"); if (!inp || !c) return;
+  chatOpen = true; c.classList.remove("hidden"); inp.classList.remove("hidden");
+  if (document.exitPointerLock) document.exitPointerLock();
+  try { inp.focus(); } catch (e) {}
+}
+function closeChatInput() {
+  const inp = $("chatInput"); if (!inp) return;
+  chatOpen = false; inp.value = ""; inp.classList.add("hidden"); try { inp.blur(); } catch (e) {}
+  if (!isTouch && S && S.running && threeCanvas.requestPointerLock) { try { threeCanvas.requestPointerLock(); } catch (e) {} }
+}
+function sendChat() {
+  const inp = $("chatInput"); if (!inp) return;
+  const v = inp.value.trim();
+  if (v) { try { net.broadcast({ t: "chat", msg: v }); } catch (e) {} addChatLine(myName() + " (sen)", v, true); }
+  closeChatInput();
+}
+{ const inp = $("chatInput"); if (inp) inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); sendChat(); } else if (e.key === "Escape") { e.preventDefault(); closeChatInput(); } }); }
+{ const bc = $("btn-chat"); if (bc) { bc.addEventListener("click", openChat); bc.addEventListener("touchstart", (e) => { isTouch = true; openChat(); e.preventDefault(); }, { passive: false }); } }
+net.onChat = (id, d) => { if (!d || !d.msg) return; addChatLine(remoteName[id] || id, String(d.msg).slice(0, 140), false); toast("💬 " + (remoteName[id] || id) + ": " + String(d.msg).slice(0, 140), "good"); if (net.host) { try { net.relay(id, d); } catch (e) {} } };
 function setRemoteName(id, name) {   // ismi güncelle + avatar etiketini yenile (co-op isim karışması fix)
   if (!name) return; remoteName[id] = name;
   const r = remotes[id];
@@ -3496,7 +3541,9 @@ net.onData = (id, d) => {
   else if (d.t === "bench") { applyBench(d.tier); if (net.host) net.relay(id, d); }
   else if (d.t === "fire") { applyFireLevel(d.fed); if (net.host) net.relay(id, d); }
   else if (d.t === "wsnap") applyWorldSnapshot(d);
+  else if (d.t === "grantAdmin") { if (!net.host) { try { LS.setItem("orm_adminOK", "1"); } catch (e) {} toast("🛡️ Sana ADMİN yetkisi verildi! Panel: \\ ya da P (mobilde 🛡️)", "good"); Sound.crackle(); if (adminOpen) buildAdminPanel(); } }   // owner (host) seçtiği oyuncuya admin verdi
 };
+function adminGrant(id) { try { net.sendTo(id, { t: "grantAdmin" }); adminMsg("🛡️ " + (remoteName[id] || id) + " → admin verildi ✓"); } catch (e) {} }
 
 /* ESC: durdur / sosyal menü */
 let pauseOpen = false;
@@ -3524,6 +3571,7 @@ function syncSettingsUI() {
   $("set-bri").value = Settings.brightness; $("set-bri-v").textContent = (+Settings.brightness).toFixed(2);
   $("set-fov").value = Settings.fov; $("set-fov-v").textContent = Settings.fov;
   $("set-cam").checked = !!Settings.camScare;
+  { const sp = $("set-perf"); if (sp) sp.checked = Settings.perf != null ? !!Settings.perf : isMobileish(); }
 }
 function openSettings() { settingsOpen = true; syncSettingsUI(); $("settings").classList.remove("hidden"); if (document.exitPointerLock) document.exitPointerLock(); }
 function closeSettings() { settingsOpen = false; $("settings").classList.add("hidden"); }
@@ -3537,6 +3585,7 @@ $("set-cam").addEventListener("change", (e) => {
   if (!Settings.camScare) { try { camStream && camStream.getTracks().forEach((t) => t.stop()); } catch (er) {} camEnabled = false; camStream = null; toast("📷 Kamera korkusu kapatıldı", "good"); }
   else if (!camEnabled && S && S.running) enableCamScare().then(() => toast("📷 Kamera korkusu açıldı 😈", "bad")).catch(() => toast("📷 Kamera izni verilmedi", "bad"));
 });
+{ const sp = $("set-perf"); if (sp) sp.addEventListener("change", (e) => { Settings.perf = e.target.checked; Settings.save(); applyPerf(); toast(e.target.checked ? "🚀 Performans modu AÇIK — daha akıcı (efektler sadeleşir)" : "✨ Tam kalite açık", "good"); }); }
 
 /* ----------------------- NOTLAR (günlükler) ----------------------- */
 const NOTE_POOL = [
@@ -3618,8 +3667,14 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "2.7";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "2.8";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "2.8", d: "7 Tem", items: [
+    "🚀 PERFORMANS MODU (Ayarlar → 'Performans modu'): oyun kasıyorsa aç — ağır efektler (bloom/AO/vignette) kapanır + çözünürlük optimize edilir → çok daha akıcı. Mobilde otomatik açık.",
+    "💬 CO-OP GLOBAL SOHBET: oyun içinde Y (veya Enter) ile mesaj yaz → tüm oyunculara gider (mobilde 💬 buton). Gelen mesajlar ekranda + bildirimde görünür.",
+    "🛡️ Admin yetkisini SEÇTİĞİN kişilere ver: host (oda kuran) isen admin panelinde oyuncunun yanındaki '🛡️' ile o kişiye admin açarsın.",
+    "💾 Güncelleme artık oyun İÇİNDEYKEN de çıkıyor — çıkmadan önce oyun otomatik KAYDEDİLİR (+ ~25s'de bir oto-kayıt). Güncelleyip açınca 'DEVAM ET' ile kaldığın yerden (gün/eşya/can) sürersin.",
+  ] },
   { v: "2.7", d: "7 Tem", items: [
     "🕷️👑 MADEN KRALİÇESİ eklendi! Derin madende oyalanırsan dev bir örümcek BOSS uyanır (can barı çıkar). Yen → ⛏️ Kazma + bol 💎 mücevher + ⚙️ ganimet düşer. Çıkışa koşarsan geride kalır (tekrar girince yeniden uyanır).",
     "🐛 Düzeltme: boss can barı artık yalnızca boss yakındayken görünüyor (uzaktaki/başka bölgedeki boss barı ekranda takılı kalmıyor) ve boss ismi doğru gösteriliyor.",
@@ -3804,6 +3859,7 @@ function buildAdminPanel() {
     admRow(admTog("AI Kapat (dondur)", "noAI"), admTog("💥 Tek Vuruş Öldür", "oneHit"), admBtn("🧹 Tümünü temizle", adminKillAll)));
   add(admSec("6) ⭐ Admin Eşyaları"),
     admRow(admBtn("🔫 Admin Silahı", giveAdminGun), admBtn("🪓 Admin Baltası", giveAdminAxe), admBtn("⭐ Admin Eşyaları (hepsi)", giveAdminItems)));
+  if (net.online && net.host && net.peerCount() > 0) { const r = admRow(); for (const id of net.peerIds()) r.appendChild(admBtn("🛡️ " + (remoteName[id] || id), () => adminGrant(id))); add(admSec("🛡️ Admin Yetkisi Ver (seçtiğin kişiye — sen host isen)"), r); }
   if (net.online && net.peerCount() > 0) { const r = admRow(); for (const id of net.peerIds()) r.appendChild(admBtn("🚪 " + (remoteName[id] || id) + " at", () => adminKick(id))); add(admSec("👥 Oyuncuları At"), r); }
 }
 function toggleAdmin() {

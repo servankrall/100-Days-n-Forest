@@ -1007,6 +1007,10 @@ function exitMine() {
   fadeTo(() => {
     S.inMine = false; inCave = false;
     if (mineGroup) mineGroup.visible = false;
+    // Maden Kraliçesi'ni madende bırak (yüzeye taşınmasın) — çıkınca temizlenir, tekrar girince yeniden uyanır
+    let removedQueen = false;
+    for (let i = animals.length - 1; i >= 0; i--) { if (animals[i].type === "queen" || (mineSpot && animals[i].type === "spider" && inMineArea(animals[i].x, animals[i].z))) { scene.remove(animals[i].group); if (animals[i].type === "queen") removedQueen = true; animals.splice(i, 1); } }
+    if (removedQueen) bossAlive = false;
     const rt = mineReturn || (mineEntrance ? { x: mineEntrance.x, z: mineEntrance.z, yaw: 0 } : { x: 0, z: 0, yaw: 0 });
     camera.position.set(rt.x, CFG.EYE, rt.z); S.py = 0; S.vy = 0;
     if (typeof rt.yaw === "number") yaw = rt.yaw;
@@ -1276,6 +1280,18 @@ function makeAnimal(type) {
     if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
     scene.add(g); return g;
   }
+  if (type === "queen") {                                     // MADEN KRALİÇESİ — dev örümcek boss, ışıyan yumurta kesesi + kızıl aura
+    const dark = new THREE.MeshStandardMaterial({ color: 0x1a0e14, roughness: 1, flatShading: true });
+    const sac = new THREE.MeshStandardMaterial({ color: 0x5a1020, emissive: 0x7a1226, emissiveIntensity: 0.9, roughness: 0.8, flatShading: true });
+    const abd = new THREE.Mesh(new THREE.SphereGeometry(0.95, 12, 12), sac); abd.position.set(-0.6, 1.0, 0); abd.scale.set(1.2, 1.0, 1.2); g.add(abd);
+    const ceph = new THREE.Mesh(new THREE.SphereGeometry(0.55, 12, 12), dark); ceph.position.set(0.62, 0.95, 0); g.add(ceph);
+    const eyeM = new THREE.MeshStandardMaterial({ color: 0xff5020, emissive: 0xff2000, emissiveIntensity: 3 });
+    for (const sz of [-1, 1]) for (const yy of [0, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), eyeM); e.position.set(1.0, 0.98 + yy * 0.16, sz * 0.22); g.add(e); }
+    for (let i = 0; i < 8; i++) { const sx = i < 4 ? -1 : 1, lz = ((i % 4) - 1.5) * 0.5; const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.08, 1.8, 3, 6), dark); leg.position.set(lz + 0.1, 0.95, sx * 0.7); leg.rotation.x = sx * 0.9; leg.rotation.z = 0.5 - Math.abs((i % 4) - 1.5) * 0.16; g.add(leg); }
+    g.add(plight(0xff3020, 0.7, 9, 2, 0, 1.2, 0));
+    if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    scene.add(g); return g;
+  }
   if (animalProtos[type]) {                                   // yüklenmiş gerçek GLB (boar/capybara/tapir)
     const src = animalProtos[type]; const m = SkeletonUtilsMod ? SkeletonUtilsMod.clone(src.proto) : src.proto.clone(true);
     m.rotation.y = Math.PI / 2; g.add(m); g.userData.model = m;
@@ -1361,8 +1377,9 @@ const BEAST = {
   fairy:     { sp: 7.2, dmg: 7,  reach: 1.9, hp: 8,  fearFire: true,  nightOnly: true,  desp: 46, sanity: 9 },
   cultist:   { sp: 3.2, dmg: 24, reach: 2.8, hp: 95, fearFire: false, nightOnly: false, desp: 999, boss: true },
   spider:    { sp: 5.6, dmg: 9,  reach: 1.7, hp: 7,  fearFire: false, nightOnly: false, desp: 32 },
+  queen:     { sp: 3.4, dmg: 20, reach: 2.7, hp: 88, fearFire: false, nightOnly: false, desp: 999, boss: true, sanity: 6 },   // 🕷️👑 MADEN KRALİÇESİ (maden boss'u)
 };
-const beastName = (t) => ({ polarbear: "kutup ayısı", lavabeast: "lav yaratığı", fairy: "peri saldırısı", cultist: "Cultist King", spider: "mağara örümceği" }[t] || t);
+const beastName = (t) => ({ polarbear: "kutup ayısı", lavabeast: "lav yaratığı", fairy: "peri saldırısı", cultist: "Cultist King", spider: "mağara örümceği", queen: "Maden Kraliçesi" }[t] || t);
 let bossAlive = false;
 function spawnBeast(type) {
   const B = BEAST[type], ang = rnd(0, 6.28), d = rnd(22, 40);
@@ -1370,6 +1387,12 @@ function spawnBeast(type) {
   animals.push({ group: makeAnimal(type), x, z, type, hp: B.hp, maxhp: B.hp, state: "chase", dir: 0, atkCd: 0, bite: 0, slow: 0, hostile: true, boss: !!B.boss });
 }
 function spawnCultistKing() { if (bossAlive) return; bossAlive = true; spawnBeast("cultist"); Sound.growl(); whisperText("CULTIST KING uyandı..."); toast("🌋👑 CULTIST KING beliriyor!", "bad"); S.shake = Math.max(S.shake, 0.6); }
+function spawnMineQueen() {   // 🕷️👑 MADEN KRALİÇESİ — madenin derinliğinde uyanır
+  if (bossAlive || !mineSpot) return; bossAlive = true;
+  const ang = rnd(0, 6.28), d = rnd(8, 14);
+  animals.push({ group: makeAnimal("queen"), x: mineSpot.x + Math.cos(ang) * d, z: mineSpot.z + Math.sin(ang) * d, type: "queen", hp: BEAST.queen.hp, maxhp: BEAST.queen.hp, state: "chase", dir: 0, atkCd: 0, bite: 0, slow: 0, hostile: true, boss: true });
+  Sound.growl(); whisperText("MADEN KRALİÇESİ uyandı..."); toast("🕷️👑 MADEN KRALİÇESİ! Savaş ya da çıkışa koş!", "bad"); S.shake = Math.max(S.shake, 0.6); S.heartLevel = Math.max(S.heartLevel, 0.9);
+}
 
 /* ----- ateş modeli ----- */
 function makeFire(x, z) {
@@ -1757,9 +1780,16 @@ function doAction() {
   }
 }
 function killAnimal(a, cooked) {
-  if (a.boss) {   // CULTIST KING yenildi → büyük ödül
-    bossAlive = false; const newSword = giveMelee("infernal"); S.inv.gem += rndi(3, 6); S.inv.metal += rndi(8, 14); S.inv.cooked += 4;
-    toast("👑 CULTIST KING düştü! " + (newSword ? "🔥 Cehennem Kılıcı + " : "") + "💎 mücevher + ⚙️ ganimet!", "good"); Sound.crackle();
+  if (a.boss) {   // BOSS yenildi → büyük ödül
+    bossAlive = false;
+    if (a.type === "queen") {   // 🕷️👑 MADEN KRALİÇESİ ödülü
+      const gotPick = !S.tools.pickaxe; S.tools.pickaxe = true;
+      S.inv.gem += rndi(4, 8); S.inv.metal += rndi(6, 12); S.inv.cooked += 2;
+      toast("🕷️👑 MADEN KRALİÇESİ öldü! " + (gotPick ? "⛏️ Kazma + " : "") + "💎 bol mücevher + ⚙️ ganimet!", "good"); Sound.crackle();
+    } else {   // 🌋👑 CULTIST KING
+      const newSword = giveMelee("infernal"); S.inv.gem += rndi(3, 6); S.inv.metal += rndi(8, 14); S.inv.cooked += 4;
+      toast("👑 CULTIST KING düştü! " + (newSword ? "🔥 Cehennem Kılıcı + " : "") + "💎 mücevher + ⚙️ ganimet!", "good"); Sound.crackle();
+    }
     scene.remove(a.group); const bi = animals.indexOf(a); if (bi >= 0) animals.splice(bi, 1); return;
   }
   if (BEAST[a.type]) {   // biyom yaratıkları: post/et yok, sadece kaybolur (+ az ganimet)
@@ -2762,10 +2792,11 @@ function update(dt) {
   if (curBiome === "volcanic" && S.day >= 8 && !bossAlive && Math.random() < 0.0006) spawnCultistKing();
   // MAĞARA: örümcekler (her zaman, karanlıkta sıkıştırır)
   if (inCave && Math.random() < 0.0020 && animals.filter((a) => a.type === "spider").length < 5) spawnBeast("spider");
-  // DERİN MADEN: biraz daha örümcek baskısı + ürkütücü fısıltılar
+  // DERİN MADEN: biraz daha örümcek baskısı + ürkütücü fısıltılar + Maden Kraliçesi (linger yaparsan uyanır)
   if (S.inMine) {
     if (Math.random() < 0.0010 && animals.filter((a) => a.type === "spider").length < 6) spawnBeast("spider");
     if (Math.random() < 0.0035) { whisperText(choice(["ışığı söndürme", "duydun mu?", "yaklaşıyor", "kaz... kaz...", "yalnız değilsin"])); Sound.whisper(); }
+    if (!bossAlive && Math.random() < 0.0005) spawnMineQueen();   // ~ yarım dakika sonra uyanabilir
   }
 
   updateAnimals(dt);
@@ -2985,7 +3016,7 @@ function updateAnimals(dt) {
       else { a.t -= dt; if (a.t <= 0) { a.t = rnd(1.5, 4); a.dir = rnd(0, 6.28); a.moving = Math.random() < 0.6; } if (a.moving) { a.x += Math.cos(a.dir) * 1.6 * dt; a.z += Math.sin(a.dir) * 1.6 * dt; } }
     }
     // OYUNCUYA GİRMESİN: atılım dışında bir dur-mesafesi koru (jaguar/domuz içimize giriyordu)
-    const STOP = a.type === "jaguar" ? 1.7 : a.type === "crawler" ? 1.5 : a.type === "lurker" && a.state === "ambush" ? 1.4 : a.type === "pup" ? 0.9 : a.type === "boar" && a.hostile ? 1.6 : a.type === "cultist" ? 2.4 : a.type === "polarbear" ? 1.9 : a.type === "lavabeast" ? 1.7 : a.type === "fairy" ? 1.3 : 0;
+    const STOP = a.type === "jaguar" ? 1.7 : a.type === "crawler" ? 1.5 : a.type === "lurker" && a.state === "ambush" ? 1.4 : a.type === "pup" ? 0.9 : a.type === "boar" && a.hostile ? 1.6 : a.type === "cultist" ? 2.4 : a.type === "queen" ? 2.4 : a.type === "polarbear" ? 1.9 : a.type === "lavabeast" ? 1.7 : a.type === "fairy" ? 1.3 : 0;
     if (STOP && (a.pounce == null || a.pounce <= 0)) {
       const nd = Math.hypot(a.x - px, a.z - pz);
       if (nd < STOP) { const u = nd || 0.001; a.x = px + (a.x - px) / u * STOP; a.z = pz + (a.z - pz) / u * STOP; }
@@ -3043,7 +3074,7 @@ function updateHUD(night) {
   $("dayNum").textContent = S.day;
   const [ic, tx] = phaseInfo(S.time); $("phaseIcon").textContent = ic; $("phaseText").textContent = tx;
   { const bl = $("biomeLabel"); if (bl) bl.textContent = BIOMES[curBiome].name; }
-  { const bb = $("bossBar"); if (bb) { const boss = bossAlive ? animals.find((a) => a.boss) : null; if (boss) { bb.classList.remove("hidden"); const bf = $("bossFill"); if (bf) bf.style.width = clamp(boss.hp / (boss.maxhp || 95) * 100, 0, 100) + "%"; } else bb.classList.add("hidden"); } }
+  { const bb = $("bossBar"); if (bb) { const boss = bossAlive ? animals.find((a) => a.boss && Math.hypot(a.x - camera.position.x, a.z - camera.position.z) < 80) : null; if (boss) { bb.classList.remove("hidden"); const bn = $("bossName"); if (bn) bn.textContent = boss.type === "queen" ? "🕷️👑 MADEN KRALİÇESİ" : "👑 CULTIST KING"; const bf = $("bossFill"); if (bf) bf.style.width = clamp(boss.hp / (boss.maxhp || 95) * 100, 0, 100) + "%"; } else bb.classList.add("hidden"); } }
   bars.health.style.width = S.health + "%"; bars.hunger.style.width = S.hunger + "%"; bars.warmth.style.width = S.warmth + "%"; bars.sanity.style.width = S.sanity + "%"; bars.stamina.style.width = S.stamina + "%"; if (bars.thirst) bars.thirst.style.width = S.thirst + "%";
   invEl.wood.textContent = S.inv.wood; invEl.raw.textContent = S.inv.raw; invEl.cooked.textContent = S.inv.cooked;
   invEl.metal.textContent = S.inv.metal; invEl.pelt.textContent = S.inv.pelt; invEl.bandage.textContent = S.inv.bandage; if (invEl.gem) invEl.gem.textContent = S.inv.gem;
@@ -3258,7 +3289,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 57;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 58;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -3587,8 +3618,12 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "2.6";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "2.7";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "2.7", d: "7 Tem", items: [
+    "🕷️👑 MADEN KRALİÇESİ eklendi! Derin madende oyalanırsan dev bir örümcek BOSS uyanır (can barı çıkar). Yen → ⛏️ Kazma + bol 💎 mücevher + ⚙️ ganimet düşer. Çıkışa koşarsan geride kalır (tekrar girince yeniden uyanır).",
+    "🐛 Düzeltme: boss can barı artık yalnızca boss yakındayken görünüyor (uzaktaki/başka bölgedeki boss barı ekranda takılı kalmıyor) ve boss ismi doğru gösteriliyor.",
+  ] },
   { v: "2.6", d: "7 Tem", items: [
     "🗺️ Maden girişi artık mini haritada MOR işaretle gösteriliyor — kolayca bulunur.",
     "⛏️ Derin madende sandıklardan yüksek şansla KAZMA çıkıyor (bulduğun kristalleri kazabilmen için).",

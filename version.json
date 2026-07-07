@@ -1,6 +1,6 @@
 {
-  "build": 60,
-  "version": "2.9",
+  "build": 61,
+  "version": "3.0",
   "url": "https://github.com/servankrall/100-Days-n-Forest/releases/latest",
-  "notes": "🧨 Dinamit eklendi (tezgah Tier 3): X ile patlat → kristalleri kazar (💎) + düşmanları vurur. 🐛 Madende oto-kayıt sonrası 'DEVAM ET' seni boş köşeye ışınlama bug'ı düzeltildi (artık yüzeye dönüyorsun)."
+  "notes": "🎚️ Zorluk seçimi eklendi (Kolay/Normal/Zor) — gelen hasarı ve açlık/susuzluğu ayarlar, DEVAM ET ile korunur. 🐛 Dinamit artık menü/duraklatmada yanlışlıkla patlamıyor."
 }

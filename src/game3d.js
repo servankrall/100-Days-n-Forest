@@ -994,6 +994,8 @@ function enterMine() {
     camera.position.set(mineSpot.x + Math.cos(a) * r, CFG.EYE, mineSpot.z + Math.sin(a) * r);
     S.py = 0; S.vy = 0;
     curBiome = "caves"; applyBiomeGround("caves");
+    S.heartLevel = Math.max(S.heartLevel || 0, 0.55); S.shake = Math.max(S.shake || 0, 0.28);   // iniş ürpertisi
+    whisperText(choice(["derinlerde bir şey var...", "kaz... ama sessizce", "geri dönmelisin"])); Sound.growl();
     toast("⛏️ Madene indin — el fenerini aç (🔦 L). Çıkış: ışıklı kapı 🪜", "good");
     mineBusy = false;
   });
@@ -1095,7 +1097,7 @@ function buildPOIs() {
 let S;
 function newState() {
   return {
-    running: false, paused: false, over: false, won: false,
+    running: false, paused: false, over: false, won: false, inMine: false,
     time: 0.16, day: 1,
     health: 100, hunger: 100, warmth: 100, sanity: 100, stamina: 100, thirst: 100,
     inv: { wood: 10, raw: 0, cooked: 2, metal: 0, pelt: 0, bandage: 1, gem: 0, cloth: 0, rope: 0, medkit: 0, pills: 0, canned: 0, choco: 0, pistolAmmo: 0, shells: 0, rifleAmmo: 0, arrows: 0, water: 1, soda: 0, batteries: 0 },
@@ -1579,6 +1581,8 @@ function findTarget() {
   const px = camera.position.x, pz = camera.position.z;
   let best = null, bestScore = -1;
   const consider = (x, z, range, kind, obj) => {
+    // maden ganimeti yüzeyden görünmez → yüzeydeyken maden bölgesindeki gizli eşyalarla (ve madendeyken yüzey eşyalarıyla) etkileşme
+    if (kind !== "mineenter" && kind !== "mineexit" && mineSpot && (Math.hypot(x - mineSpot.x, z - mineSpot.z) < mineSpot.r + 2) !== !!S.inMine) return;
     const dx = x - px, dz = z - pz, d = Math.hypot(dx, dz);
     if (d > range || d < 0.001) return;
     const dot = (dx / d) * _fwd.x + (dz / d) * _fwd.z;        // bakış hizası
@@ -2756,6 +2760,11 @@ function update(dt) {
   if (curBiome === "volcanic" && S.day >= 8 && !bossAlive && Math.random() < 0.0006) spawnCultistKing();
   // MAĞARA: örümcekler (her zaman, karanlıkta sıkıştırır)
   if (inCave && Math.random() < 0.0020 && animals.filter((a) => a.type === "spider").length < 5) spawnBeast("spider");
+  // DERİN MADEN: biraz daha örümcek baskısı + ürkütücü fısıltılar
+  if (S.inMine) {
+    if (Math.random() < 0.0010 && animals.filter((a) => a.type === "spider").length < 6) spawnBeast("spider");
+    if (Math.random() < 0.0035) { whisperText(choice(["ışığı söndürme", "duydun mu?", "yaklaşıyor", "kaz... kaz...", "yalnız değilsin"])); Sound.whisper(); }
+  }
 
   updateAnimals(dt);
 
@@ -2810,6 +2819,7 @@ function update(dt) {
   let hl = (1 - S.sanity / 100) * 0.8;
   if (watcher) hl = Math.max(hl, map(Math.hypot(watcher.x - camera.position.x, watcher.z - camera.position.z), 4, 30, 1, 0.2));
   for (const a of animals) if (a.hostile && Math.hypot(a.x - camera.position.x, a.z - camera.position.z) < 16) hl = Math.max(hl, 0.7);
+  if (S.inMine) hl = Math.max(hl, 0.34);   // derin madende sabit düşük gerilim (kalp atışı)
   S.heartLevel = lerp(S.heartLevel, hl, 0.1);
   if (S.heartLevel > 0.16) { S.heart -= dt; if (S.heart <= 0) { Sound.thump(); S.heart = lerp(1.1, 0.32, S.heartLevel); } }
 
@@ -3245,7 +3255,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 55;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 56;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -3574,8 +3584,13 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "2.4";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "2.5";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "2.5", d: "7 Tem", items: [
+    "🕷️ Derin maden artık daha ürkütücü: inince kalp atışı hızlanır, fısıltılar duyulur, mağara örümceği baskısı biraz arttı. El fenerini açık tut!",
+    "🐛 Düzeltme: madendeki gizli eşyalarla (sandık/kristal) yanlışlıkla yüzeyden etkileşim kurulabiliyordu — artık maden ganimeti yalnızca madendeyken toplanır.",
+    "🔧 Ufak sağlamlık iyileştirmeleri (maden durumu yeni oyunda temiz sıfırlanır).",
+  ] },
   { v: "2.4", d: "7 Tem", items: [
     "⛏️ DERİN MADEN eklendi! Yüzeyde bir MADEN GİRİŞİ (raylı tünel ağzı, fenerli) var — 'Madene in' deyince EKRAN KARARIR ve seni gizli madene ışınlar. Maden çok uzakta, yüzeyden görünmez.",
     "🕯️ Maden içi: ışıyan mavi maden damarları, ahşap galeri destekleri, maden arabası, kızıl horror ışıltısı ve kemikler. El fenerini aç (🔦 L). Bol ganimet: hurda, kristal, mühimmat sandığı.",

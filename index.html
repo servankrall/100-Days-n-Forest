@@ -56,6 +56,10 @@
     <div id="prompt" class="hidden"></div>
     <div id="whisper" class="hidden"></div>
     <div id="voice" class="hidden">🎤 <span>Konuşuyor...</span></div>
+    <div id="chat" class="hidden">
+      <div id="chatLog"></div>
+      <input id="chatInput" class="hidden" type="text" maxlength="140" placeholder="Mesaj — Enter gönder, Esc kapat" autocomplete="off" autocapitalize="sentences">
+    </div>
   </div>
 
   <!-- ======================= MOBILE CONTROLS ======================= -->
@@ -65,6 +69,7 @@
     <button id="btn-craft">🛠️</button>
     <button id="btn-flash">🔦</button>
     <button id="btn-admin">🛡️</button>
+    <button id="btn-chat">💬</button>
     <div id="btns">
       <button class="mbtn big" id="btn-action">VUR</button>
       <button class="mbtn" id="btn-jump">⤴️</button>
@@ -206,6 +211,7 @@
         <label class="set-row">Parlaklık <input id="set-bri" type="range" min="0.6" max="1.7" step="0.05"><span id="set-bri-v"></span></label>
         <label class="set-row">Görüş açısı (FOV) <input id="set-fov" type="range" min="60" max="95" step="1"><span id="set-fov-v"></span></label>
         <label class="set-row">📷 Kamera korkusu <input id="set-cam" type="checkbox"></label>
+        <label class="set-row">🚀 Performans modu (oyun kasıyorsa aç) <input id="set-perf" type="checkbox"></label>
       </div>
       <button id="set-close" class="bigbtn">▶ KAPAT</button>
     </div>

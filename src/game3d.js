@@ -195,10 +195,9 @@ function buildScene() {
   woodTex = woodTexture(); stoneTex = stoneTexture(); groundNormTex = groundNormalTexture();
   // zemin (prosedürel doku + kabartma normal haritası → güneş altında yüzey canlanır)
   const gtex = groundTexture();
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(CFG.WORLD * 2 + 20, CFG.WORLD * 2 + 20),
-    new THREE.MeshStandardMaterial({ map: gtex, normalMap: groundNormTex, normalScale: new THREE.Vector2(0.55, 0.55), roughness: 0.96, metalness: 0 })
-  );
+  biomeGroundTex.forest = gtex;   // biyoma özel zemin dokuları önbelleği (kullanıldıkça üretilir)
+  groundMat = new THREE.MeshStandardMaterial({ map: gtex, normalMap: groundNormTex, normalScale: new THREE.Vector2(0.55, 0.55), roughness: 0.96, metalness: 0 });
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(CFG.WORLD * 2 + 20, CFG.WORLD * 2 + 20), groundMat);
   ground.rotation.x = -Math.PI / 2; if (shadowsOn) ground.receiveShadow = true; scene.add(ground);
 
   buildBiomes();                  // biyom zemin renkleri + kar/lav/peri dekorları + atmosfer parçacıkları
@@ -532,6 +531,51 @@ function stoneTexture() {
   const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; return t;
 }
 let woodTex = null, stoneTex = null, groundNormTex = null;
+let groundMat = null; const biomeGroundTex = {};   // biyoma göre değişen zemin materyali + doku önbelleği
+// Biyoma özel BÜYÜK zemin dokuları (1024) — orman yeşili her yerde olmasın; kar/lav/peri zemini
+function snowGroundTexture() {
+  const N = 1024, c = document.createElement("canvas"); c.width = c.height = N; const g = c.getContext("2d");
+  const base = g.createLinearGradient(0, 0, N, N); base.addColorStop(0, "#e9f0f8"); base.addColorStop(0.5, "#dbe6f2"); base.addColorStop(1, "#eef4fb"); g.fillStyle = base; g.fillRect(0, 0, N, N);
+  for (let i = 0; i < 40; i++) { const x = Math.random() * N, y = Math.random() * N, r = rnd(90, 300); const rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, choice(["#c3d3e6", "#d6e2f0", "#b9cbe0"])); rg.addColorStop(1, "rgba(0,0,0,0)"); g.globalAlpha = rnd(0.2, 0.45); g.fillStyle = rg; g.beginPath(); g.arc(x, y, r, 0, 6.3); g.fill(); }   // rüzgâr kürtünleri
+  g.globalAlpha = 1;
+  for (let i = 0; i < 9000; i++) { g.fillStyle = Math.random() < 0.6 ? "#ffffff" : "#cfdcec"; g.beginPath(); g.arc(Math.random() * N, Math.random() * N, Math.random() * 1.7 + 0.3, 0, 6.3); g.fill(); }   // kar taneleri
+  for (let i = 0; i < 900; i++) { g.fillStyle = "rgba(255,255,255,0.95)"; g.fillRect(Math.random() * N, Math.random() * N, rnd(1, 3), rnd(1, 3)); }   // parıltı
+  for (let i = 0; i < 60; i++) { g.strokeStyle = "rgba(150,175,205,0.35)"; g.lineWidth = rnd(1, 2.5); const x = Math.random() * N, y = Math.random() * N; g.beginPath(); g.moveTo(x, y); g.lineTo(x + rnd(-40, 40), y + rnd(-40, 40)); g.stroke(); }   // buz çatlakları
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(26, 26); t.anisotropy = 8; return t;
+}
+function lavaGroundTexture() {
+  const N = 1024, c = document.createElement("canvas"); c.width = c.height = N; const g = c.getContext("2d");
+  g.fillStyle = "#14100d"; g.fillRect(0, 0, N, N);
+  for (let i = 0; i < 34; i++) { g.fillStyle = choice(["#241713", "#1a110d", "#2c1c15", "#0f0a08"]); g.globalAlpha = rnd(0.5, 1); g.beginPath(); g.arc(Math.random() * N, Math.random() * N, rnd(50, 180), 0, 6.3); g.fill(); }   // yanmış kaya kütleleri
+  g.globalAlpha = 1;
+  for (let i = 0; i < 14000; i++) { g.fillStyle = choice(["#0e0906", "#2a1c14", "#382318", "#1c1310"]); g.beginPath(); g.arc(Math.random() * N, Math.random() * N, Math.random() * 2 + 0.3, 0, 6.3); g.fill(); }   // volkanik kum
+  // ışıyan lav çatlakları (dallanan)
+  for (let i = 0; i < 46; i++) { let x = Math.random() * N, y = Math.random() * N; for (let seg = 0; seg < 7; seg++) { const nx = x + rnd(-90, 90), ny = y + rnd(-90, 90); const grd = g.createLinearGradient(x, y, nx, ny); grd.addColorStop(0, "#ff3800"); grd.addColorStop(0.5, "#ff8a1e"); grd.addColorStop(1, "#ffcc44"); g.strokeStyle = grd; g.lineWidth = rnd(1.5, 5); g.lineCap = "round"; g.globalAlpha = rnd(0.6, 1); g.beginPath(); g.moveTo(x, y); g.lineTo(nx, ny); g.stroke(); x = nx; y = ny; } }
+  g.globalAlpha = 1; for (let i = 0; i < 500; i++) { g.fillStyle = choice(["#ff9a2a", "#ffd24a", "#ff5500"]); g.beginPath(); g.arc(Math.random() * N, Math.random() * N, Math.random() * 2 + 0.4, 0, 6.3); g.fill(); }   // közler
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(24, 24); t.anisotropy = 8; return t;
+}
+function fairyGroundTexture() {
+  const N = 1024, c = document.createElement("canvas"); c.width = c.height = N; const g = c.getContext("2d");
+  const base = g.createLinearGradient(0, 0, N, N); base.addColorStop(0, "#3a2350"); base.addColorStop(0.5, "#4a2c64"); base.addColorStop(1, "#2e1c42"); g.fillStyle = base; g.fillRect(0, 0, N, N);
+  for (let i = 0; i < 44; i++) { const x = Math.random() * N, y = Math.random() * N, r = rnd(80, 260); const rg = g.createRadialGradient(x, y, 0, x, y, r); rg.addColorStop(0, choice(["#6a3f9a", "#7a4aa8", "#553578", "#8a5ac0"])); rg.addColorStop(1, "rgba(0,0,0,0)"); g.globalAlpha = rnd(0.22, 0.5); g.fillStyle = rg; g.beginPath(); g.arc(x, y, r, 0, 6.3); g.fill(); }   // yumuşak mor yosun
+  g.globalAlpha = 1;
+  for (let i = 0; i < 12000; i++) { g.fillStyle = choice(["#4e2f6e", "#5e3a82", "#3e2758", "#6a4590"]); g.beginPath(); g.arc(Math.random() * N, Math.random() * N, Math.random() * 2 + 0.3, 0, 6.3); g.fill(); }   // gren
+  for (let i = 0; i < 1500; i++) { g.fillStyle = choice(["#ff9ae8", "#b98cff", "#7ee6ff", "#ffc0f5", "#c0ff9a"]); g.globalAlpha = rnd(0.5, 1); g.beginPath(); g.arc(Math.random() * N, Math.random() * N, Math.random() * 2.4 + 0.5, 0, 6.3); g.fill(); }   // parlayan sporlar
+  g.globalAlpha = 1;
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(24, 24); t.anisotropy = 8; return t;
+}
+// biyom değişince zemin dokusunu/rengini değiştir → her biyom kendine benzer (orman/kar/lav/peri)
+function applyBiomeGround(biome) {
+  if (!groundMat) return;
+  if (biome === "caves") return;   // mağara kendi zeminine sahip; ana zemini değiştirme
+  if (!biomeGroundTex[biome]) {
+    biomeGroundTex[biome] = biome === "snow" ? snowGroundTexture() : biome === "volcanic" ? lavaGroundTexture() : biome === "fairy" ? fairyGroundTexture() : biomeGroundTex.forest;
+  }
+  groundMat.map = biomeGroundTex[biome];
+  groundMat.roughness = biome === "snow" ? 0.7 : biome === "volcanic" ? 0.85 : 0.95;
+  if (groundMat.emissive && groundMat.emissive.setHex) { groundMat.emissive.setHex(biome === "volcanic" ? 0x3a0a00 : biome === "fairy" ? 0x1a0a2a : 0x000000); groundMat.emissiveIntensity = biome === "volcanic" ? 0.5 : biome === "fairy" ? 0.35 : 0; }
+  groundMat.needsUpdate = true;
+}
 // yumuşak parıltı spritesi (ateş böceği/toz/atmosfer noktaları için — sert kare yerine yumuşak glow)
 function dotSprite() {
   const N = 64, c = document.createElement("canvas"); c.width = c.height = N; const g = c.getContext("2d");
@@ -836,7 +880,17 @@ function makeCave(x, z) {
   const floor = new THREE.Mesh(new THREE.CircleGeometry(R, 20), new THREE.MeshStandardMaterial({ color: 0x171310, roughness: 1 })); floor.rotation.x = -Math.PI / 2; floor.position.y = 0.05; g.add(floor);
   for (let i = 0; i < 14; i++) { const a = rnd(0, 6.28), r = rnd(R * 0.5, R - 0.5), h = rnd(1.4, 4), top = Math.random() < 0.5; const sp = new THREE.Mesh(new THREE.ConeGeometry(rnd(0.4, 0.95), h, 6), rock); sp.position.set(Math.cos(a) * r, top ? R * 0.78 - h / 2 : h / 2, Math.sin(a) * r); if (top) sp.rotation.z = Math.PI; g.add(sp); }   // sarkıt/dikit
   for (let i = 0; i < 8; i++) { const a = (i / 8) * 6.28; const pil = new THREE.Mesh(new THREE.CylinderGeometry(rnd(0.6, 1.0), rnd(0.9, 1.4), rnd(3, 6), 6), rock); pil.position.set(Math.cos(a) * (R - 0.4), 2.5, Math.sin(a) * (R - 0.4)); g.add(pil); }   // çevre kaya sütunları
-  if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  // MADEN: duvarlara gömülü IŞIYAN maden damarları (mavi kristal) — fener kapalıyken bile hafif görünür
+  const oreMat = new THREE.MeshStandardMaterial({ color: 0x8fe6ff, emissive: 0x2ec8ff, emissiveIntensity: 1.6, roughness: 0.3, flatShading: true });
+  for (let i = 0; i < 10; i++) { const a = rnd(0, 6.28), r = R - rnd(0.3, 1.4), yy = rnd(0.6, 4.5); const cl = new THREE.Group(); cl.position.set(Math.cos(a) * r, yy, Math.sin(a) * r);
+    for (let k = 0; k < rndi(3, 6); k++) { const cr = new THREE.Mesh(new THREE.ConeGeometry(rnd(0.1, 0.26), rnd(0.4, 1.0), 5), oreMat); cr.position.set(rnd(-0.4, 0.4), rnd(-0.3, 0.3), rnd(-0.4, 0.4)); cr.rotation.set(rnd(0, 6.3), rnd(0, 6.3), rnd(0, 6.3)); cl.add(cr); }
+    cl.add(plight(0x4ad4ff, 0.5, 6, 2, 0, 0, 0)); g.add(cl); }
+  // horror: tavanda soluk KIZIL bir ışıltı (huzursuz eden)
+  g.add(plight(0x7a1010, 0.5, R * 1.5, 2, 0, R * 0.5, 0));
+  // yerde birkaç eski kemik/kalıntı (ürkütücü)
+  const boneMat = new THREE.MeshStandardMaterial({ color: 0xd8cfbe, roughness: 1 });
+  for (let i = 0; i < 5; i++) { const a = rnd(0, 6.28), r = rnd(2, R - 2); const bone = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, rnd(0.4, 0.9), 3, 5), boneMat); bone.position.set(Math.cos(a) * r, 0.1, Math.sin(a) * r); bone.rotation.set(Math.PI / 2, 0, rnd(0, 6.3)); g.add(bone); }
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh && !(o.material.emissiveIntensity > 0.5)) o.castShadow = true; });   // ışıyan maden gölge dökmez
   scene.add(g); caves.push({ x, z, r: R });
   // mağara ganimeti: bol hurda + maden (kristal) + askeri mühimmat kasası
   for (let i = 0; i < 4; i++) { const a = rnd(0, 6.28), r = rnd(3, R - 3); makeScrap(x + Math.cos(a) * r, z + Math.sin(a) * r); }
@@ -2393,7 +2447,7 @@ function update(dt) {
   camera.position.x = nx; camera.position.z = nz;
   if (!admin.noclip && (Math.abs(nx) >= CFG.WORLD - 0.6 || Math.abs(nz) >= CFG.WORLD - 0.6)) { S.edgeT = (S.edgeT || 0) - dt; if (S.edgeT <= 0) { S.edgeT = 6; toast("🌲 Ormanın sınırındasın — buradan öteye geçilmez, geri dön.", "bad"); } }   // dünya kenarı belirgin
   { let ic = false; for (const c of caves) { if (Math.hypot(c.x - nx, c.z - nz) < c.r) { ic = true; break; } } inCave = ic;
-    const nb = ic ? "caves" : biomeAt(nx, nz); if (nb !== curBiome) { curBiome = nb; toast(ic ? "🕳️ Mağaraya girdin — fenerini aç (L)!" : "Bölge: " + BIOMES[nb].name, "good"); } }
+    const nb = ic ? "caves" : biomeAt(nx, nz); if (nb !== curBiome) { curBiome = nb; applyBiomeGround(nb); toast(ic ? "🕳️ Mağaraya girdin — fenerini aç (L)!" : "Bölge: " + BIOMES[nb].name, "good"); } }
   // baş sallanması + sarsıntı
   if (m > 0.1) { S.bob += dt * (sprinting ? 14 : 9); if (!flying) { S.stepT -= dt; if (S.stepT <= 0) { Sound.step(); S.stepT = sprinting ? 0.3 : 0.45; } } } else S.bob *= 0.9;
   if (flying) {   // 🕊️ UÇUŞ: bakış yönünün dikey bileşeniyle uç + Space yüksel / Shift alçal, yerçekimi yok
@@ -2993,6 +3047,7 @@ function startGame(continueSave) {
   camera.position.set(0, CFG.EYE, 0); yaw = 0; pitch = 0;
   // başlangıç kamp ateşi (üs): büyük yakıt deposu — odun atıp uzun yakabilirsin
   baseFire = makeFire(0, -3); baseFire.base = true; setFireLevel(baseFire, 1); baseFire.fuel = 120;   // merkezi kalıcı kamp ateşi (seviye 1)
+  curBiome = "forest"; applyBiomeGround("forest");   // yeni oyun: zemin ormana dönsün
   if (continueSave === true) applySave();   // kayıttan devam (gün/eşya/can geri yüklenir)
   else applyClass(pendingClass);            // yeni oyun: sınıf başlangıç eşyaları + perk
   Sound.init(); Sound.resume();
@@ -3067,7 +3122,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 53;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 54;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -3396,8 +3451,12 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "2.2";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "2.3";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "2.3", d: "6 Tem", items: [
+    "🎨 Zemin artık biyoma göre DEĞİŞİYOR (eskiden her yer orman yeşiliydi, karışık görünüyordu): ❄️ kar bölgesi karla kaplı · 🌋 volkanik yanmış kaya + ışıyan lav çatlakları · 🧚 peri ormanı mor yosun + parlayan sporlar.",
+    "🕳️ Mağara/maden yenilendi: duvarlarda ışıyan mavi maden damarları (kristal), kızıl horror ışıltısı, yerde eski kemikler.",
+  ] },
   { v: "2.2", d: "6 Tem", items: [
     "🔧 'Güncelle' butonu düzeltildi: artık indirme sayfasını SİSTEM tarayıcısında açıyor (Windows/Tauri · macOS-Linux/Electron · Android). Açılmazsa link panoya kopyalanır.",
     "🔄 Web sürümünde 'güncelle' butonu kendini günceller (sayfa yenilenip yeni sürümü çeker).",

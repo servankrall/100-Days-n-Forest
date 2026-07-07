@@ -1,6 +1,6 @@
 {
-  "build": 53,
-  "version": "2.2",
+  "build": 54,
+  "version": "2.3",
   "url": "https://github.com/servankrall/100-Days-n-Forest/releases/latest",
-  "notes": "🔧 'Güncelle' butonu düzeltildi — indirme sayfasını sistem tarayıcısında açar (Tauri/Electron/Capacitor); web sürümü kendini yeniler. Açılmazsa link panoya kopyalanır."
+  "notes": "🎨 Zemin artık biyoma göre değişiyor (kar/lav/peri) — 'her yer orman yeşili' karışıklığı düzeldi. 🕳️ Mağara/maden yenilendi: ışıyan maden damarları, kızıl horror ışıltısı, kemikler."
 }

@@ -1576,13 +1576,14 @@ const sprintBtn = bindBtn("btn-sprint", null, true);
 
 /* ----------------------- INTERACTION ----------------------- */
 const _fwd = new THREE.Vector3();
+function inMineArea(x, z) { return !!(mineSpot && Math.hypot(x - mineSpot.x, z - mineSpot.z) < mineSpot.r + 2); }   // gizli maden bölgesi mi?
 function findTarget() {
   camera.getWorldDirection(_fwd); _fwd.y = 0; _fwd.normalize();
   const px = camera.position.x, pz = camera.position.z;
   let best = null, bestScore = -1;
   const consider = (x, z, range, kind, obj) => {
     // maden ganimeti yüzeyden görünmez → yüzeydeyken maden bölgesindeki gizli eşyalarla (ve madendeyken yüzey eşyalarıyla) etkileşme
-    if (kind !== "mineenter" && kind !== "mineexit" && mineSpot && (Math.hypot(x - mineSpot.x, z - mineSpot.z) < mineSpot.r + 2) !== !!S.inMine) return;
+    if (kind !== "mineenter" && kind !== "mineexit" && inMineArea(x, z) !== !!S.inMine) return;
     const dx = x - px, dz = z - pz, d = Math.hypot(dx, dz);
     if (d > range || d < 0.001) return;
     const dot = (dx / d) * _fwd.x + (dz / d) * _fwd.z;        // bakış hizası
@@ -1733,6 +1734,7 @@ function doAction() {
     if (c.ammo) item = choice([{ special: "pistol", label: "🔫 Tabanca" }, { kind: "rifleAmmo", label: "🎯 Tüfek Mermisi" }, { kind: "shells", label: "💥 Fişek" }]);
     else if (cb === "volcanic" && Math.random() < 0.5) item = { kind: "gem", label: "💎 Değerli Taş" };
     else if (cb === "snow" && Math.random() < 0.5) item = choice([{ kind: "pelt", label: "🧵 Post" }, { special: "iceaxe", label: "🧊 Buz Baltası" }]);
+    if (S.inMine && !S.tools.pickaxe && Math.random() < 0.6) item = { special: "pickaxe", label: "⛏️ Kazma" };   // madende: kazma bulma şansı yüksek (kristalleri kazabilmek için)
     const [px, pz] = placeInFront(1.3);                        // sandığın önüne bırak (yerde durur, taşınmayı bekler)
     makePickup(px, pz, item);
     toast("📦 Sandıktan çıktı: " + item.label + " — yanına git, VUR ile AL, ateşe taşı", "good");
@@ -3024,13 +3026,14 @@ function drawMinimap() {
   { const dx = BENCH.x - px, dz = BENCH.z - pz; if (dx * dx + dz * dz <= R * R) { mmctx.fillStyle = "#caa46a"; mmctx.fillRect(cx + dx * sc - 2, cy + dz * sc - 2, 4, 4); } }
   mmctx.fillStyle = "#2f6b3a";
   for (const t of trees) { if (!t.alive) continue; const dx = t.x - px, dz = t.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillRect(cx + dx * sc - 1, cy + dz * sc - 1, 2, 2); }
-  for (const a of animals) { const dx = a.x - px, dz = a.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillStyle = a.hostile ? "#ff5a4d" : "#d8c060"; mmctx.fillRect(cx + dx * sc - 1.5, cy + dz * sc - 1.5, 3, 3); }
-  mmctx.fillStyle = "#9aa0a6"; for (const s of scraps) { if (s.taken) continue; const dx = s.x - px, dz = s.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillRect(cx + dx * sc - 1, cy + dz * sc - 1, 2, 2); }
-  mmctx.fillStyle = "#e0b14a"; for (const c of chests) { if (c.opened) continue; const dx = c.x - px, dz = c.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillRect(cx + dx * sc - 1.5, cy + dz * sc - 1.5, 3, 3); }
-  mmctx.fillStyle = "#ffe08a"; for (const p of pickups) { const dx = p.x - px, dz = p.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.beginPath(); mmctx.arc(cx + dx * sc, cy + dz * sc, 2, 0, 6.3); mmctx.fill(); }   // yerdeki eşyalar
-  mmctx.fillStyle = "#7fe9ff"; for (const c of crystals) { if (c.mined) continue; const dx = c.x - px, dz = c.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillRect(cx + dx * sc - 1.5, cy + dz * sc - 1.5, 3, 3); }
+  for (const a of animals) { if (inMineArea(a.x, a.z) !== !!S.inMine) continue; const dx = a.x - px, dz = a.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillStyle = a.hostile ? "#ff5a4d" : "#d8c060"; mmctx.fillRect(cx + dx * sc - 1.5, cy + dz * sc - 1.5, 3, 3); }
+  mmctx.fillStyle = "#9aa0a6"; for (const s of scraps) { if (s.taken || inMineArea(s.x, s.z) !== !!S.inMine) continue; const dx = s.x - px, dz = s.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillRect(cx + dx * sc - 1, cy + dz * sc - 1, 2, 2); }
+  mmctx.fillStyle = "#e0b14a"; for (const c of chests) { if (c.opened || inMineArea(c.x, c.z) !== !!S.inMine) continue; const dx = c.x - px, dz = c.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillRect(cx + dx * sc - 1.5, cy + dz * sc - 1.5, 3, 3); }
+  mmctx.fillStyle = "#ffe08a"; for (const p of pickups) { if (inMineArea(p.x, p.z) !== !!S.inMine) continue; const dx = p.x - px, dz = p.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.beginPath(); mmctx.arc(cx + dx * sc, cy + dz * sc, 2, 0, 6.3); mmctx.fill(); }   // yerdeki eşyalar
+  mmctx.fillStyle = "#7fe9ff"; for (const c of crystals) { if (c.mined || inMineArea(c.x, c.z) !== !!S.inMine) continue; const dx = c.x - px, dz = c.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillRect(cx + dx * sc - 1.5, cy + dz * sc - 1.5, 3, 3); }
+  if (mineEntrance && !S.inMine) { const dx = mineEntrance.x - px, dz = mineEntrance.z - pz; if (dx * dx + dz * dz <= R * R) { mmctx.fillStyle = "#c77dff"; mmctx.fillRect(cx + dx * sc - 2.5, cy + dz * sc - 2.5, 5, 5); mmctx.fillStyle = "#2a1c40"; mmctx.fillRect(cx + dx * sc - 1, cy + dz * sc - 1, 2, 2); } }   // ⛏️ maden girişi (mor işaret)
   for (const f of fires) { const dx = f.x - px, dz = f.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillStyle = "#ff9a3c"; mmctx.beginPath(); mmctx.arc(cx + dx * sc, cy + dz * sc, 3, 0, 6.3); mmctx.fill(); }
-  for (const id in remotes) { const r = remotes[id]; if (!r.g) continue; const dx = r.g.position.x - px, dz = r.g.position.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillStyle = "#6fa3d6"; mmctx.beginPath(); mmctx.arc(cx + dx * sc, cy + dz * sc, 2.5, 0, 6.3); mmctx.fill(); }
+  for (const id in remotes) { const r = remotes[id]; if (!r.g) continue; if (inMineArea(r.g.position.x, r.g.position.z) !== !!S.inMine) continue; const dx = r.g.position.x - px, dz = r.g.position.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillStyle = "#6fa3d6"; mmctx.beginPath(); mmctx.arc(cx + dx * sc, cy + dz * sc, 2.5, 0, 6.3); mmctx.fill(); }
   if (watcher) { const dx = watcher.x - px, dz = watcher.z - pz; if (dx * dx + dz * dz <= R * R) { mmctx.fillStyle = "#ff1010"; mmctx.beginPath(); mmctx.arc(cx + dx * sc, cy + dz * sc, 3.6, 0, 6.3); mmctx.fill(); } }
   camera.getWorldDirection(_fwd);
   mmctx.save(); mmctx.translate(cx, cy); mmctx.rotate(Math.atan2(_fwd.z, _fwd.x) + Math.PI / 2);
@@ -3255,7 +3258,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 56;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 57;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -3584,8 +3587,13 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "2.5";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "2.6";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "2.6", d: "7 Tem", items: [
+    "🗺️ Maden girişi artık mini haritada MOR işaretle gösteriliyor — kolayca bulunur.",
+    "⛏️ Derin madende sandıklardan yüksek şansla KAZMA çıkıyor (bulduğun kristalleri kazabilmen için).",
+    "🐛 Düzeltme: gizli madenin ganimeti/örümcekleri/oyuncuları büyük haritada (M) yanlışlıkla görünüyordu — artık bulunduğun katmana göre gizli.",
+  ] },
   { v: "2.5", d: "7 Tem", items: [
     "🕷️ Derin maden artık daha ürkütücü: inince kalp atışı hızlanır, fısıltılar duyulur, mağara örümceği baskısı biraz arttı. El fenerini açık tut!",
     "🐛 Düzeltme: madendeki gizli eşyalarla (sandık/kristal) yanlışlıkla yüzeyden etkileşim kurulabiliyordu — artık maden ganimeti yalnızca madendeyken toplanır.",

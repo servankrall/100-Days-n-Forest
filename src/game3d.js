@@ -1112,7 +1112,7 @@ function newState() {
     running: false, paused: false, over: false, won: false, inMine: false,
     time: 0.16, day: 1,
     health: 100, hunger: 100, warmth: 100, sanity: 100, stamina: 100, thirst: 100,
-    inv: { wood: 10, raw: 0, cooked: 2, metal: 0, pelt: 0, bandage: 1, gem: 0, cloth: 0, rope: 0, medkit: 0, pills: 0, canned: 0, choco: 0, pistolAmmo: 0, shells: 0, rifleAmmo: 0, arrows: 0, water: 1, soda: 0, batteries: 0 },
+    inv: { wood: 10, raw: 0, cooked: 2, metal: 0, pelt: 0, bandage: 1, gem: 0, cloth: 0, rope: 0, medkit: 0, pills: 0, canned: 0, choco: 0, pistolAmmo: 0, shells: 0, rifleAmmo: 0, arrows: 0, water: 1, soda: 0, batteries: 0, dynamite: 0 },
     tools: { pickaxe: false, tent: false, spear: false, axe: 0, chainsaw: false, hammer: false },   // axe: 0 eski / 1 iyi / 2 güçlü
     weapons: { pistol: false, shotgun: false, rifle: false, bow: false, crossbow: false },   // sahip olunan menzilli silahlar
     equip: null, shootCd: 0,   // kuşanılı menzilli silah (null=yakın dövüş)
@@ -1547,6 +1547,7 @@ addEventListener("keydown", (e) => {
   if (first && k === "t") inp.sleep = true;    // çadır/yatakta uyu
   if (first && k === "m") { if (S && S.hasMap) { S.bigMap = !S.bigMap; toast(S.bigMap ? "🗺️ Geniş harita AÇIK" : "🗺️ Harita kapandı", "good"); } else if (S && S.running) toast("Önce 🗺️ Harita üret (tezgah)", "bad"); }
   if (first && (k === "y" || k === "enter")) openChat();   // 💬 co-op global sohbet
+  if (first && k === "x") useDynamite();                    // 🧨 dinamit patlat
 });
 addEventListener("keyup", (e) => { if (typingInField(e)) return; const k = e.key.toLowerCase(); keys[k] = false; if (k === "v") stopTalk(); if (k === "r") shootDown = false; });
 
@@ -2107,6 +2108,7 @@ const RECIPES = [
   { tier: 3, name: "🍲 Güveç Tenceresi", desc: "Pişmiş et açlığı çok daha iyi giderir", cost: { metal: 8, wood: 8 }, once: () => S.hasCrockpot, make: (s) => s.hasCrockpot = true },
   { tier: 3, name: "🪓 Güçlü Balta", desc: "Normal ağacı tek vuruşta devirir", cost: { metal: 14, gem: 1 }, once: () => S.tools.axe >= 2, make: (s) => s.tools.axe = 2 },
   { tier: 3, name: "🛡️ Metal Zırh", desc: "Yaratık hasarını −%35 azaltır (yıprandıkça kırılır)", cost: { metal: 12, cloth: 2 }, make: () => giveArmor(0.35, "Metal Zırh") },
+  { tier: 3, name: "🧨 Dinamit", desc: "X ile patlat: çevredeki kristalleri kazar (💎) + yakındaki düşmanları vurur", cost: { metal: 5, gem: 1 }, make: (s) => s.inv.dynamite++ },
   { tier: 3, name: "🧪 Zehirli Mızrak", desc: "Vurduğun düşmanı zehirler (zamanla erir)", cost: { metal: 4, gem: 1, cloth: 1 }, once: () => S.meleeOwned.poisonSpear, make: () => giveMelee("poisonSpear") },
   { tier: 3, up: 4, name: "⬆️ Tezgah Tier 4", desc: "4. seviye tarifleri açar", cost: { metal: 15, wood: 20 }, once: () => S.benchTier >= 4, make: (s) => s.benchTier = 4 },
   // ---- Tier 4 ----
@@ -2192,6 +2194,30 @@ function useBandage() {
   if (S.inv.pills > 0) { S.inv.pills--; S.health = clamp(S.health + 30 * hm, 0, 100); S.stamina = clamp(S.stamina + 40, 0, 100); S.sick = 0; toast("💊 Ağrı kesici: +" + Math.round(30 * hm) + " can, +40 enerji", "good"); return; }
   if (S.inv.bandage <= 0) { toast("Tıbbi malzeme yok 🩹🧰💊 (sandık/tezgah)", "bad"); return; }
   S.inv.bandage--; S.health = clamp(S.health + 35 * hm, 0, 100); S.sick = 0; toast("🩹 Bandaj: +" + Math.round(35 * hm) + " can", "good");
+}
+/* ----------------------- 🧨 DİNAMİT (maden patlayıcısı) ----------------------- */
+function blastFX(x, z) {   // kısa patlama görseli: genişleyen küre + ışık
+  if (!scene) return;
+  const g = new THREE.Group(); g.position.set(x, 1.0, z); scene.add(g);
+  const m = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 14), new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: 0.92 })); g.add(m);
+  const l = plight(0xffa030, 3.2, 22, 2, 0, 0, 0); g.add(l);
+  let t = 0; const iv = setInterval(() => { t += 0.05; m.scale.setScalar(1 + t * 14); m.material.opacity = Math.max(0, 0.92 - t * 1.9); l.intensity = Math.max(0, 3.2 - t * 7); if (t >= 0.5) { clearInterval(iv); scene.remove(g); } }, 50);
+}
+function useDynamite() {
+  if (!S || !S.running || S.downed) return;
+  if ((S.inv.dynamite || 0) <= 0) { toast("🧨 Dinamit yok — tezgahta üret (5⚙️ + 1💎)", "bad"); return; }
+  S.inv.dynamite--;
+  const px = camera.position.x, pz = camera.position.z, R = 8;
+  camera.getWorldDirection(_fwd); _fwd.y = 0; _fwd.normalize();
+  const bx = px + _fwd.x * 3, bz = pz + _fwd.z * 3;   // birkaç metre öne fırlat
+  Sound.thunder(); S.shake = Math.max(S.shake, 0.55); blastFX(bx, bz); toast("🧨 BOOM!", "bad");
+  setTimeout(() => {
+    let gems = 0, hit = 0;
+    for (const c of crystals) { if (!c.mined && Math.hypot(c.x - bx, c.z - bz) < R) { c.mined = true; if (c.group) c.group.visible = false; const g = rndi(1, 3); S.inv.gem += g; gems += g; } }
+    for (const s of scraps) { if (!s.taken && Math.hypot(s.x - bx, s.z - bz) < R) { s.taken = true; if (s.group) s.group.visible = false; S.inv.metal += rndi(1, 2); } }
+    for (let i = animals.length - 1; i >= 0; i--) { const a = animals[i]; if (Math.hypot(a.x - bx, a.z - bz) < R + 1) { a.hp -= a.boss ? 30 : 60; hit++; if (a.hp <= 0) killAnimal(a); else if (a.type === "boar" || a.type === "jaguar") { a.hostile = true; a.state = "chase"; } } }
+    if (gems || hit) toast("🧨 " + (gems ? "💎 +" + gems + " " : "") + (hit ? "· " + hit + " düşman vuruldu" : ""), "good");
+  }, 150);
 }
 
 /* ----------------------- ÇADIR: güvendeyken uyu, sabaha atla ----------------------- */
@@ -2501,12 +2527,15 @@ function updateRescue(dt) {
 /* ----------------------- KAYDET / DEVAM ET ----------------------- */
 function saveProgress() {
   if (!S || !S.running || S.over) return;
+  // madende oto-kayıt olursa gizli maden koordinatı KAYDEDİLMEZ (DEVAM ET'te boş köşeye ışınlanma bug'ı) → yüzey giriş noktasını kaydet
+  const sx = (S.inMine && mineReturn) ? mineReturn.x : camera.position.x;
+  const sz = (S.inMine && mineReturn) ? mineReturn.z : camera.position.z;
   try {
     localStorage.setItem("orm_save", JSON.stringify({
       day: S.day, time: S.time, inv: S.inv, tools: S.tools, notes: S.notes,
       health: S.health, hunger: S.hunger, warmth: S.warmth, sanity: S.sanity, thirst: S.thirst,
       weapons: S.weapons, meleeOwned: S.meleeOwned, melee: S.melee, equip: S.equip, flashlight: S.flashlight, battery: S.battery, armor: S.armor, armorDef: S.armorDef, cls: S.cls, peltTrades: S.peltTrades, backpack: S.backpack,
-      x: camera.position.x, z: camera.position.z, ts: Date.now(),
+      x: sx, z: sz, ts: Date.now(),
     }));
   } catch (e) {}
 }
@@ -3095,12 +3124,14 @@ function updateHUD(night) {
     if (S.melee && MELEE[S.melee]) parts.push(MELEE[S.melee].label);
     if (S.armor > 0 && S.armorDef > 0) parts.push("🛡️" + Math.round(S.armor) + "%");
     if (S.flashlight) parts.push("🔦" + (S.flashOn ? Math.round(S.battery) + "%" : "·"));
+    if (S.inv.dynamite > 0) parts.push("🧨" + S.inv.dynamite + " (X)");
     if (carryWeight() > carryLimit()) parts.push("⚖️ aşırı yük!");
     if (parts.length) { wh.textContent = parts.join("  ·  "); wh.classList.remove("hidden"); } else wh.classList.add("hidden");
   }
   updateHotbarHUD();   // 1-0 hızlı silah çubuğu (mermi/aktif slot canlı güncellenir)
   { const cb = $("btn-craft"); if (cb) cb.style.display = (isTouch && nearBench()) ? "" : "none"; }   // mobil: tezgaha yakınken 🛠️ butonu görünür
   { const bc = $("btn-chat"); if (bc) bc.style.display = (isTouch && net.online) ? "" : "none"; }   // 💬 buton yalnızca co-op'ta
+  { const bd = $("btn-dyna"); if (bd) bd.style.display = (isTouch && S.inv.dynamite > 0) ? "" : "none"; }   // 🧨 buton yalnızca dinamit varken
   const t = findTarget();
   const akey = isTouch ? "VUR" : "[Sol tık / E]";
   if (carried) {   // elin dolu → taşıma göstergesi
@@ -3300,7 +3331,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 59;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 60;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -3512,6 +3543,7 @@ function sendChat() {
 }
 { const inp = $("chatInput"); if (inp) inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); sendChat(); } else if (e.key === "Escape") { e.preventDefault(); closeChatInput(); } }); }
 { const bc = $("btn-chat"); if (bc) { bc.addEventListener("click", openChat); bc.addEventListener("touchstart", (e) => { isTouch = true; openChat(); e.preventDefault(); }, { passive: false }); } }
+{ const bd = $("btn-dyna"); if (bd) { bd.addEventListener("click", useDynamite); bd.addEventListener("touchstart", (e) => { isTouch = true; useDynamite(); e.preventDefault(); }, { passive: false }); } }
 net.onChat = (id, d) => { if (!d || !d.msg) return; addChatLine(remoteName[id] || id, String(d.msg).slice(0, 140), false); toast("💬 " + (remoteName[id] || id) + ": " + String(d.msg).slice(0, 140), "good"); if (net.host) { try { net.relay(id, d); } catch (e) {} } };
 function setRemoteName(id, name) {   // ismi güncelle + avatar etiketini yenile (co-op isim karışması fix)
   if (!name) return; remoteName[id] = name;
@@ -3667,8 +3699,12 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "2.8";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "2.9";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "2.9", d: "7 Tem", items: [
+    "🧨 DİNAMİT eklendi (tezgah Tier 3: 5⚙️ + 1💎): X tuşu (mobilde 🧨 buton) ile öne fırlat → patlar; çevredeki KRİSTALLERİ kazar (💎) + hurdaları toplar + yakındaki düşmanları vurur. Madende çok işine yarar!",
+    "🐛 Düzeltme: madende oto-kayıt olunca 'DEVAM ET' seni boş/görünmez bir köşeye ışınlıyordu — artık yüzeydeki maden girişine dönüyorsun, ilerleme korunuyor.",
+  ] },
   { v: "2.8", d: "7 Tem", items: [
     "🚀 PERFORMANS MODU (Ayarlar → 'Performans modu'): oyun kasıyorsa aç — ağır efektler (bloom/AO/vignette) kapanır + çözünürlük optimize edilir → çok daha akıcı. Mobilde otomatik açık.",
     "💬 CO-OP GLOBAL SOHBET: oyun içinde Y (veya Enter) ile mesaj yaz → tüm oyunculara gider (mobilde 💬 buton). Gelen mesajlar ekranda + bildirimde görünür.",

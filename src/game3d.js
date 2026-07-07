@@ -773,6 +773,13 @@ const chests = [];   // {x,z,group,lid,opened}
 const crystals = []; // {x,z,group,hp,mined,shards[]} — kazma ile kazılır → 💎
 const caves = [];    // {x,z,r} — karanlık yeraltı mağaraları (el feneri şart)
 const houses = [];   // {x,z,group}
+// ⛏️ DERİN MADEN: yüzeyde bir GİRİŞ var; etkileşince ekran kararır ve oyuncuyu uzaktaki gizli madene ışınlar (yüzeyden görünmez)
+let mineEntrance = null;   // {x,z,group,yaw} — yüzeydeki tünel ağzı (etkileşim noktası)
+let mineGroup = null;      // gizli maden sahnesi (yüzeydeyken görünmez)
+let mineSpot = null;       // {x,z,r} — madenin gizli konumu (oyuncular göremesin diye uzak köşe)
+let mineExit = null;       // {x,z} — maden içindeki yüzeye dönüş kapısı
+let mineReturn = null;     // {x,z,yaw} — giriş öncesi yüzey konumu (çıkışta buraya döner)
+let mineBusy = false;      // geçiş sırasında tekrar tetiklemeyi engelle
 function farFromSpawn(min) { let x, z; do { x = rnd(-CFG.WORLD + 6, CFG.WORLD - 6); z = rnd(-CFG.WORLD + 6, CFG.WORLD - 6); } while (Math.hypot(x, z) < min); return [x, z]; }
 function makeScrap(x, z) {
   const g = new THREE.Group(); g.position.set(x, 0, z);
@@ -898,6 +905,114 @@ function makeCave(x, z) {
   const ac = makeChest(x + rnd(-3, 3), z + rnd(-3, 3)); if (ac) ac.ammo = true;
   houses.push({ x, z, group: g });
 }
+function signMat(text) {   // ahşap tabela (canvas dokusu)
+  const c = document.createElement("canvas"); c.width = 256; c.height = 72; const x = c.getContext("2d");
+  x.fillStyle = "#2a1c0e"; x.fillRect(0, 0, 256, 72); x.strokeStyle = "#6b4a26"; x.lineWidth = 6; x.strokeRect(3, 3, 250, 66);
+  x.fillStyle = "#e8c583"; x.font = "bold 34px system-ui,sans-serif"; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText(text, 128, 40);
+  const t = new THREE.CanvasTexture(c); t.anisotropy = 4;
+  return new THREE.MeshStandardMaterial({ map: t, roughness: 0.9, side: THREE.DoubleSide });
+}
+function makeMineEntrance(x, z) {   // yüzeydeki tünel ağzı → etkileşince madene ışınlar
+  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rnd(0, 6.28);
+  const rock = new THREE.MeshStandardMaterial({ map: stoneTex, color: 0x5a5048, roughness: 1, flatShading: true });
+  const wood = new THREE.MeshStandardMaterial({ color: 0x6b4a26, roughness: 1 });
+  const railM = new THREE.MeshStandardMaterial({ color: 0x3a3a40, metalness: 0.6, roughness: 0.5 });
+  const hill = new THREE.Mesh(new THREE.SphereGeometry(6, 14, 9, 0, 6.28, 0, Math.PI / 2), rock); hill.scale.set(1.5, 1.15, 1.2); g.add(hill);   // kaya yamaç
+  const mouth = new THREE.Mesh(new THREE.CircleGeometry(1.7, 22), new THREE.MeshBasicMaterial({ color: 0x000000 })); mouth.position.set(0, 1.7, 4.85); g.add(mouth);   // kara tünel ağzı
+  for (const sx of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.36, 3.7, 0.36), wood); post.position.set(sx * 1.95, 1.85, 5.0); g.add(post); }   // ahşap çerçeve
+  const lintel = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.42, 0.42), wood); lintel.position.set(0, 3.6, 5.0); g.add(lintel);
+  const brace = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.3, 0.3), wood); brace.position.set(0, 3.15, 5.0); g.add(brace);
+  for (const sx of [-1, 1]) { const rl = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 6.5), railM); rl.position.set(sx * 0.5, 0.1, 7.8); g.add(rl); }   // raylar
+  for (let i = 0; i < 9; i++) { const tie = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.08, 0.22), wood); tie.position.set(0, 0.05, 5.1 + i * 0.72); g.add(tie); }
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), new THREE.MeshStandardMaterial({ color: 0xffd27f, emissive: 0xffb347, emissiveIntensity: 1.5 })); lamp.position.set(0, 3.35, 5.4); g.add(lamp);   // fener
+  g.add(plight(0xffb347, 1.2, 11, 2, 0, 3.2, 5.7));
+  const sign = new THREE.Mesh(new THREE.PlaneGeometry(2.7, 0.78), signMat("MADEN GIRISI")); sign.position.set(0, 4.2, 5.05); g.add(sign);   // tabela
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh && !(o.material && o.material.emissiveIntensity > 0.5)) o.castShadow = true; });
+  scene.add(g);
+  const s = Math.sin(g.rotation.y), c = Math.cos(g.rotation.y);   // local +z ekseni → dünya yönü
+  mineEntrance = { x: x + s * 5.3, z: z + c * 5.3, group: g, yaw: g.rotation.y + Math.PI };   // ağzın önündeki etkileşim noktası
+  for (let i = 0; i < trees.length; i++) { const t = trees[i]; if (t.alive && Math.hypot(t.x - x, t.z - z) < 9) { t.alive = false; t.regrow = 1e9; writeTree(i); } }   // önü açık kalsın
+}
+function makeMine(cx, cz) {   // gizli DERİN MADEN — yalnızca girişten ışınlanınca görünür (yüzeyden görünmez)
+  const R = 20;
+  mineGroup = new THREE.Group();   // dünya-merkezli kapsayıcı; .visible=false iken tüm maden gizli
+  const inner = new THREE.Group(); inner.position.set(cx, 0, cz); mineGroup.add(inner);
+  const rock = new THREE.MeshStandardMaterial({ map: stoneTex, color: 0x6c645a, roughness: 1, flatShading: true });
+  const darkM = new THREE.MeshStandardMaterial({ color: 0x0a0807, roughness: 1, flatShading: true, side: THREE.BackSide });
+  const wood = new THREE.MeshStandardMaterial({ color: 0x5a3f22, roughness: 1 });
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(R, 22, 14, 0, 6.28, 0, Math.PI / 2), darkM); dome.scale.set(1, 0.85, 1); inner.add(dome);
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(R, 24), new THREE.MeshStandardMaterial({ color: 0x151109, roughness: 1 })); floor.rotation.x = -Math.PI / 2; floor.position.y = 0.04; inner.add(floor);
+  for (let i = 0; i < 20; i++) { const a = rnd(0, 6.28), r = rnd(R * 0.4, R - 0.5), h = rnd(1.4, 4.5), top = Math.random() < 0.5; const sp = new THREE.Mesh(new THREE.ConeGeometry(rnd(0.4, 1.0), h, 6), rock); sp.position.set(Math.cos(a) * r, top ? R * 0.72 - h / 2 : h / 2, Math.sin(a) * r); if (top) sp.rotation.z = Math.PI; inner.add(sp); }
+  for (let i = 0; i < 10; i++) { const a = (i / 10) * 6.28; const pil = new THREE.Mesh(new THREE.CylinderGeometry(rnd(0.6, 1.1), rnd(1.0, 1.5), rnd(3, 6), 6), rock); pil.position.set(Math.cos(a) * (R - 0.4), 2.6, Math.sin(a) * (R - 0.4)); inner.add(pil); }
+  for (let i = 0; i < 6; i++) { const a = (i / 6) * 6.28, rr = R - 3; const fr = new THREE.Group(); fr.position.set(Math.cos(a) * rr, 0, Math.sin(a) * rr); fr.rotation.y = a;   // ahşap galeri destekleri
+    for (const sx of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.3, 3.2, 0.3), wood); post.position.set(sx * 1.3, 1.6, 0); fr.add(post); }
+    fr.add(new THREE.Mesh(new THREE.BoxGeometry(3.1, 0.3, 0.3), wood)); fr.children[2].position.set(0, 3.2, 0); inner.add(fr); }
+  const oreMat = new THREE.MeshStandardMaterial({ color: 0x8fe6ff, emissive: 0x2ec8ff, emissiveIntensity: 1.7, roughness: 0.3, flatShading: true });   // ışıyan maden damarları
+  for (let i = 0; i < 14; i++) { const a = rnd(0, 6.28), r = R - rnd(0.3, 1.6), yy = rnd(0.6, 5.0); const cl = new THREE.Group(); cl.position.set(Math.cos(a) * r, yy, Math.sin(a) * r);
+    for (let k = 0; k < rndi(3, 6); k++) { const cr = new THREE.Mesh(new THREE.ConeGeometry(rnd(0.1, 0.28), rnd(0.4, 1.1), 5), oreMat); cr.position.set(rnd(-0.4, 0.4), rnd(-0.3, 0.3), rnd(-0.4, 0.4)); cr.rotation.set(rnd(0, 6.3), rnd(0, 6.3), rnd(0, 6.3)); cl.add(cr); }
+    cl.add(plight(0x4ad4ff, 0.45, 6, 2, 0, 0, 0)); inner.add(cl); }
+  inner.add(plight(0x7a1010, 0.55, R * 1.6, 2, 0, R * 0.55, 0));   // horror: kızıl tavan ışıltısı
+  const boneMat = new THREE.MeshStandardMaterial({ color: 0xd8cfbe, roughness: 1 });
+  for (let i = 0; i < 8; i++) { const a = rnd(0, 6.28), r = rnd(2, R - 2); const bone = new THREE.Mesh(new THREE.CapsuleGeometry(0.06, rnd(0.4, 0.9), 3, 5), boneMat); bone.position.set(Math.cos(a) * r, 0.1, Math.sin(a) * r); bone.rotation.set(Math.PI / 2, 0, rnd(0, 6.3)); inner.add(bone); }
+  const cart = new THREE.Group(); cart.position.set(rnd(-5, 5), 0, rnd(-5, 5));   // maden arabası (dekor)
+  cart.add(new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.8, 0.9), new THREE.MeshStandardMaterial({ color: 0x4a3a2a, roughness: 1 }))); cart.children[0].position.y = 0.6;
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) { const w = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.12, 12), new THREE.MeshStandardMaterial({ color: 0x2a2a30, metalness: 0.5, roughness: 0.6 })); w.rotation.x = Math.PI / 2; w.position.set(sx * 0.6, 0.28, sz * 0.4); cart.add(w); } inner.add(cart);
+  const ex = R - 2.2;   // ÇIKIŞ kapısı (sıcak ışıklı, merkeze bakar)
+  const door = new THREE.Group(); door.position.set(ex, 0, 0); inner.add(door);
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 3.0), new THREE.MeshBasicMaterial({ color: 0xffe6b0, transparent: true, opacity: 0.92, side: THREE.DoubleSide })); glow.position.set(0, 1.6, 0); glow.rotation.y = -Math.PI / 2; door.add(glow);
+  door.add(plight(0xffd9a0, 1.4, 9, 2, -0.6, 1.8, 0));
+  for (const sy of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.3, 3.3, 0.3), wood); post.position.set(0.12, 1.65, sy * 1.25); door.add(post); }
+  door.add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 2.7), wood)); door.children[door.children.length - 1].position.set(0.12, 3.3, 0);
+  const esign = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.62), signMat("CIKIS")); esign.position.set(0, 3.8, 0); esign.rotation.y = -Math.PI / 2; door.add(esign);
+  mineExit = { x: cx + ex - 1.4, z: cz };   // kapının iç önü (etkileşim noktası)
+  if (shadowsOn) mineGroup.traverse((o) => { if (o.isMesh && !(o.material && o.material.emissiveIntensity > 0.5) && !(o.material && o.material.isMeshBasicMaterial)) o.castShadow = true; });
+  scene.add(mineGroup); mineGroup.visible = false;
+  mineSpot = { x: cx, z: cz, r: R };
+  const reparent = (o) => { if (o && o.group) { scene.remove(o.group); mineGroup.add(o.group); } };   // ganimeti mineGroup'a taşı (yüzeyden gizli)
+  for (let i = 0; i < 6; i++) { const a = rnd(0, 6.28), r = rnd(4, R - 4); reparent(makeScrap(cx + Math.cos(a) * r, cz + Math.sin(a) * r)); }
+  for (let i = 0; i < 5; i++) { const a = rnd(0, 6.28), r = rnd(4, R - 4); reparent(makeCrystal(cx + Math.cos(a) * r, cz + Math.sin(a) * r)); }
+  const amc = makeChest(cx + rnd(-4, 4), cz + rnd(-4, 4)); if (amc) { amc.ammo = true; reparent(amc); }
+  reparent(makeChest(cx + rnd(-4, 4), cz + rnd(-4, 4))); reparent(makeChest(cx + rnd(-4, 4), cz + rnd(-4, 4)));
+  for (let i = 0; i < trees.length; i++) { const t = trees[i]; if (t.alive && Math.hypot(t.x - cx, t.z - cz) < R + 3) { t.alive = false; t.regrow = 1e9; writeTree(i); } }   // zemine ağaç sızmasın
+  treesNeedUpdate();
+}
+function fadeTo(cb) {   // ekranı karart → cb() (ışınla) → tekrar aç
+  const f = $("fade");
+  if (!f) { try { cb(); } catch (e) {} return; }
+  f.classList.add("on");
+  setTimeout(() => { try { cb(); } catch (e) {} setTimeout(() => f.classList.remove("on"), 430); }, 560);
+}
+function enterMine() {
+  if (mineBusy || !mineSpot) return;
+  mineBusy = true;
+  mineReturn = { x: camera.position.x, z: camera.position.z, yaw };   // giriş öncesi yüzey konumu
+  Sound.crackle();
+  fadeTo(() => {
+    if (mineGroup) mineGroup.visible = true;
+    S.inMine = true; inCave = true;
+    const a = rnd(0, 6.28), r = rnd(0, mineSpot.r * 0.3);   // co-op: küçük rastgele ofset ile üst üste binmeyi önle
+    camera.position.set(mineSpot.x + Math.cos(a) * r, CFG.EYE, mineSpot.z + Math.sin(a) * r);
+    S.py = 0; S.vy = 0;
+    curBiome = "caves"; applyBiomeGround("caves");
+    toast("⛏️ Madene indin — el fenerini aç (🔦 L). Çıkış: ışıklı kapı 🪜", "good");
+    mineBusy = false;
+  });
+}
+function exitMine() {
+  if (mineBusy || !S.inMine) return;
+  mineBusy = true;
+  Sound.crackle();
+  fadeTo(() => {
+    S.inMine = false; inCave = false;
+    if (mineGroup) mineGroup.visible = false;
+    const rt = mineReturn || (mineEntrance ? { x: mineEntrance.x, z: mineEntrance.z, yaw: 0 } : { x: 0, z: 0, yaw: 0 });
+    camera.position.set(rt.x, CFG.EYE, rt.z); S.py = 0; S.vy = 0;
+    if (typeof rt.yaw === "number") yaw = rt.yaw;
+    curBiome = biomeAt(camera.position.x, camera.position.z); applyBiomeGround(curBiome);
+    toast("🌲 Yüzeye çıktın.", "good");
+    mineBusy = false;
+  });
+}
 function makeBridge(x, z) {
   const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rnd(0, 6.3);
   const wood = new THREE.MeshStandardMaterial({ color: 0x6b4a26, roughness: 1 });
@@ -969,6 +1084,9 @@ function buildPOIs() {
     p = farFromSpawn(cd); makeCave(p[0], p[1]);
     const n = rndi(2, 4); for (let i = 0; i < n; i++) { const a = rnd(0, 6.28), r = rnd(3, 9); makeCrystal(p[0] + Math.cos(a) * r, p[1] + Math.sin(a) * r); }
   }
+  // ⛏️ DERİN MADEN: yüzeyde bir giriş + uzak köşede gizli maden (oyuncular yüzeyden göremez; girişten ışınlanılır)
+  p = farFromSpawn(60); makeMineEntrance(p[0], p[1]);
+  makeMine(-(CFG.WORLD - 34), CFG.WORLD - 34);   // sınıra yakın köşe (dünya içinde ama sisle + görünmezlikle gizli)
   // haritaya serpiştirilmiş yalnız kristaller
   for (let i = 0; i < 7; i++) { p = farFromSpawn(45); makeCrystal(p[0], p[1]); }
 }
@@ -1478,6 +1596,8 @@ function findTarget() {
   for (const c of chests) if (!c.opened) consider(c.x, c.z, 3.6, "chest", c);
   for (const p of pickups) consider(p.x, p.z, 3.0, "pickup", p);   // yerdeki taşınabilir eşya (AL)
   for (const w of walls) if (w.hp != null && w.hp < w.maxhp - 1) consider(w.x, w.z, 3.0, "wall", w);   // hasarlı duvar → çekiçle tamir
+  if (!S.inMine && mineEntrance) consider(mineEntrance.x, mineEntrance.z, 4.4, "mineenter", null);   // ⛏️ madene in
+  if (S.inMine && mineExit) consider(mineExit.x, mineExit.z, 4.4, "mineexit", null);                 // 🪜 yüzeye çık
   return best;
 }
 /* ===== SANDIK GANİMETİ: TEK eşya fiziksel düşer → SÜRÜKLE/TAŞI kampa getir (ışınlanmaz) ===== */
@@ -1551,6 +1671,8 @@ function doAction() {
   if (S.swingCd > 0) return;
   const t = findTarget(); if (!t) return;
   if (t.kind === "pickup") { tryCarry(t.obj); return; }       // yerdeki eşyayı AL (taşımaya başla)
+  if (t.kind === "mineenter") { enterMine(); return; }        // ⛏️ madene in (ekran kararır → ışınlanır)
+  if (t.kind === "mineexit") { exitMine(); return; }          // 🪜 yüzeye çık
   if (t.kind === "bench") { openCraft(); return; }            // tezgaha bakıp vur → üretim açılır
   if (t.kind === "wall") {                                     // hasarlı duvarı çekiçle tamir et (odun harcar)
     S.swingCd = 0.4; const w = t.obj;
@@ -2446,8 +2568,8 @@ function update(dt) {
   nx = clamp(nx, -lim, lim); nz = clamp(nz, -lim, lim);
   camera.position.x = nx; camera.position.z = nz;
   if (!admin.noclip && (Math.abs(nx) >= CFG.WORLD - 0.6 || Math.abs(nz) >= CFG.WORLD - 0.6)) { S.edgeT = (S.edgeT || 0) - dt; if (S.edgeT <= 0) { S.edgeT = 6; toast("🌲 Ormanın sınırındasın — buradan öteye geçilmez, geri dön.", "bad"); } }   // dünya kenarı belirgin
-  { let ic = false; for (const c of caves) { if (Math.hypot(c.x - nx, c.z - nz) < c.r) { ic = true; break; } } inCave = ic;
-    const nb = ic ? "caves" : biomeAt(nx, nz); if (nb !== curBiome) { curBiome = nb; applyBiomeGround(nb); toast(ic ? "🕳️ Mağaraya girdin — fenerini aç (L)!" : "Bölge: " + BIOMES[nb].name, "good"); } }
+  { let ic = !!S.inMine; if (!ic) for (const c of caves) { if (Math.hypot(c.x - nx, c.z - nz) < c.r) { ic = true; break; } } inCave = ic;   // madendeyken hep karanlık (caves)
+    const nb = ic ? "caves" : biomeAt(nx, nz); if (nb !== curBiome) { curBiome = nb; applyBiomeGround(nb); toast(S.inMine ? "⛏️ Derin Maden" : ic ? "🕳️ Mağaraya girdin — fenerini aç (L)!" : "Bölge: " + BIOMES[nb].name, "good"); } }
   // baş sallanması + sarsıntı
   if (m > 0.1) { S.bob += dt * (sprinting ? 14 : 9); if (!flying) { S.stepT -= dt; if (S.stepT <= 0) { Sound.step(); S.stepT = sprinting ? 0.3 : 0.45; } } } else S.bob *= 0.9;
   if (flying) {   // 🕊️ UÇUŞ: bakış yönünün dikey bileşeniyle uç + Space yüksel / Shift alçal, yerçekimi yok
@@ -2932,7 +3054,7 @@ function updateHUD(night) {
     promptEl.classList.remove("hidden");
   } else if (t) {
     const axeTxt = S.tools.chainsaw ? "🪚 Kes (basılı tut) " : (["🪓 Odun kes ", "🪓 Odun kes (iyi) ", "🪓 Odun kes (güçlü) ", "🪓 Admin Balta (tek vuruş) "][S.tools.axe || 0] || "🪓 Odun kes ");
-    const txt = t.kind === "pickup" ? "✋ " + t.obj.item.label + " AL " : t.kind === "bench" ? "🛠️ Tezgah " : t.kind === "scav" ? "🤝 Takas (5⚙️) " : t.kind === "pelt" ? "🧵 Kürk takası (5 post) " : t.kind === "tree" ? axeTxt : t.kind === "scrap" ? "⚙️ Metal topla " : t.kind === "crystal" ? (S.tools.pickaxe ? "💎 Kristal kaz " : "💎 Kristal (⛏️ gerek) ") : t.kind === "chest" ? "📦 Sandığı aç " : t.kind === "wall" ? (S.tools.hammer ? "🔨 Duvarı tamir et " : "🔨 Çekiç gerek ") : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ");
+    const txt = t.kind === "mineenter" ? "⛏️ Madene in " : t.kind === "mineexit" ? "🪜 Yüzeye çık " : t.kind === "pickup" ? "✋ " + t.obj.item.label + " AL " : t.kind === "bench" ? "🛠️ Tezgah " : t.kind === "scav" ? "🤝 Takas (5⚙️) " : t.kind === "pelt" ? "🧵 Kürk takası (5 post) " : t.kind === "tree" ? axeTxt : t.kind === "scrap" ? "⚙️ Metal topla " : t.kind === "crystal" ? (S.tools.pickaxe ? "💎 Kristal kaz " : "💎 Kristal (⛏️ gerek) ") : t.kind === "chest" ? "📦 Sandığı aç " : t.kind === "wall" ? (S.tools.hammer ? "🔨 Duvarı tamir et " : "🔨 Çekiç gerek ") : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ");
     promptEl.textContent = txt + akey; promptEl.classList.remove("hidden");
   } else promptEl.classList.add("hidden");
   // pusula / ateşe dönüş
@@ -3048,6 +3170,7 @@ function startGame(continueSave) {
   // başlangıç kamp ateşi (üs): büyük yakıt deposu — odun atıp uzun yakabilirsin
   baseFire = makeFire(0, -3); baseFire.base = true; setFireLevel(baseFire, 1); baseFire.fuel = 120;   // merkezi kalıcı kamp ateşi (seviye 1)
   curBiome = "forest"; applyBiomeGround("forest");   // yeni oyun: zemin ormana dönsün
+  S.inMine = false; mineBusy = false; if (mineGroup) mineGroup.visible = false; { const f = $("fade"); if (f) f.classList.remove("on"); }   // maden durumunu sıfırla
   if (continueSave === true) applySave();   // kayıttan devam (gün/eşya/can geri yüklenir)
   else applyClass(pendingClass);            // yeni oyun: sınıf başlangıç eşyaları + perk
   Sound.init(); Sound.resume();
@@ -3122,7 +3245,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 54;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 55;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -3451,8 +3574,13 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "2.3";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "2.4";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "2.4", d: "7 Tem", items: [
+    "⛏️ DERİN MADEN eklendi! Yüzeyde bir MADEN GİRİŞİ (raylı tünel ağzı, fenerli) var — 'Madene in' deyince EKRAN KARARIR ve seni gizli madene ışınlar. Maden çok uzakta, yüzeyden görünmez.",
+    "🕯️ Maden içi: ışıyan mavi maden damarları, ahşap galeri destekleri, maden arabası, kızıl horror ışıltısı ve kemikler. El fenerini aç (🔦 L). Bol ganimet: hurda, kristal, mühimmat sandığı.",
+    "🪜 Çıkış: madenin içindeki ışıklı ÇIKIŞ kapısına git → ekran kararır → girdiğin yere geri dönersin. Co-op'ta herkes ayrı ayrı inip çıkabilir.",
+  ] },
   { v: "2.3", d: "6 Tem", items: [
     "🎨 Zemin artık biyoma göre DEĞİŞİYOR (eskiden her yer orman yeşiliydi, karışık görünüyordu): ❄️ kar bölgesi karla kaplı · 🌋 volkanik yanmış kaya + ışıyan lav çatlakları · 🧚 peri ormanı mor yosun + parlayan sporlar.",
     "🕳️ Mağara/maden yenilendi: duvarlarda ışıyan mavi maden damarları (kristal), kızıl horror ışıltısı, yerde eski kemikler.",

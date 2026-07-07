@@ -1,6 +1,6 @@
 {
-  "build": 61,
-  "version": "3.0",
+  "build": 62,
+  "version": "3.1",
   "url": "https://github.com/servankrall/100-Days-n-Forest/releases/latest",
-  "notes": "🎚️ Zorluk seçimi eklendi (Kolay/Normal/Zor) — gelen hasarı ve açlık/susuzluğu ayarlar, DEVAM ET ile korunur. 🐛 Dinamit artık menü/duraklatmada yanlışlıkla patlamıyor."
+  "notes": "🚁 Düşmüş helikopter enkazı eklendi (yeni POI, 2 mühimmat kasası + hurda). 🐛 Co-op'ta izleyici/ölü iken oto-kayıt ~0 canla kaydedip 'DEVAM ET'i bozuyordu — düzeltildi."
 }

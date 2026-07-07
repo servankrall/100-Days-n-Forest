@@ -1081,6 +1081,25 @@ function makeShacks(x, z) {     // terk edilmiş kulübe kümesi (3 harap kulüb
   for (let i = 0; i < 3; i++) { const a = (i / 3) * 6.28 + rnd(-0.3, 0.3), r = rnd(4, 7); makeHouse(x + Math.cos(a) * r, z + Math.sin(a) * r); }
   makeChest(x, z);
 }
+function makeWreck(x, z) {   // 🚁 DÜŞMÜŞ KARGO HELİKOPTERİ ENKAZI — askeri ganimet (2 mühimmat kasası + hurda)
+  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rnd(0, 6.28);
+  const metal = new THREE.MeshStandardMaterial({ color: 0x3a4038, metalness: 0.5, roughness: 0.7, flatShading: true });
+  const burnt = new THREE.MeshStandardMaterial({ color: 0x14120f, roughness: 1, flatShading: true });
+  const scorch = new THREE.Mesh(new THREE.CircleGeometry(6, 20), new THREE.MeshStandardMaterial({ color: 0x1a1712, roughness: 1 })); scorch.rotation.x = -Math.PI / 2; scorch.position.y = 0.03; g.add(scorch);   // yanık zemin
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(1.3, 3.2, 6, 12), metal); body.rotation.z = Math.PI / 2; body.rotation.x = 0.25; body.position.set(0, 1.2, 0); g.add(body);   // yan yatmış gövde
+  const cockpit = new THREE.Mesh(new THREE.SphereGeometry(1.0, 12, 10, 0, 6.28, 0, Math.PI), new THREE.MeshStandardMaterial({ color: 0x3a5a68, metalness: 0.3, roughness: 0.4, transparent: true, opacity: 0.5, side: THREE.DoubleSide })); cockpit.position.set(2.3, 1.3, 0); cockpit.rotation.z = -0.4; g.add(cockpit);   // kırık kokpit
+  const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.5, 3.5, 8), burnt); tail.rotation.z = 1.1; tail.position.set(-4.2, 0.6, 1.2); g.add(tail);   // kopmuş kuyruk
+  const rotor = new THREE.Mesh(new THREE.BoxGeometry(8, 0.1, 0.5), burnt); rotor.position.set(1, 0.15, 2); rotor.rotation.set(0, rnd(0, 3), 0.06); g.add(rotor);   // kırık pervane
+  for (let i = 0; i < 7; i++) { const p = new THREE.Mesh(new THREE.BoxGeometry(rnd(0.4, 0.9), rnd(0.3, 0.6), rnd(0.4, 0.9)), i % 2 ? metal : burnt); const a = rnd(0, 6.28), r = rnd(2.5, 5.5); p.position.set(Math.cos(a) * r, 0.2, Math.sin(a) * r); p.rotation.set(rnd(0, 1), rnd(0, 6.3), rnd(0, 1)); g.add(p); }   // dağılmış enkaz
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  scene.add(g);
+  const c1 = makeChest(x + Math.cos(g.rotation.y) * 2.5, z + Math.sin(g.rotation.y) * 2.5); if (c1) c1.ammo = true;   // mühimmat kasaları
+  const c2 = makeChest(x - Math.cos(g.rotation.y) * 3, z - Math.sin(g.rotation.y) * 3); if (c2) c2.ammo = true;
+  for (let i = 0; i < 3; i++) { const a = rnd(0, 6.28), r = rnd(3, 6); makeScrap(x + Math.cos(a) * r, z + Math.sin(a) * r); }
+  houses.push({ x, z, group: g });
+  for (let i = 0; i < trees.length; i++) { const t = trees[i]; if (t.alive && Math.hypot(t.x - x, t.z - z) < 7) { t.alive = false; t.regrow = 1e9; writeTree(i); } }   // enkaz üstü açık
+  treesNeedUpdate();
+}
 function buildPOIs() {
   let p;
   p = farFromSpawn(70); makeStonehenge(p[0], p[1]);
@@ -1093,6 +1112,7 @@ function buildPOIs() {
   p = farFromSpawn(50); makeCampsite(p[0], p[1]);
   p = farFromSpawn(65); makeCampsite(p[0], p[1]);
   p = farFromSpawn(75); makeShacks(p[0], p[1]);
+  p = farFromSpawn(55); makeWreck(p[0], p[1]);   // 🚁 düşmüş helikopter enkazı (askeri ganimet)
   // mağaralar — çevrelerine kristal damarları kümelenir (💎 kaynağı)
   for (const cd of [55, 80, 100]) {
     p = farFromSpawn(cd); makeCave(p[0], p[1]);
@@ -2527,7 +2547,7 @@ function updateRescue(dt) {
 
 /* ----------------------- KAYDET / DEVAM ET ----------------------- */
 function saveProgress() {
-  if (!S || !S.running || S.over) return;
+  if (!S || !S.running || S.over || S.downed || S.spectating) return;   // düşük/ölü/izleyici iken KAYDETME (yoksa DEVAM ET seni ~0 canla başlatır)
   // madende oto-kayıt olursa gizli maden koordinatı KAYDEDİLMEZ (DEVAM ET'te boş köşeye ışınlanma bug'ı) → yüzey giriş noktasını kaydet
   const sx = (S.inMine && mineReturn) ? mineReturn.x : camera.position.x;
   const sz = (S.inMine && mineReturn) ? mineReturn.z : camera.position.z;
@@ -3339,7 +3359,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 61;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 62;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -3707,8 +3727,12 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "3.0";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "3.1";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "3.1", d: "7 Tem", items: [
+    "🚁 DÜŞMÜŞ HELİKOPTER ENKAZI eklendi (yeni POI): yanmış gövde, kopmuş kuyruk, dağılmış enkaz + 2 MÜHİMMAT KASASI ve hurda. Silah/mermi arıyorsan buraya bak!",
+    "🐛 Düzeltme: co-op'ta bayılıp/ölüp izleyici olunca oto-kayıt seni ~0 canla kaydediyordu → 'DEVAM ET' yarı ölü başlatıyordu. Artık düşük/ölü/izleyici iken kayıt yapılmaz (son sağlıklı kayıt korunur).",
+  ] },
   { v: "3.0", d: "7 Tem", items: [
     "🎚️ ZORLUK SEÇİMİ eklendi (Yeni Oyun ekranı): 🙂 Kolay / 😐 Normal / 💀 Zor. Zorluk, gelen HASARI ve AÇLIK/SUSUZLUK tüketimini ayarlar. DEVAM ET ile zorluğun korunur.",
     "🐛 Düzeltme: 🧨 dinamit (X) artık menü/duraklatma/inşa modundayken yanlışlıkla patlamıyor.",

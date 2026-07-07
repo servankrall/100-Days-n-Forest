@@ -1109,7 +1109,7 @@ function buildPOIs() {
 let S;
 function newState() {
   return {
-    running: false, paused: false, over: false, won: false, inMine: false,
+    running: false, paused: false, over: false, won: false, inMine: false, diff: 1,
     time: 0.16, day: 1,
     health: 100, hunger: 100, warmth: 100, sanity: 100, stamina: 100, thirst: 100,
     inv: { wood: 10, raw: 0, cooked: 2, metal: 0, pelt: 0, bandage: 1, gem: 0, cloth: 0, rope: 0, medkit: 0, pills: 0, canned: 0, choco: 0, pistolAmmo: 0, shells: 0, rifleAmmo: 0, arrows: 0, water: 1, soda: 0, batteries: 0, dynamite: 0 },
@@ -2204,7 +2204,7 @@ function blastFX(x, z) {   // kısa patlama görseli: genişleyen küre + ışı
   let t = 0; const iv = setInterval(() => { t += 0.05; m.scale.setScalar(1 + t * 14); m.material.opacity = Math.max(0, 0.92 - t * 1.9); l.intensity = Math.max(0, 3.2 - t * 7); if (t >= 0.5) { clearInterval(iv); scene.remove(g); } }, 50);
 }
 function useDynamite() {
-  if (!S || !S.running || S.downed) return;
+  if (!S || !S.running || S.downed || S.paused || pauseOpen || craftOpen || placeMode || adminOpen) return;   // menü/duraklatmada patlamasın
   if ((S.inv.dynamite || 0) <= 0) { toast("🧨 Dinamit yok — tezgahta üret (5⚙️ + 1💎)", "bad"); return; }
   S.inv.dynamite--;
   const px = camera.position.x, pz = camera.position.z, R = 8;
@@ -2432,6 +2432,7 @@ function drawCamScare(w, h, dt) {
 // yaratık hasarı: zırh varsa bir kısmını emer ve yıpranır (açlık/soğuk/sıcak gibi çevre hasarı zırhı by-pass eder)
 function hurt(dmg) {
   if (admin.god) return S.health;   // 🛡️ God Mode: hasar yok
+  dmg *= (S.diff || 1);             // 🎚️ zorluk: gelen hasar çarpanı (Kolay 0.6 / Zor 1.5)
   if (S.armor > 0 && S.armorDef > 0) {
     const absorbed = dmg * S.armorDef;
     S.armor = Math.max(0, S.armor - (absorbed * 1.4 + 1));
@@ -2535,7 +2536,7 @@ function saveProgress() {
       day: S.day, time: S.time, inv: S.inv, tools: S.tools, notes: S.notes,
       health: S.health, hunger: S.hunger, warmth: S.warmth, sanity: S.sanity, thirst: S.thirst,
       weapons: S.weapons, meleeOwned: S.meleeOwned, melee: S.melee, equip: S.equip, flashlight: S.flashlight, battery: S.battery, armor: S.armor, armorDef: S.armorDef, cls: S.cls, peltTrades: S.peltTrades, backpack: S.backpack,
-      x: sx, z: sz, ts: Date.now(),
+      diff: S.diff, x: sx, z: sz, ts: Date.now(),
     }));
   } catch (e) {}
 }
@@ -2553,6 +2554,7 @@ function applySave() {
   if (sv.flashlight) S.flashlight = sv.flashlight; if (sv.battery != null) S.battery = sv.battery;
   if (sv.armor != null) S.armor = sv.armor; if (sv.armorDef != null) S.armorDef = sv.armorDef;
   if (sv.cls) S.cls = sv.cls; if (sv.peltTrades != null) S.peltTrades = sv.peltTrades; if (sv.backpack != null) S.backpack = sv.backpack;
+  if (sv.diff != null) S.diff = sv.diff;   // 🎚️ zorluk geri yüklenir
   if (sv.notes) S.notes = sv.notes;
   S.health = sv.health != null ? sv.health : 100; S.hunger = sv.hunger != null ? sv.hunger : 100;
   S.warmth = sv.warmth != null ? sv.warmth : 100; S.sanity = sv.sanity != null ? sv.sanity : 100;
@@ -2758,8 +2760,9 @@ function update(dt) {
   if (nearFire && fireDist < 5 && S.inv.raw > 0) { S.cookT += dt; if (S.cookT >= 3.5) { S.cookT = 0; S.inv.raw--; S.inv.cooked++; toast("🍗 Et pişti", "good"); } } else S.cookT = 0;
 
   // hayatta kalma
-  S.hunger = clamp(S.hunger - 0.42 * dt, 0, 100);
-  S.thirst = clamp(S.thirst - (sprinting ? 0.75 : 0.5) * dt, 0, 100);   // koşunca daha çok susarsın
+  { const df = S.diff || 1;   // 🎚️ zorluk: açlık/susuzluk tüketimi
+    S.hunger = clamp(S.hunger - 0.42 * df * dt, 0, 100);
+    S.thirst = clamp(S.thirst - (sprinting ? 0.75 : 0.5) * df * dt, 0, 100); }   // koşunca daha çok susarsın
   if (nearFire) S.warmth = clamp(S.warmth + 9 * dt, 0, 100);
   else if (night) S.warmth = clamp(S.warmth - 1.25 * dt, 0, 100);
   else S.warmth = clamp(S.warmth - 0.18 * dt, 0, 100);
@@ -3258,7 +3261,7 @@ function startGame(continueSave) {
   curBiome = "forest"; applyBiomeGround("forest");   // yeni oyun: zemin ormana dönsün
   S.inMine = false; mineBusy = false; if (mineGroup) mineGroup.visible = false; { const f = $("fade"); if (f) f.classList.remove("on"); }   // maden durumunu sıfırla
   if (continueSave === true) applySave();   // kayıttan devam (gün/eşya/can geri yüklenir)
-  else applyClass(pendingClass);            // yeni oyun: sınıf başlangıç eşyaları + perk
+  else { applyClass(pendingClass); S.diff = pendingDiff; toast("🎚️ Zorluk: " + (pendingDiff <= 0.6 ? "Kolay 🙂" : pendingDiff >= 1.5 ? "Zor 💀" : "Normal 😐"), "good"); }   // yeni oyun: sınıf + zorluk
   Sound.init(); Sound.resume();
   S.running = true;
   if (pendingWorld) { const pw = pendingWorld; pendingWorld = null; applyWorldSnapshot(pw); }   // menüde katıldıysam gecikmiş üs durumunu şimdi uygula
@@ -3289,9 +3292,14 @@ function applyClass(cls) {
   else if (cls === "scavenger") { S.inv.metal += 10; S.inv.wood += 6; S.inv.rope += 2; }
   else if (cls === "assassin") { giveMelee("katana"); }
 }
-document.querySelectorAll(".clsbtn").forEach((b) => b.addEventListener("click", () => {
-  document.querySelectorAll(".clsbtn").forEach((x) => x.classList.remove("on"));
+document.querySelectorAll("#classPick .clsbtn").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("#classPick .clsbtn").forEach((x) => x.classList.remove("on"));
   b.classList.add("on"); pendingClass = b.getAttribute("data-cls");
+}));
+let pendingDiff = 1;   // 🎚️ zorluk çarpanı: gelen hasar + açlık/susuzluk tüketimi
+document.querySelectorAll("#diffPick .clsbtn").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("#diffPick .clsbtn").forEach((x) => x.classList.remove("on"));
+  b.classList.add("on"); pendingDiff = +b.getAttribute("data-diff") || 1;
 }));
 $("startBtn").addEventListener("click", () => startGame(false));
 $("retryBtn").addEventListener("click", () => startGame(false));
@@ -3331,7 +3339,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 60;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 61;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -3699,8 +3707,12 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "2.9";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "3.0";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "3.0", d: "7 Tem", items: [
+    "🎚️ ZORLUK SEÇİMİ eklendi (Yeni Oyun ekranı): 🙂 Kolay / 😐 Normal / 💀 Zor. Zorluk, gelen HASARI ve AÇLIK/SUSUZLUK tüketimini ayarlar. DEVAM ET ile zorluğun korunur.",
+    "🐛 Düzeltme: 🧨 dinamit (X) artık menü/duraklatma/inşa modundayken yanlışlıkla patlamıyor.",
+  ] },
   { v: "2.9", d: "7 Tem", items: [
     "🧨 DİNAMİT eklendi (tezgah Tier 3: 5⚙️ + 1💎): X tuşu (mobilde 🧨 buton) ile öne fırlat → patlar; çevredeki KRİSTALLERİ kazar (💎) + hurdaları toplar + yakındaki düşmanları vurur. Madende çok işine yarar!",
     "🐛 Düzeltme: madende oto-kayıt olunca 'DEVAM ET' seni boş/görünmez bir köşeye ışınlıyordu — artık yüzeydeki maden girişine dönüyorsun, ilerleme korunuyor.",

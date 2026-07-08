@@ -1180,7 +1180,7 @@ function newState() {
     placeables: {},  // tezgahta üretilen ama henüz kurulmamış yapılar {kind:adet}
     fireFed: 0,   // ateşe atılan toplam odun (seviye için)
     swingCd: 0, stepT: 0, sick: 0, hurt: 0, bob: 0, py: 0, vy: 0,
-    cookT: 0, fireCrackleT: 0, deathReason: "",
+    cookT: 0, fireCrackleT: 0, fishing: 0, deathReason: "",
     heart: 0, heartLevel: 0, jumpCd: 12, firstNightDone: false, scripted: false, bloodMoon: false, dreadT: null, glitchCd: 35,
     shake: 0,
     downed: false, bleed: 0, reviveT: 0, spectating: false,   // co-op: yere düşme / kan kaybı / diriltme / izleyici modu
@@ -1756,11 +1756,13 @@ function updateCarry(dt) {
   for (const p of pickups) { p.bob += dt; if (p.sprite) p.sprite.position.y = 0.85 + Math.sin(p.bob * 2) * 0.08; }
   if (carried && carried.sprite) { camera.getWorldDirection(_fwd); carried.sprite.position.set(camera.position.x + _fwd.x * 1.1, camera.position.y - 0.35 + Math.sin(performance.now() / 250) * 0.03, camera.position.z + _fwd.z * 1.1); }
 }
+function startFishing() { if (S.fishing > 0) return; S.fishing = rnd(2.4, 5.0); S.swingCd = 0.6; Sound.chop(); toast("🎣 Oltayı attın... bekle (gölden ayrılma)", "good"); }   // 🎣 balık tutmaya başla
 
 function doAction() {
   if (carried) { dropCarried(); return; }                     // elin doluysa VUR = bırak (kampta→envanter, değilse→yere)
   if (S.swingCd > 0) return;
-  const t = findTarget(); if (!t) return;
+  const t = findTarget();
+  if (!t) { if (S.tools.rod && S.fishing <= 0 && nearWater()) startFishing(); return; }   // hedef yoksa: göl kenarında olta at
   if (t.kind === "pickup") { tryCarry(t.obj); return; }       // yerdeki eşyayı AL (taşımaya başla)
   if (t.kind === "mineenter") { enterMine(); return; }        // ⛏️ madene in (ekran kararır → ışınlanır)
   if (t.kind === "mineexit") { exitMine(); return; }          // 🪜 yüzeye çık
@@ -2146,6 +2148,7 @@ const RECIPES = [
   { tier: 1, name: "🛏️ Eski Yatak", desc: "Üretilir, ateş yanına KUR; güvendeyken T ile uyu", cost: { wood: 18 }, make: () => addPlaceable("bed") },
   { tier: 1, name: "🌱 Tarla", desc: "Üretilir, ateş yanına KUR; zamanla 🍗 üretir (maks 6)", cost: { wood: 10 }, once: () => (S.farms + (S.placeables.farm || 0)) >= 6, make: () => addPlaceable("farm") },
   { tier: 1, name: "⛏️ Kazma", desc: "Metali hızlı toplar, daha sert vurur", cost: { metal: 3, wood: 3 }, once: () => S.tools.pickaxe, make: (s) => s.tools.pickaxe = true },
+  { tier: 1, name: "🎣 Olta", desc: "Göl kenarında dur, VUR/E ile balık tut (çiğ balık → ateşte pişir)", cost: { wood: 5, rope: 1 }, once: () => S.tools.rod, make: (s) => s.tools.rod = true },
   { tier: 1, name: "🗡️ Mızrak", desc: "Avı/canavarı daha çok yaralar (Z ile kuşan)", cost: { metal: 2, wood: 4 }, once: () => S.tools.spear, make: () => giveMelee("spear") },
   { tier: 1, up: 2, name: "⬆️ Tezgah Tier 2", desc: "2. seviye tarifleri açar", cost: { metal: 1, wood: 5 }, once: () => S.benchTier >= 2, make: (s) => s.benchTier = 2 },
   // ---- Tier 2 ----
@@ -2626,6 +2629,7 @@ function applySave() {
 function update(dt) {
   if (S.rescuing) { updateRescue(dt); return; }   // 100. gün kurtarma sineması — normal oyun durur
   S.saveT = (S.saveT || 0) - dt; if (S.saveT <= 0) { S.saveT = 25; saveProgress(); }   // 💾 otomatik kayıt (~25s) → güncelleme/çıkışta ilerleme kaybolmaz
+  if (S.fishing > 0) { S.fishing -= dt; if (S.fishing <= 0) { S.fishing = 0; if (nearWater() && Math.random() < 0.72) { const n = rndi(1, 2); S.inv.raw += n; toast("🐟 +" + n + " balık yakaladın (çiğ) — ateşte pişir", "good"); Sound.chop(); } else toast("🎣 Balık kaçtı...", "bad"); } }   // 🎣 balık tutma sonucu
   if (admin.infStam) S.stamina = 100;              // ♾️ Sonsuz Enerji
   // zaman / gün
   if (!admin.freezeTime) S.time += dt / CFG.DAY_LENGTH;   // ⏸️ Zamanı Dondur
@@ -3209,7 +3213,9 @@ function updateHUD(night) {
     const axeTxt = S.tools.chainsaw ? "🪚 Kes (basılı tut) " : (["🪓 Odun kes ", "🪓 Odun kes (iyi) ", "🪓 Odun kes (güçlü) ", "🪓 Admin Balta (tek vuruş) "][S.tools.axe || 0] || "🪓 Odun kes ");
     const txt = t.kind === "mineenter" ? "⛏️ Madene in " : t.kind === "mineexit" ? "🪜 Yüzeye çık " : t.kind === "pickup" ? "✋ " + t.obj.item.label + " AL " : t.kind === "bench" ? "🛠️ Tezgah " : t.kind === "scav" ? "🤝 Takas (5⚙️) " : t.kind === "pelt" ? "🧵 Kürk takası (5 post) " : t.kind === "tree" ? axeTxt : t.kind === "scrap" ? "⚙️ Metal topla " : t.kind === "crystal" ? (S.tools.pickaxe ? "💎 Kristal kaz " : "💎 Kristal (⛏️ gerek) ") : t.kind === "chest" ? "📦 Sandığı aç " : t.kind === "wall" ? (S.tools.hammer ? "🔨 Duvarı tamir et " : "🔨 Çekiç gerek ") : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ");
     promptEl.textContent = txt + akey; promptEl.classList.remove("hidden");
-  } else if (nearWater() && S.thirst < 80) { promptEl.textContent = "💧 Su iç " + (isTouch ? "(🍖/YE)" : "(G)"); promptEl.classList.remove("hidden"); }   // göl kenarı: su içme ipucu
+  } else if (S.fishing > 0) { promptEl.textContent = "🎣 Balık bekleniyor... (gölden ayrılma)"; promptEl.classList.remove("hidden"); }   // olta atıldı
+  else if (nearWater() && S.tools.rod) { promptEl.textContent = "🎣 Balık tut " + (isTouch ? "(VUR)" : "(E)"); promptEl.classList.remove("hidden"); }   // göl kenarı + olta
+  else if (nearWater() && S.thirst < 80) { promptEl.textContent = "💧 Su iç " + (isTouch ? "(🍖/YE)" : "(G)"); promptEl.classList.remove("hidden"); }   // göl kenarı: su içme ipucu
   else promptEl.classList.add("hidden");
   // pusula / ateşe dönüş
   let nf = null, nd = 1e9; for (const f of fires) { const d = (f.x - camera.position.x) ** 2 + (f.z - camera.position.z) ** 2; if (d < nd) { nd = d; nf = f; } }
@@ -3404,7 +3410,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 64;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 65;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -3772,8 +3778,11 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "3.3";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "3.4";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "3.4", d: "8 Tem", items: [
+    "🎣 BALIK TUTMA eklendi: tezgahta 🎣 Olta üret (5🪵 + 1 ip), göl kenarına git → VUR/E ile oltayı at, birkaç saniye bekle → çiğ balık yakala (ateşte pişir). Yenilenebilir bir yemek kaynağı — göllerin artık bir işi daha var!",
+  ] },
   { v: "3.3", d: "8 Tem", items: [
     "🪦 TERK EDİLMİŞ MEZARLIK eklendi (yeni horror POI): mezar taşları, kripta/mozole, ölü ağaç, soluk kızıl ışıltı. Kriptanın önünde gizli ASKERİ KASA + sandıklar. GECELERİ yakınında akıl daha hızlı erir ve fısıltılar duyulur — riskli ama ganimetli.",
   ] },

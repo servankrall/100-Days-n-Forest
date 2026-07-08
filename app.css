@@ -275,3 +275,10 @@ canvas#fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-eve
 
 /* ===== 🧨 dinamit mobil butonu ===== */
 #btn-dyna { position: absolute; left: 10px; top: 216px; z-index: 14; width: 44px; height: 44px; border-radius: 10px; background: rgba(48,28,18,.72); color: #ffbf87; border: 1px solid rgba(255,150,80,.45); font-size: 20px; pointer-events: auto; touch-action: none; }
+
+/* ===== 📦 depo sandığı paneli ===== */
+.depot-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; padding: 8px 6px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.depot-row .dp-lbl { min-width: 92px; font-weight: 600; }
+.depot-row .dp-n { flex: 1; min-width: 110px; font-size: 13px; opacity: .82; }
+.dp-btn { padding: 6px 9px; border-radius: 8px; background: rgba(60,80,50,.6); color: #dfeecf; border: 1px solid rgba(150,255,150,.32); font-size: 12px; cursor: pointer; pointer-events: auto; }
+.dp-btn:active { background: rgba(80,110,70,.85); }

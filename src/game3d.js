@@ -781,6 +781,7 @@ function buildScatter() {
 /* ----- yapılar: metal hurda + sandık + terk edilmiş kulübeler (99 Nights tarzı) ----- */
 const scraps = [];   // {x,z,group,taken}
 const chests = [];   // {x,z,group,lid,opened}
+const depots = [];   // {x,z,group} — 📦 kamp depo sandıkları (ağır kaynak sakla)
 const crystals = []; // {x,z,group,hp,mined,shards[]} — kazma ile kazılır → 💎
 const caves = [];    // {x,z,r} — karanlık yeraltı mağaraları (el feneri şart)
 const houses = [];   // {x,z,group}
@@ -820,6 +821,17 @@ function makeChest(x, z) {
   const lock = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.18, 0.06), iron); lock.position.set(0, 0.34, 0.31); g.add(lock);
   if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   scene.add(g); const c = { x, z, group: g, lid, opened: false }; chests.push(c); return c;
+}
+function makeStorageBox(x, z, rot) {   // 📦 kamp depo sandığı — ağır kaynakları sakla (çanta hafifler)
+  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rot || 0;
+  const wood = new THREE.MeshStandardMaterial({ map: woodTex, color: 0x8a6a3a, roughness: 0.9 });
+  const iron = new THREE.MeshStandardMaterial({ color: 0x45484c, metalness: 0.6, roughness: 0.5 });
+  const base = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.9, 1.0), wood); base.position.y = 0.45; g.add(base);
+  const lid = new THREE.Mesh(new THREE.BoxGeometry(1.44, 0.3, 1.04), wood); lid.position.y = 1.0; g.add(lid);
+  for (const sx of [-1, 1]) { const band = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.0, 1.06), iron); band.position.set(sx * 0.5, 0.5, 0); g.add(band); }
+  const lock = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.24, 0.08), iron); lock.position.set(0, 0.62, 0.52); g.add(lock);
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  scene.add(g); depots.push({ x, z, group: g }); return g;
 }
 function makeHouse(x, z) {
   const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rnd(0, 6.3);
@@ -1178,6 +1190,7 @@ function newState() {
     backpack: 0,   // çanta yükseltmesi seviyesi (taşıma limitini artırır)
     benchTier: 1, hasMap: false, hasCompass: false, hasLightningRod: false, hasCrockpot: false, farms: 0, oilDrills: 0,
     placeables: {},  // tezgahta üretilen ama henüz kurulmamış yapılar {kind:adet}
+    depot: {},   // 📦 depo sandığındaki kaynaklar {key:adet}
     fireFed: 0,   // ateşe atılan toplam odun (seviye için)
     swingCd: 0, stepT: 0, sick: 0, hurt: 0, bob: 0, py: 0, vy: 0,
     cookT: 0, fireCrackleT: 0, fishing: 0, deathReason: "",
@@ -1219,6 +1232,7 @@ function clearDynamic() {
   baseFire = null;
   if (watcher) { scene.remove(watcher.group); watcher = null; }
   for (const p of pickups) if (p.group) scene.remove(p.group); pickups.length = 0;   // yerdeki eşyalar
+  for (const d of depots) if (d.group) scene.remove(d.group); depots.length = 0;   // 📦 depo sandıkları
   if (carried && carried.sprite) scene.remove(carried.sprite); carried = null;         // taşınan eşya
   // sandıkları kapat (yeniden oyun)
   for (const c of chests) { c.opened = false; if (c.lid) c.lid.rotation.x = 0; }
@@ -1685,6 +1699,7 @@ function findTarget() {
   for (const s of scraps) if (!s.taken) consider(s.x, s.z, 3.4, "scrap", s);
   for (const c of crystals) if (!c.mined) consider(c.x, c.z, 3.6, "crystal", c);
   for (const c of chests) if (!c.opened) consider(c.x, c.z, 3.6, "chest", c);
+  for (const d of depots) consider(d.x, d.z, 3.4, "depot", d);   // 📦 depo sandığı
   for (const p of pickups) consider(p.x, p.z, 3.0, "pickup", p);   // yerdeki taşınabilir eşya (AL)
   for (const w of walls) if (w.hp != null && w.hp < w.maxhp - 1) consider(w.x, w.z, 3.0, "wall", w);   // hasarlı duvar → çekiçle tamir
   if (!S.inMine && mineEntrance) consider(mineEntrance.x, mineEntrance.z, 4.4, "mineenter", null);   // ⛏️ madene in
@@ -1757,6 +1772,30 @@ function updateCarry(dt) {
   if (carried && carried.sprite) { camera.getWorldDirection(_fwd); carried.sprite.position.set(camera.position.x + _fwd.x * 1.1, camera.position.y - 0.35 + Math.sin(performance.now() / 250) * 0.03, camera.position.z + _fwd.z * 1.1); }
 }
 function startFishing() { if (S.fishing > 0) return; S.fishing = rnd(2.4, 5.0); S.swingCd = 0.6; Sound.chop(); toast("🎣 Oltayı attın... bekle (gölden ayrılma)", "good"); }   // 🎣 balık tutmaya başla
+/* ----------------------- 📦 DEPO SANDIĞI ----------------------- */
+let depotOpen = false;
+const DEPOT_ITEMS = [["wood", "🪵 Odun"], ["metal", "⚙️ Metal"], ["gem", "💎 Mücevher"], ["pelt", "🧵 Post"], ["cloth", "🧶 Kumaş"], ["rope", "🪢 İp"], ["raw", "🥩 Çiğ Et"], ["cooked", "🍗 Pişmiş"], ["bandage", "🩹 Bandaj"]];
+function openDepot() { if (!S || !S.running) return; depotOpen = true; renderDepot(); $("depot").classList.remove("hidden"); if (document.exitPointerLock) document.exitPointerLock(); }
+function closeDepot() { depotOpen = false; $("depot").classList.add("hidden"); if (!isTouch && S && S.running && threeCanvas.requestPointerLock) { try { threeCanvas.requestPointerLock(); } catch (e) {} } }
+function depotMove(key, toDepot, all) {
+  S.depot = S.depot || {};
+  if (toDepot) { const have = S.inv[key] || 0; if (have <= 0) return; const n = all ? have : Math.min(have, 10); S.inv[key] -= n; S.depot[key] = (S.depot[key] || 0) + n; }
+  else { const have = S.depot[key] || 0; if (have <= 0) return; const n = all ? have : Math.min(have, 10); S.depot[key] -= n; S.inv[key] = (S.inv[key] || 0) + n; }
+  Sound.chop(); renderDepot();
+}
+function renderDepot() {
+  const box = $("depotList"); if (!box) return; box.innerHTML = ""; S.depot = S.depot || {};
+  for (const [key, label] of DEPOT_ITEMS) {
+    const row = document.createElement("div"); row.className = "depot-row";
+    const lbl = document.createElement("span"); lbl.className = "dp-lbl"; lbl.textContent = label;
+    const n = document.createElement("span"); n.className = "dp-n"; n.textContent = "çanta " + (S.inv[key] || 0) + " · depo " + (S.depot[key] || 0);
+    row.append(lbl, n);
+    const mk = (t, fn) => { const b = document.createElement("button"); b.className = "dp-btn"; b.textContent = t; b.addEventListener("click", fn); return b; };
+    row.append(mk("▶10", () => depotMove(key, true, false)), mk("▶▶ tümü", () => depotMove(key, true, true)), mk("10◀", () => depotMove(key, false, false)), mk("tümü ◀◀", () => depotMove(key, false, true)));
+    box.appendChild(row);
+  }
+}
+{ const dc = $("depot-close"); if (dc) dc.addEventListener("click", closeDepot); }
 
 function doAction() {
   if (carried) { dropCarried(); return; }                     // elin doluysa VUR = bırak (kampta→envanter, değilse→yere)
@@ -1766,6 +1805,7 @@ function doAction() {
   if (t.kind === "pickup") { tryCarry(t.obj); return; }       // yerdeki eşyayı AL (taşımaya başla)
   if (t.kind === "mineenter") { enterMine(); return; }        // ⛏️ madene in (ekran kararır → ışınlanır)
   if (t.kind === "mineexit") { exitMine(); return; }          // 🪜 yüzeye çık
+  if (t.kind === "depot") { openDepot(); return; }            // 📦 depo sandığı aç
   if (t.kind === "bench") { openCraft(); return; }            // tezgaha bakıp vur → üretim açılır
   if (t.kind === "wall") {                                     // hasarlı duvarı çekiçle tamir et (odun harcar)
     S.swingCd = 0.4; const w = t.obj;
@@ -2059,6 +2099,7 @@ function makeFlag(x, z) { const g = new THREE.Group(); g.position.set(x, 0, z); 
 /* --- KURULACAK YAPILAR: üret → envantere düşer → ateş yanına yerleştir (hayalet önizleme) --- */
 const PLACE = {
   bed:   { label: "🛏️ Yatak",         build: makeBed,       dist: 2.6, size: [1.1, 0.6, 2.1], onPlace: () => { S.tools.tent = true; } },
+  storage: { label: "📦 Depo Sandığı", build: makeStorageBox, dist: 2.4, size: [1.5, 1.0, 1.1], rot: true },
   farm:  { label: "🌱 Tarla",          build: makeFarm,      dist: 2.9, size: [2.1, 0.4, 2.1], onPlace: () => { S.farms++; } },
   trap:  { label: "🪤 Ayı Tuzağı",     build: makeSpikeTrap, dist: 2.6, size: [1.3, 0.3, 1.3] },
   wall:  { label: "🧱 Tomruk Duvar",   build: makeWall,      dist: 2.5, size: [2.4, 1.8, 0.5], rot: true },
@@ -2149,6 +2190,7 @@ const RECIPES = [
   { tier: 1, name: "🌱 Tarla", desc: "Üretilir, ateş yanına KUR; zamanla 🍗 üretir (maks 6)", cost: { wood: 10 }, once: () => (S.farms + (S.placeables.farm || 0)) >= 6, make: () => addPlaceable("farm") },
   { tier: 1, name: "⛏️ Kazma", desc: "Metali hızlı toplar, daha sert vurur", cost: { metal: 3, wood: 3 }, once: () => S.tools.pickaxe, make: (s) => s.tools.pickaxe = true },
   { tier: 1, name: "🎣 Olta", desc: "Göl kenarında dur, VUR/E ile balık tut (çiğ balık → ateşte pişir)", cost: { wood: 5, rope: 1 }, once: () => S.tools.rod, make: (s) => s.tools.rod = true },
+  { tier: 1, name: "📦 Depo Sandığı", desc: "Üretilir, KUR; ağır kaynakları içine bırak → çantan hafifler, hızlı kalırsın", cost: { wood: 16, metal: 2 }, make: () => addPlaceable("storage") },
   { tier: 1, name: "🗡️ Mızrak", desc: "Avı/canavarı daha çok yaralar (Z ile kuşan)", cost: { metal: 2, wood: 4 }, once: () => S.tools.spear, make: () => giveMelee("spear") },
   { tier: 1, up: 2, name: "⬆️ Tezgah Tier 2", desc: "2. seviye tarifleri açar", cost: { metal: 1, wood: 5 }, once: () => S.benchTier >= 2, make: (s) => s.benchTier = 2 },
   // ---- Tier 2 ----
@@ -2598,7 +2640,7 @@ function saveProgress() {
       day: S.day, time: S.time, inv: S.inv, tools: S.tools, notes: S.notes,
       health: S.health, hunger: S.hunger, warmth: S.warmth, sanity: S.sanity, thirst: S.thirst,
       weapons: S.weapons, meleeOwned: S.meleeOwned, melee: S.melee, equip: S.equip, flashlight: S.flashlight, battery: S.battery, armor: S.armor, armorDef: S.armorDef, cls: S.cls, peltTrades: S.peltTrades, backpack: S.backpack,
-      diff: S.diff, x: sx, z: sz, ts: Date.now(),
+      diff: S.diff, depot: S.depot, x: sx, z: sz, ts: Date.now(),
     }));
   } catch (e) {}
 }
@@ -2617,6 +2659,7 @@ function applySave() {
   if (sv.armor != null) S.armor = sv.armor; if (sv.armorDef != null) S.armorDef = sv.armorDef;
   if (sv.cls) S.cls = sv.cls; if (sv.peltTrades != null) S.peltTrades = sv.peltTrades; if (sv.backpack != null) S.backpack = sv.backpack;
   if (sv.diff != null) S.diff = sv.diff;   // 🎚️ zorluk geri yüklenir
+  if (sv.depot) S.depot = sv.depot;   // 📦 depo içeriği geri yüklenir
   if (sv.notes) S.notes = sv.notes;
   S.health = sv.health != null ? sv.health : 100; S.hunger = sv.hunger != null ? sv.hunger : 100;
   S.warmth = sv.warmth != null ? sv.warmth : 100; S.sanity = sv.sanity != null ? sv.sanity : 100;
@@ -3211,7 +3254,7 @@ function updateHUD(night) {
     promptEl.classList.remove("hidden");
   } else if (t) {
     const axeTxt = S.tools.chainsaw ? "🪚 Kes (basılı tut) " : (["🪓 Odun kes ", "🪓 Odun kes (iyi) ", "🪓 Odun kes (güçlü) ", "🪓 Admin Balta (tek vuruş) "][S.tools.axe || 0] || "🪓 Odun kes ");
-    const txt = t.kind === "mineenter" ? "⛏️ Madene in " : t.kind === "mineexit" ? "🪜 Yüzeye çık " : t.kind === "pickup" ? "✋ " + t.obj.item.label + " AL " : t.kind === "bench" ? "🛠️ Tezgah " : t.kind === "scav" ? "🤝 Takas (5⚙️) " : t.kind === "pelt" ? "🧵 Kürk takası (5 post) " : t.kind === "tree" ? axeTxt : t.kind === "scrap" ? "⚙️ Metal topla " : t.kind === "crystal" ? (S.tools.pickaxe ? "💎 Kristal kaz " : "💎 Kristal (⛏️ gerek) ") : t.kind === "chest" ? "📦 Sandığı aç " : t.kind === "wall" ? (S.tools.hammer ? "🔨 Duvarı tamir et " : "🔨 Çekiç gerek ") : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ");
+    const txt = t.kind === "mineenter" ? "⛏️ Madene in " : t.kind === "mineexit" ? "🪜 Yüzeye çık " : t.kind === "depot" ? "📦 Depo (yatır/çek) " : t.kind === "pickup" ? "✋ " + t.obj.item.label + " AL " : t.kind === "bench" ? "🛠️ Tezgah " : t.kind === "scav" ? "🤝 Takas (5⚙️) " : t.kind === "pelt" ? "🧵 Kürk takası (5 post) " : t.kind === "tree" ? axeTxt : t.kind === "scrap" ? "⚙️ Metal topla " : t.kind === "crystal" ? (S.tools.pickaxe ? "💎 Kristal kaz " : "💎 Kristal (⛏️ gerek) ") : t.kind === "chest" ? "📦 Sandığı aç " : t.kind === "wall" ? (S.tools.hammer ? "🔨 Duvarı tamir et " : "🔨 Çekiç gerek ") : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ");
     promptEl.textContent = txt + akey; promptEl.classList.remove("hidden");
   } else if (S.fishing > 0) { promptEl.textContent = "🎣 Balık bekleniyor... (gölden ayrılma)"; promptEl.classList.remove("hidden"); }   // olta atıldı
   else if (nearWater() && S.tools.rod) { promptEl.textContent = "🎣 Balık tut " + (isTouch ? "(VUR)" : "(E)"); promptEl.classList.remove("hidden"); }   // göl kenarı + olta
@@ -3329,6 +3372,7 @@ function startGame(continueSave) {
   camera.position.set(0, CFG.EYE, 0); yaw = 0; pitch = 0;
   // başlangıç kamp ateşi (üs): büyük yakıt deposu — odun atıp uzun yakabilirsin
   baseFire = makeFire(0, -3); baseFire.base = true; setFireLevel(baseFire, 1); baseFire.fuel = 120;   // merkezi kalıcı kamp ateşi (seviye 1)
+  makeStorageBox(-2.6, -1.2, 0.4);   // 📦 kampta hazır bir depo sandığı (ağır kaynakları koy)
   curBiome = "forest"; applyBiomeGround("forest");   // yeni oyun: zemin ormana dönsün
   S.inMine = false; mineBusy = false; if (mineGroup) mineGroup.visible = false; { const f = $("fade"); if (f) f.classList.remove("on"); }   // maden durumunu sıfırla
   if (continueSave === true) applySave();   // kayıttan devam (gün/eşya/can geri yüklenir)
@@ -3383,7 +3427,7 @@ $("cr-close").addEventListener("click", () => closeCraft());
 const pauseBtn = $("pauseBtn");
 pauseBtn.addEventListener("click", () => togglePause());
 pauseBtn.addEventListener("touchstart", (e) => { isTouch = true; togglePause(); e.preventDefault(); }, { passive: false });
-addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); if (placeMode) exitPlace(); else if (adminOpen) toggleAdmin(); else if (guideOpen) closeGuide(); else if (changelogOpen) closeChangelog(); else if (settingsOpen) closeSettings(); else if (notesOpen) closeNotes(); else if (craftOpen) closeCraft(); else togglePause(); } });
+addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); if (placeMode) exitPlace(); else if (adminOpen) toggleAdmin(); else if (guideOpen) closeGuide(); else if (changelogOpen) closeChangelog(); else if (settingsOpen) closeSettings(); else if (notesOpen) closeNotes(); else if (depotOpen) closeDepot(); else if (craftOpen) closeCraft(); else togglePause(); } });
 document.addEventListener("visibilitychange", () => { if (document.hidden && S && S.running) { S.paused = true; pauseBtn.textContent = "▶"; } });
 addEventListener("touchstart", () => { isTouch = true; }, { once: true, passive: true });
 const vBtn = $("btn-voice");
@@ -3410,7 +3454,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 65;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 66;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -3778,8 +3822,11 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "3.4";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "3.5";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "3.5", d: "8 Tem", items: [
+    "📦 DEPO SANDIĞI eklendi: kampta hazır bir tane var (ayrıca tezgahta üretip başka yere de kurabilirsin: 16🪵 + 2⚙️). Ağır kaynakları (odun/metal/mücevher/post...) içine bırak → çantan hafifler, aşırı yükten yavaşlamazsın. Yatır/çek paneli. İçindekiler DEVAM ET ile korunur.",
+  ] },
   { v: "3.4", d: "8 Tem", items: [
     "🎣 BALIK TUTMA eklendi: tezgahta 🎣 Olta üret (5🪵 + 1 ip), göl kenarına git → VUR/E ile oltayı at, birkaç saniye bekle → çiğ balık yakala (ateşte pişir). Yenilenebilir bir yemek kaynağı — göllerin artık bir işi daha var!",
   ] },

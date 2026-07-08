@@ -418,7 +418,9 @@ function applyWind(mat, amount) {
 }
 
 /* ----- su birikintileri (parıldayan, gökyüzü tonlu) ----- */
+const waters = [];   // {x,z,r} — göller: yanına git, G ile su iç (susuzluk giderir)
 let waterTex = null, waterMat = null, waterNrm = null;
+function nearWater() { const px = camera.position.x, pz = camera.position.z; return waters.some((w) => Math.hypot(w.x - px, w.z - pz) < w.r + 1.5); }
 function waterTexture() {
   const N = 512, c = document.createElement("canvas"); c.width = c.height = N; const g = c.getContext("2d");
   const grad = g.createRadialGradient(N / 2, N / 2, 40, N / 2, N / 2, N * 0.7); grad.addColorStop(0, "#1c5a72"); grad.addColorStop(1, "#0e2e42"); g.fillStyle = grad; g.fillRect(0, 0, N, N);
@@ -435,6 +437,7 @@ function buildWater() {
   for (let i = 0; i < 5; i++) {
     const [x, z] = farFromSpawn(30); const r = rnd(6, 13);
     const m = new THREE.Mesh(new THREE.CircleGeometry(r, 32), waterMat); m.rotation.x = -Math.PI / 2; m.position.set(x, 0.06, z); m.receiveShadow = false; scene.add(m);
+    waters.push({ x, z, r });   // içilebilir göl
   }
 }
 
@@ -1977,8 +1980,14 @@ function doFire() {
 }
 function doEat() {
   const inv = S.inv;
-  // susuzluk açlıktan daha acilse (ve düşükse) ve içecek varsa: ÖNCE iç
-  if (S.thirst < 80 && S.thirst <= S.hunger && (inv.water > 0 || inv.soda > 0)) {
+  // susuzluk açlıktan daha acilse ve düşükse: ÖNCE iç — öncelik: BEDAVA göl suyu > kola > şişe suyu
+  if (S.thirst < 80 && S.thirst <= S.hunger) {
+    if (nearWater()) {   // gölün kenarında: bedava su iç (hafif kirli su/hastalık riski) — şişe suyunu harcamaz
+      S.thirst = clamp(S.thirst + 32, 0, 100);
+      if (Math.random() < 0.14) { S.sick = Math.max(S.sick, 3); S.health = clamp(S.health - 6, 0, 100); toast("🤢 Kirli göl suyu — biraz hastalandın (+32 susuzluk)", "bad"); }
+      else toast("💧 Gölden su içtin (+32 susuzluk)", "good");
+      return;
+    }
     if (inv.soda > 0 && (inv.water <= 0 || S.stamina < 40)) { inv.soda--; S.thirst = clamp(S.thirst + 45, 0, 100); S.stamina = clamp(S.stamina + 30, 0, 100); toast("🥤 Kola içtin (+45 susuzluk, +30 enerji)", "good"); return; }
     if (inv.water > 0) { inv.water--; S.thirst = clamp(S.thirst + 55, 0, 100); toast("💧 Su içtin (+55 susuzluk)", "good"); return; }
   }
@@ -3115,6 +3124,7 @@ function drawMinimap() {
   const W = mmCanvas.width, H = mmCanvas.height, cx = W / 2, cy = H / 2, R = (S && S.bigMap) ? CFG.WORLD + 10 : 55, sc = (W / 2 - 6) / R;
   mmctx.clearRect(0, 0, W, H);
   const px = camera.position.x, pz = camera.position.z;
+  if (!S.inMine) { mmctx.fillStyle = "rgba(70,140,190,.5)"; for (const w of waters) { const dx = w.x - px, dz = w.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.beginPath(); mmctx.arc(cx + dx * sc, cy + dz * sc, Math.max(2, w.r * sc), 0, 6.3); mmctx.fill(); } }   // 💧 göller (içilebilir)
   for (const fl of flags) { const dx = fl.x - px, dz = fl.z - pz; if (dx * dx + dz * dz > R * R) continue; mmctx.fillStyle = "#ff3030"; mmctx.beginPath(); mmctx.moveTo(cx + dx * sc, cy + dz * sc - 4); mmctx.lineTo(cx + dx * sc + 4, cy + dz * sc); mmctx.lineTo(cx + dx * sc, cy + dz * sc + 1); mmctx.fill(); }
   { const dx = BENCH.x - px, dz = BENCH.z - pz; if (dx * dx + dz * dz <= R * R) { mmctx.fillStyle = "#caa46a"; mmctx.fillRect(cx + dx * sc - 2, cy + dz * sc - 2, 4, 4); } }
   mmctx.fillStyle = "#2f6b3a";
@@ -3165,7 +3175,8 @@ function updateHUD(night) {
     const axeTxt = S.tools.chainsaw ? "🪚 Kes (basılı tut) " : (["🪓 Odun kes ", "🪓 Odun kes (iyi) ", "🪓 Odun kes (güçlü) ", "🪓 Admin Balta (tek vuruş) "][S.tools.axe || 0] || "🪓 Odun kes ");
     const txt = t.kind === "mineenter" ? "⛏️ Madene in " : t.kind === "mineexit" ? "🪜 Yüzeye çık " : t.kind === "pickup" ? "✋ " + t.obj.item.label + " AL " : t.kind === "bench" ? "🛠️ Tezgah " : t.kind === "scav" ? "🤝 Takas (5⚙️) " : t.kind === "pelt" ? "🧵 Kürk takası (5 post) " : t.kind === "tree" ? axeTxt : t.kind === "scrap" ? "⚙️ Metal topla " : t.kind === "crystal" ? (S.tools.pickaxe ? "💎 Kristal kaz " : "💎 Kristal (⛏️ gerek) ") : t.kind === "chest" ? "📦 Sandığı aç " : t.kind === "wall" ? (S.tools.hammer ? "🔨 Duvarı tamir et " : "🔨 Çekiç gerek ") : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ");
     promptEl.textContent = txt + akey; promptEl.classList.remove("hidden");
-  } else promptEl.classList.add("hidden");
+  } else if (nearWater() && S.thirst < 80) { promptEl.textContent = "💧 Su iç " + (isTouch ? "(🍖/YE)" : "(G)"); promptEl.classList.remove("hidden"); }   // göl kenarı: su içme ipucu
+  else promptEl.classList.add("hidden");
   // pusula / ateşe dönüş
   let nf = null, nd = 1e9; for (const f of fires) { const d = (f.x - camera.position.x) ** 2 + (f.z - camera.position.z) ** 2; if (d < nd) { nd = d; nf = f; } }
   const comp = $("compass");
@@ -3359,7 +3370,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 62;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 63;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -3727,8 +3738,11 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "3.1";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "3.2";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "3.2", d: "7 Tem", items: [
+    "💧 GÖLLERDEN SU İÇME: göl kenarına git → G (mobilde YE butonu) ile BEDAVA su iç (susuzluk +32). Şişe suyunu harcamaz ama kirli su ~%14 hafif hastalık riski taşır. Göller artık mini haritada mavi görünüyor + kenarında 'su iç' ipucu çıkıyor.",
+  ] },
   { v: "3.1", d: "7 Tem", items: [
     "🚁 DÜŞMÜŞ HELİKOPTER ENKAZI eklendi (yeni POI): yanmış gövde, kopmuş kuyruk, dağılmış enkaz + 2 MÜHİMMAT KASASI ve hurda. Silah/mermi arıyorsan buraya bak!",
     "🐛 Düzeltme: co-op'ta bayılıp/ölüp izleyici olunca oto-kayıt seni ~0 canla kaydediyordu → 'DEVAM ET' yarı ölü başlatıyordu. Artık düşük/ölü/izleyici iken kayıt yapılmaz (son sağlıklı kayıt korunur).",

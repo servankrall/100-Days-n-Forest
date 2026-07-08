@@ -1103,6 +1103,35 @@ function makeWreck(x, z) {   // 🚁 DÜŞMÜŞ KARGO HELİKOPTERİ ENKAZI — a
   for (let i = 0; i < trees.length; i++) { const t = trees[i]; if (t.alive && Math.hypot(t.x - x, t.z - z) < 7) { t.alive = false; t.regrow = 1e9; writeTree(i); } }   // enkaz üstü açık
   treesNeedUpdate();
 }
+let graveyard = null;   // {x,z} — mezarlık: geceleri yakınında akıl daha hızlı erir + fısıltılar
+function makeGraveyard(x, z) {   // 🪦 terk edilmiş mezarlık (horror POI): mezar taşları + kripta (gizli sandık) + ölü ağaç
+  const g = new THREE.Group(); g.position.set(x, 0, z); const rot = rnd(0, 6.28); g.rotation.y = rot;
+  const stone = new THREE.MeshStandardMaterial({ map: stoneTex, color: 0x8a857c, roughness: 1, flatShading: true });
+  const moss = new THREE.MeshStandardMaterial({ color: 0x4a5238, roughness: 1, flatShading: true });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x2a2620, roughness: 1, flatShading: true });
+  for (let r = -2; r <= 2; r++) for (let c = -2; c <= 2; c++) {   // mezar taşları + höyükler
+    if (Math.random() < 0.22) continue; const hx = c * 2.2 + rnd(-0.3, 0.3), hz = r * 2.4 + rnd(-0.3, 0.3), round = Math.random() < 0.5;
+    const hs = new THREE.Mesh(round ? new THREE.CylinderGeometry(0.45, 0.45, 1.1, 10, 1, false, 0, Math.PI) : new THREE.BoxGeometry(0.9, rnd(0.9, 1.4), 0.18), Math.random() < 0.4 ? moss : stone);
+    hs.position.set(hx, round ? 0.55 : 0.6, hz); hs.rotation.set(rnd(-0.12, 0.12), rnd(0, 6.28), rnd(-0.12, 0.12)); g.add(hs);
+    const mound = new THREE.Mesh(new THREE.SphereGeometry(0.7, 8, 6, 0, 6.28, 0, Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x3a2e22, roughness: 1 })); mound.scale.set(1, 0.22, 1.4); mound.position.set(hx, 0.02, hz + 0.9); g.add(mound);
+  }
+  const crypt = new THREE.Group(); crypt.position.set(0, 0, -7);   // kripta / mozole
+  crypt.add(new THREE.Mesh(new THREE.BoxGeometry(3.2, 2.6, 3.2), stone)); crypt.children[0].position.y = 1.3;
+  const croof = new THREE.Mesh(new THREE.ConeGeometry(2.6, 1.4, 4), dark); croof.position.y = 3.0; croof.rotation.y = Math.PI / 4; crypt.add(croof);
+  crypt.add(new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.8, 0.3), new THREE.MeshBasicMaterial({ color: 0x000000 }))); crypt.children[2].position.set(0, 0.9, 1.6); g.add(crypt);
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.32, 4.5, 6), new THREE.MeshStandardMaterial({ color: 0x241c14, roughness: 1, flatShading: true })); trunk.position.set(rnd(-4, 4), 2.2, rnd(-1, 4)); trunk.rotation.z = rnd(-0.1, 0.1); g.add(trunk);   // ölü ağaç
+  for (let i = 0; i < 4; i++) { const br = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.12, rnd(1, 2), 5), new THREE.MeshStandardMaterial({ color: 0x241c14, flatShading: true })); br.position.copy(trunk.position); br.position.y += rnd(0.8, 1.8); br.rotation.set(rnd(-1, 1), rnd(0, 6.3), rnd(-1.2, 1.2)); g.add(br); }
+  g.add(plight(0x6a1414, 0.4, 16, 2, 0, 2, -7));   // soluk kızıl ışıltı
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh && !(o.material && o.material.isMeshBasicMaterial)) o.castShadow = true; });
+  scene.add(g);
+  const s = Math.sin(rot), c = Math.cos(rot);
+  const cc = makeChest(x + s * -5.2, z + c * -5.2); if (cc) cc.ammo = true;   // kripta önünde gizli askeri kasa
+  makeChest(x + s * 2 + 2, z + c * 2); makeChest(x - 2, z + c * -2);
+  graveyard = { x, z };
+  houses.push({ x, z, group: g });
+  for (let i = 0; i < trees.length; i++) { const t = trees[i]; if (t.alive && Math.hypot(t.x - x, t.z - z) < 9) { t.alive = false; t.regrow = 1e9; writeTree(i); } }
+  treesNeedUpdate();
+}
 function buildPOIs() {
   let p;
   p = farFromSpawn(70); makeStonehenge(p[0], p[1]);
@@ -1116,6 +1145,7 @@ function buildPOIs() {
   p = farFromSpawn(65); makeCampsite(p[0], p[1]);
   p = farFromSpawn(75); makeShacks(p[0], p[1]);
   p = farFromSpawn(55); makeWreck(p[0], p[1]);   // 🚁 düşmüş helikopter enkazı (askeri ganimet)
+  p = farFromSpawn(65); makeGraveyard(p[0], p[1]);   // 🪦 terk edilmiş mezarlık (horror POI + gizli kasa)
   // mağaralar — çevrelerine kristal damarları kümelenir (💎 kaynağı)
   for (const cd of [55, 80, 100]) {
     p = farFromSpawn(cd); makeCave(p[0], p[1]);
@@ -2797,6 +2827,10 @@ function update(dt) {
   else S.warmth = clamp(S.warmth - 0.18 * dt, 0, 100);
   if (S.weather === "rain" && !nearFire) S.warmth = clamp(S.warmth - 0.9 * dt, 0, 100);   // yağmurda üşürsün
   if (nearFire) S.sanity = clamp(S.sanity + (night ? 1.0 : 2.2) * dt, 0, 100);
+  if (graveyard && night && !S.inMine && Math.hypot(camera.position.x - graveyard.x, camera.position.z - graveyard.z) < 24) {   // 🪦 mezarlıkta gece: akıl erir + fısıltılar
+    S.sanity = clamp(S.sanity - 1.5 * dt, 0, 100);
+    if (Math.random() < 0.004) { whisperText(choice(["mezarlar boş değil...", "burada yatanlar uyumaz", "gitme", "seni bekliyorduk", "toprağın altı soğuk"])); Sound.whisper(); }
+  }
   else if (night) S.sanity = clamp(S.sanity - 0.85 * dt, 0, 100);
   else S.sanity = clamp(S.sanity + 0.3 * dt, 0, 100);
   // BİYOM İKLİMİ: kar üşütür, volkan kavurur (sıcak hasarı + susuzluk), peri huzur verir
@@ -3370,7 +3404,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 63;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 64;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -3738,8 +3772,11 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "3.2";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "3.3";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "3.3", d: "8 Tem", items: [
+    "🪦 TERK EDİLMİŞ MEZARLIK eklendi (yeni horror POI): mezar taşları, kripta/mozole, ölü ağaç, soluk kızıl ışıltı. Kriptanın önünde gizli ASKERİ KASA + sandıklar. GECELERİ yakınında akıl daha hızlı erir ve fısıltılar duyulur — riskli ama ganimetli.",
+  ] },
   { v: "3.2", d: "7 Tem", items: [
     "💧 GÖLLERDEN SU İÇME: göl kenarına git → G (mobilde YE butonu) ile BEDAVA su iç (susuzluk +32). Şişe suyunu harcamaz ama kirli su ~%14 hafif hastalık riski taşır. Göller artık mini haritada mavi görünüyor + kenarında 'su iç' ipucu çıkıyor.",
   ] },

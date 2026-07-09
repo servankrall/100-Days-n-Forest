@@ -1199,6 +1199,9 @@ function newState() {
     downed: false, bleed: 0, reviveT: 0, spectating: false,   // co-op: yere düşme / kan kaybı / diriltme / izleyici modu
     sleeping: 0,                            // çadırda uyuma animasyonu
     weather: "clear", weatherT: rnd(25, 55), lightT: null, flash: 0, rainSndT: 0,  // hava durumu / şimşek
+    airT: rnd(70, 120),                     // 📦 ilk malzeme kasası bu kadar sn sonra gökten düşer
+    xp: 0, level: 1, skillPts: 0, perks: {},   // 🌟 hayatta kalma seviyesi + XP + yetenek ağacı
+    event: null, eventT: 0, eventCd: rnd(55, 110), eventSub: 0,   // 🌍 dinamik dünya olayı (aktif id / kalan süre / sonrakine bekleme / alt-zamanlayıcı)
     notes: [],                              // bulunan günlük notları
   };
 }
@@ -1233,7 +1236,6 @@ function clearDynamic() {
   if (watcher) { scene.remove(watcher.group); watcher = null; }
   for (const p of pickups) if (p.group) scene.remove(p.group); pickups.length = 0;   // yerdeki eşyalar
   for (const d of depots) if (d.group) scene.remove(d.group); depots.length = 0;   // 📦 depo sandıkları
-  if (carried && carried.sprite) scene.remove(carried.sprite); carried = null;         // taşınan eşya
   // sandıkları kapat (yeniden oyun)
   for (const c of chests) { c.opened = false; if (c.lid) c.lid.rotation.x = 0; }
   for (const c of crystals) { c.hp = 3; c.mined = false; if (c.group) c.group.visible = true; }
@@ -1616,6 +1618,7 @@ addEventListener("keydown", (e) => {
   if (first && (k === "y" || k === "enter")) openChat();   // 💬 co-op global sohbet
   if (first && k === "x") useDynamite();                    // 🧨 dinamit patlat
   if (k === "backspace") { e.preventDefault(); if (first) openDrop(); }   // ⬇️ eşya bırak menüsü (co-op paylaşım)
+  if (first && k === "k") { if (perkOpen) closePerks(); else openPerks(); }   // 🌟 Yetenek ağacı aç/kapat
 });
 addEventListener("keyup", (e) => { if (typingInField(e)) return; const k = e.key.toLowerCase(); keys[k] = false; if (k === "v") stopTalk(); if (k === "r") shootDown = false; });
 
@@ -1707,9 +1710,8 @@ function findTarget() {
   if (S.inMine && mineExit) consider(mineExit.x, mineExit.z, 4.4, "mineexit", null);                 // 🪜 yüzeye çık
   return best;
 }
-/* ===== SANDIK GANİMETİ: TEK eşya fiziksel düşer → SÜRÜKLE/TAŞI kampa getir (ışınlanmaz) ===== */
-const pickups = [];   // {x,z,group,sprite,item,bob} — yerdeki taşınabilir eşyalar
-let carried = null;   // şu an taşınan eşya {item,sprite}
+/* ===== YERDEKİ EŞYALAR: sandık ganimeti / bırakılan eşya / gökten kasa — fizikle düşer, bakıp E ile AL ===== */
+const pickups = [];   // {id,x,z,y,vx,vy,vz,settled,group,sprite,item,bob} — yerdeki taşınabilir eşyalar
 const CHEST_LOOT = [
   { kind: "wood", label: "🪵 Odun", w: 9 }, { kind: "metal", label: "⚙️ Metal", w: 9 },
   { kind: "bandage", label: "🩹 Bandaj", w: 7 }, { kind: "cooked", label: "🍗 Pişmiş Et", w: 7 },
@@ -1737,14 +1739,20 @@ let pickupSeq = 0;
 function makePickup(x, z, item, opts) {
   opts = opts || {};
   const y0 = opts.y != null ? opts.y : 0;
+  const crate = !!opts.crate;
   const g = new THREE.Group(); g.position.set(x, y0, z);
-  const box = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.5), new THREE.MeshStandardMaterial({ color: 0x7a5a2e, roughness: 0.8, emissive: 0x3a2a10, emissiveIntensity: 0.5 }));
-  box.position.y = 0.22; g.add(box);
-  const sp = makePickupSprite(itemEmoji(item)); sp.position.y = 0.85; g.add(sp);
-  g.add(plight(0xffd98a, 0.7, 5, 1.6, 0, 0.6, 0));
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.5), new THREE.MeshStandardMaterial({ color: crate ? 0x2f7d46 : 0x7a5a2e, roughness: 0.8, emissive: crate ? 0x0f3a1e : 0x3a2a10, emissiveIntensity: 0.6 }));
+  box.position.y = 0.22; if (crate) box.scale.set(1.7, 1.5, 1.7); g.add(box);
+  const sp = makePickupSprite(itemEmoji(item)); sp.position.y = crate ? 1.15 : 0.85; g.add(sp);
+  g.add(plight(crate ? 0x9affc0 : 0xffd98a, crate ? 1.1 : 0.7, crate ? 9 : 5, crate ? 2.0 : 1.6, 0, 0.6, 0));
+  let beam = null;
+  if (crate) {   // uzaktan görünen ışık huzmesi (gökten düşen kasa)
+    beam = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 60, 8), new THREE.MeshBasicMaterial({ color: 0x8affc0, transparent: true, opacity: 0.22, depthWrite: false }));
+    beam.position.y = 30; g.add(beam);
+  }
   if (scene) scene.add(g);
   const moving = !!(opts.vy || opts.vx || opts.vz || y0 > 0.01);
-  const p = { id: opts.id || ((net.id || "L") + ":" + (++pickupSeq)), x, z, y: y0, vx: opts.vx || 0, vy: opts.vy || 0, vz: opts.vz || 0, settled: !moving, group: g, sprite: sp, item, bob: Math.random() * 6.28 };
+  const p = { id: opts.id || ((net.id || "L") + ":" + (++pickupSeq)), x, z, y: y0, vx: opts.vx || 0, vy: opts.vy || 0, vz: opts.vz || 0, settled: !moving, group: g, sprite: sp, beam, crate, item, bob: Math.random() * 6.28 };
   pickups.push(p); return p;
 }
 // yerdeki eşyayı AL → doğrudan envantere (co-op'ta herkeste kaybolur)
@@ -1771,7 +1779,33 @@ function dropStack(kind, label, all) {
   toast("⬇️ " + (n > 1 ? "×" + n + " " : "") + label + " yere attın (arkadaşın alabilir)", "good");
   renderDrop();
 }
+/* 📦 GÖKTEN MALZEME KASASI (airdrop): periyodik düşer, ışık huzmesiyle görünür, E ile açınca kaynak paketi verir */
+const AIRDROP_POOL = [
+  { kind: "wood", label: "🪵 Odun", min: 6, max: 12 }, { kind: "metal", label: "⚙️ Metal", min: 4, max: 9 },
+  { kind: "cooked", label: "🍗 Pişmiş Et", min: 2, max: 5 }, { kind: "canned", label: "🥫 Konserve", min: 1, max: 3 },
+  { kind: "water", label: "💧 Su", min: 1, max: 3 }, { kind: "bandage", label: "🩹 Bandaj", min: 1, max: 3 },
+  { kind: "medkit", label: "🧰 Sağlık", min: 1, max: 1 }, { kind: "pistolAmmo", label: "🔫 Mermi", min: 6, max: 14 },
+  { kind: "shells", label: "💥 Fişek", min: 2, max: 6 }, { kind: "arrows", label: "🏹 Ok", min: 3, max: 8 },
+  { kind: "gem", label: "💎 Mücevher", min: 1, max: 2 }, { kind: "cloth", label: "🧶 Kumaş", min: 2, max: 5 },
+  { kind: "rope", label: "🪢 İp", min: 2, max: 4 },
+];
+function rollAirdrop() {
+  const pool = AIRDROP_POOL.slice(), bundle = [], n = rndi(3, 4);
+  for (let i = 0; i < n && pool.length; i++) { const it = pool.splice(rndi(0, pool.length - 1), 1)[0]; bundle.push({ kind: it.kind, label: it.label, qty: rndi(it.min, it.max) }); }
+  return { label: "📦 Kasa", bundle };
+}
+function spawnAirdrop(opts) {
+  opts = opts || {};
+  if (opts.x != null) { makePickup(opts.x, opts.z, opts.item, { id: opts.id, y: 40, crate: true }); Sound.thump(); toast("📦 Malzeme kasası düşüyor! (yeşil ışığı takip et)", "good"); return; }   // co-op: host'tan gelen kasayı yerel göster
+  const ang = rnd(0, 6.283), dist = rnd(16, 34);   // vx=vz=0 → tüm istemcilerde aynı noktaya iner
+  const x = clamp(camera.position.x + Math.cos(ang) * dist, -CFG.WORLD + 3, CFG.WORLD - 3);
+  const z = clamp(camera.position.z + Math.sin(ang) * dist, -CFG.WORLD + 3, CFG.WORLD - 3);
+  const item = rollAirdrop(), p = makePickup(x, z, item, { y: 40, crate: true });
+  Sound.thump(); toast("📦 Malzeme kasası düşüyor! (yeşil ışık huzmesini takip et)", "good");
+  if (net.online) { try { net.broadcast({ t: "air", id: p.id, x, z, item }); } catch (e) {} }
+}
 function applyItem(item) {   // envantere/duruma uygula
+  if (item.bundle) { const names = []; for (const b of item.bundle) { S.inv[b.kind] = (S.inv[b.kind] || 0) + b.qty; names.push("×" + b.qty + " " + (b.label || b.kind)); } return (item.label || "📦 Kasa") + ": " + names.join(", "); }
   if (item.kind) { const q = item.qty || 1; S.inv[item.kind] = (S.inv[item.kind] || 0) + q; return (q > 1 ? "×" + q + " " : "") + item.label; }
   if (item.special === "axe1") { S.tools.axe = Math.max(S.tools.axe || 0, 1); return "🪓 İyi Balta"; }
   if (item.special === "pickaxe") { S.tools.pickaxe = true; return "⛏️ Kazma"; }
@@ -1783,23 +1817,17 @@ function applyItem(item) {   // envantere/duruma uygula
   if (item.special === "iceaxe") { giveMelee("iceaxe"); return "🧊 Buz Baltası"; }
   return item.label;
 }
-function dropCarried() {
-  if (!carried) return;
-  const nearCamp = (baseFire && Math.hypot(camera.position.x - baseFire.x, camera.position.z - baseFire.z) < CAMP_R()) || nearBench();
-  if (nearCamp) { const nm = applyItem(carried.item); if (carried.sprite && scene) scene.remove(carried.sprite); carried = null; Sound.chop(); toast("📦 Kampa getirdin: " + nm + " — envantere eklendi ✓", "good"); }
-  else { const [x, z] = placeInFront(1.3); if (carried.sprite && scene) scene.remove(carried.sprite); makePickup(x, z, carried.item); carried = null; toast("⬇️ Eşyayı yere bıraktın (geri alabilirsin)", "good"); }
-}
-function updateCarry(dt) {
+function updatePickups(dt) {
   for (const p of pickups) {
-    if (!p.settled) {   // 🪂 düşme fiziği: yay + zıplama
+    if (!p.settled) {   // 🪂 düşme fiziği: yerçekimi + zıplama
       p.vy -= 15 * dt; p.x += p.vx * dt; p.z += p.vz * dt; p.y += p.vy * dt;
       p.x = clamp(p.x, -CFG.WORLD, CFG.WORLD); p.z = clamp(p.z, -CFG.WORLD, CFG.WORLD);
-      if (p.y <= 0) { p.y = 0; if (p.vy < -1.4) { p.vy = -p.vy * 0.4; p.vx *= 0.55; p.vz *= 0.55; } else { p.vy = 0; p.vx = 0; p.vz = 0; p.settled = true; } }
+      if (p.y <= 0) { p.y = 0; if (p.vy < -1.4) { p.vy = -p.vy * 0.4; p.vx *= 0.55; p.vz *= 0.55; } else { p.vy = 0; p.vx = 0; p.vz = 0; p.settled = true; if (p.crate) { Sound.thump(); toast("📦 Kasa yere düştü — bak + E ile aç", "good"); } } }
       if (p.group) p.group.position.set(p.x, p.y, p.z);
     }
-    p.bob += dt; if (p.sprite) p.sprite.position.y = 0.85 + (p.settled ? Math.sin(p.bob * 2) * 0.08 : 0);
+    p.bob += dt; if (p.sprite) p.sprite.position.y = (p.crate ? 1.15 : 0.85) + (p.settled ? Math.sin(p.bob * 2) * 0.08 : 0);
+    if (p.crate && p.beam) p.beam.material.opacity = 0.18 + Math.sin(p.bob * 3) * 0.08;   // ışık huzmesi nabız
   }
-  if (carried && carried.sprite) { camera.getWorldDirection(_fwd); carried.sprite.position.set(camera.position.x + _fwd.x * 1.1, camera.position.y - 0.35 + Math.sin(performance.now() / 250) * 0.03, camera.position.z + _fwd.z * 1.1); }
 }
 function startFishing() { if (S.fishing > 0) return; S.fishing = rnd(2.4, 5.0); S.swingCd = 0.6; Sound.chop(); toast("🎣 Oltayı attın... bekle (gölden ayrılma)", "good"); }   // 🎣 balık tutmaya başla
 /* ----------------------- 📦 DEPO SANDIĞI ----------------------- */
@@ -1850,7 +1878,6 @@ function renderDrop() {
 { const bd = $("btn-drop"); if (bd) { bd.addEventListener("click", openDrop); bd.addEventListener("touchstart", (e) => { isTouch = true; openDrop(); e.preventDefault(); }, { passive: false }); } }
 
 function doAction() {
-  if (carried) { dropCarried(); return; }                     // elin doluysa VUR = bırak (kampta→envanter, değilse→yere)
   if (S.swingCd > 0) return;
   const t = findTarget();
   if (!t) { if (S.tools.rod && S.fishing <= 0 && nearWater()) startFishing(); return; }   // hedef yoksa: göl kenarında olta at
@@ -1887,10 +1914,11 @@ function doAction() {
     Sound.chop(); const tr = t.obj;
     let dmg = S.tools.chainsaw ? 4 : [1, 2, 4, 999][S.tools.axe || 0];   // eski/iyi/güçlü/ADMIN balta (tier 3 = tek vuruş)
     if (!S.tools.chainsaw && S.melee === "iceaxe") dmg = Math.max(dmg, 2);   // buz baltası iyi balta gibi keser
-    if (S.cls === "lumberjack") dmg += 1;   // Oduncu perk: daha hızlı kesim
+    if (S.cls === "lumberjack") dmg += 1;   // Oduncu sınıfı: daha hızlı kesim
+    dmg += perk("lumber");                  // 🪓 Usta Oduncu yeteneği: ağaç başına ek hasar
     if (S.tools.chainsaw) S.swingCd = 0.12;                            // motorlu testere: basılı tut → sürekli kesim
     tr.hp -= dmg; S.inv.wood++;
-    if (tr.hp <= 0) { tr.alive = false; tr.regrow = 95; const bonus = S.tools.chainsaw ? 3 : 2; S.inv.wood += bonus; writeTree(trees.indexOf(tr)); treesNeedUpdate(); toast("🪵 Ağaç devrildi (+" + (bonus + 1) + ")", "good"); }
+    if (tr.hp <= 0) { tr.alive = false; tr.regrow = 95; const bonus = S.tools.chainsaw ? 3 : 2; S.inv.wood += bonus; writeTree(trees.indexOf(tr)); treesNeedUpdate(); gainXP(2); toast("🪵 Ağaç devrildi (+" + (bonus + 1) + ")", "good"); }
     return;
   }
   if (t.kind === "scrap") {                                   // metal hurda topla (kazma daha hızlı)
@@ -1902,13 +1930,13 @@ function doAction() {
   if (t.kind === "crystal") {                                 // kristal kaz → 💎 (kazma şart)
     const c = t.obj;
     if (!S.tools.pickaxe) { toast("💎 Kristal için ⛏️ Kazma gerekli", "bad"); return; }
-    Sound.chop(); c.hp--;
-    if (c.hp <= 0) { c.mined = true; c.group.visible = false; const gn = rndi(1, 2); S.inv.gem += gn; toast("💎 +" + gn + " mücevher!", "good"); }
+    Sound.chop(); c.hp -= 1 + perk("lumber");
+    if (c.hp <= 0) { c.mined = true; c.group.visible = false; const gn = rndi(1, 2); S.inv.gem += gn; gainXP(4); toast("💎 +" + gn + " mücevher!", "good"); }
     else toast("💎 Kristal kırılıyor...", "good");
     return;
   }
   if (t.kind === "chest") {                                   // sandık aç → TEK eşya fiziksel düşer (ışınlanmaz, taşınır)
-    const c = t.obj; c.opened = true; c.openedDay = S.day; if (c.lid) c.lid.rotation.x = -1.2; Sound.crackle();
+    const c = t.obj; c.opened = true; c.openedDay = S.day; if (c.lid) c.lid.rotation.x = -1.2; Sound.crackle(); gainXP(6);
     let item = rollChestItem();
     const cb = biomeAt(c.x, c.z);   // biyoma özel: askeri kasa → silah, volkanik → gem, kar → post
     if (c.ammo) item = choice([{ special: "pistol", label: "🔫 Tabanca" }, { kind: "rifleAmmo", label: "🎯 Tüfek Mermisi" }, { kind: "shells", label: "💥 Fişek" }]);
@@ -1924,7 +1952,7 @@ function doAction() {
   if (t.kind === "animal") {
     Sound.chop(); const a = t.obj;
     const mw = S.melee && MELEE[S.melee];
-    a.hp -= admin.oneHit ? 99999 : (mw ? mw.dmg : 3);   // 💥 admin tek vuruş
+    a.hp -= admin.oneHit ? 99999 : (mw ? mw.dmg : 3) * (1 + 0.2 * perk("warrior"));   // 💥 admin tek vuruş · ⚔️ Savaşçı yeteneği
     if (mw) { S.swingCd = mw.cd * (S.cls === "assassin" ? 0.65 : 1);   // Suikastçı perk: hızlı vuruş
       if (mw.poison) a.poison = Math.max(a.poison || 0, 4.0);
       if (mw.fire) a.burn = Math.max(a.burn || 0, 3.2);
@@ -1937,6 +1965,7 @@ function doAction() {
   }
 }
 function killAnimal(a, cooked) {
+  gainXP(a.boss ? 50 : (a.hostile || a.type === "jaguar" ? 7 : 3));   // 🌟 avdan/savaştan XP
   if (a.boss) {   // BOSS yenildi → büyük ödül
     bossAlive = false;
     if (a.type === "queen") {   // 🕷️👑 MADEN KRALİÇESİ ödülü
@@ -1962,6 +1991,109 @@ function killAnimal(a, cooked) {
   if (a.type !== "jaguar") setTimeout(() => { if (S.running && animals.length < 18) spawnPrey(); }, 9000);
 }
 const nameTR = (t) => ({ capybara: "kapibara", deer: "geyik", tapir: "tapir", boar: "yaban domuzu", jaguar: "jaguar" }[t] || t);
+
+/* ===== 🌟 HAYATTA KALMA SEVİYESİ + YETENEK AĞACI (XP → seviye → yetenek puanı) ===== */
+const PERKS = [
+  { id: "tough",   name: "💪 Sağlamlık",   max: 4, ef: (l) => "Gelen hasar −" + (10 * l) + "%" },
+  { id: "warrior", name: "⚔️ Savaşçı",     max: 4, ef: (l) => "Yakın dövüş hasarı +" + (20 * l) + "%" },
+  { id: "sharp",   name: "🎯 Nişancı",     max: 4, ef: (l) => "Menzilli silah hasarı +" + (20 * l) + "%" },
+  { id: "lumber",  name: "🪓 Usta Oduncu", max: 3, ef: (l) => "Ağaç/kristal başına +" + l + " (daha hızlı toplarsın)" },
+  { id: "calm",    name: "🧠 Soğukkanlı",  max: 4, ef: (l) => "Açlık/susuzluk/akıl tükenişi −" + (12 * l) + "%" },
+  { id: "vital",   name: "❤️ Dayanıklı",   max: 4, ef: (l) => "Doğal can yenilenmesi +" + (50 * l) + "%" },
+];
+function perk(id) { return (S && S.perks && S.perks[id]) || 0; }
+function xpForLevel(lvl) { return 40 + (lvl - 1) * 28; }   // her seviye biraz daha çok XP ister
+let perkOpen = false;
+function gainXP(n) {
+  if (!S || !S.running || S.over || S.downed || S.spectating) return;
+  S.xp = (S.xp || 0) + n;
+  let need = xpForLevel(S.level || 1), leveled = false;
+  while (S.xp >= need) { S.xp -= need; S.level = (S.level || 1) + 1; S.skillPts = (S.skillPts || 0) + 1; leveled = true; S.health = clamp(S.health + 25, 0, 100); S.sanity = clamp(S.sanity + 20, 0, 100); need = xpForLevel(S.level); }
+  if (leveled) { Sound.thump(); toast("🌟 SEVİYE " + S.level + "! +1 yetenek puanı — K ile Yetenekler'i aç", "good"); if (perkOpen) renderPerks(); }
+}
+function upgradePerk(id) {
+  if (!S || (S.skillPts || 0) <= 0) return;
+  const def = PERKS.find((p) => p.id === id); if (!def) return;
+  const cur = perk(id); if (cur >= def.max) return;
+  S.perks[id] = cur + 1; S.skillPts--; Sound.step();
+  toast("✅ " + def.name + " → Sv." + S.perks[id], "good"); renderPerks();
+}
+function openPerks() { if (!S || !S.running || S.downed) return; perkOpen = true; renderPerks(); $("perks").classList.remove("hidden"); if (document.exitPointerLock) document.exitPointerLock(); }
+function closePerks() { perkOpen = false; $("perks").classList.add("hidden"); if (!isTouch && S && S.running && threeCanvas.requestPointerLock) { try { threeCanvas.requestPointerLock(); } catch (e) {} } }
+function renderPerks() {
+  const head = $("perkHead"); if (head) head.textContent = "🌟 Seviye " + (S.level || 1) + " · XP " + Math.floor(S.xp || 0) + "/" + xpForLevel(S.level || 1) + " · 🎁 " + (S.skillPts || 0) + " puan";
+  const box = $("perkList"); if (!box) return; box.innerHTML = "";
+  for (const p of PERKS) {
+    const l = perk(p.id), maxed = l >= p.max;
+    const row = document.createElement("div"); row.className = "depot-row";
+    const lbl = document.createElement("span"); lbl.className = "dp-lbl"; lbl.innerHTML = p.name + " <b>Sv." + l + "/" + p.max + "</b><br><small style='opacity:.7'>" + p.ef(maxed ? l : l + 1) + "</small>";
+    row.appendChild(lbl);
+    if (maxed) { const n = document.createElement("span"); n.className = "dp-n"; n.textContent = "MAKS"; row.appendChild(n); }
+    else if ((S.skillPts || 0) > 0) { const b = document.createElement("button"); b.className = "dp-btn"; b.textContent = "YÜKSELT"; b.addEventListener("click", () => upgradePerk(p.id)); row.appendChild(b); }
+    else { const n = document.createElement("span"); n.className = "dp-n"; n.textContent = "puan yok"; row.appendChild(n); }
+    box.appendChild(row);
+  }
+}
+{ const pc = $("perks-close"); if (pc) pc.addEventListener("click", closePerks); }
+{ const bp = $("btn-perks"); if (bp) { bp.addEventListener("click", openPerks); bp.addEventListener("touchstart", (e) => { isTouch = true; openPerks(); e.preventDefault(); }, { passive: false }); } }
+
+/* ===== 🌍 ORMAN OLAYLARI: dinamik dünya olayları (host/solo başlatır, co-op'a yayınlar; etkiler herkeste yerel işler) ===== */
+const WEVENTS = {
+  meteor:   { name: "☄️ Göktaşı Yağmuru", dur: 22, warn: "Gökyüzü alev aldı... değerli madenler düşüyor!", good: false },
+  swarm:    { name: "🐺 Yırtıcı Sürüsü",  dur: 26, warn: "Bir şeyler seni avlıyor — savaş ya da kaç!", good: false },
+  fog:      { name: "🌫️ Zehirli Sis",     dur: 30, warn: "Zehirli sis çöküyor — ateşe/kampa sığın!", good: false },
+  blessing: { name: "🦋 Orman Kutsaması",  dur: 24, warn: "Orman bu gece sana merhametli — can/akıl toparlan", good: true },
+};
+function pickEvent() { const r = Math.random(); return r < 0.34 ? "meteor" : r < 0.63 ? "swarm" : r < 0.85 ? "fog" : "blessing"; }
+function eventBanner(txt, good) { const b = $("eventBanner"); if (!b) return; if (txt) { b.textContent = txt; b.classList.remove("hidden"); b.classList.toggle("good", !!good); } else b.classList.add("hidden"); }
+function startEvent(id, remote) {
+  const def = WEVENTS[id]; if (!def || !S) return;
+  S.event = id; S.eventT = def.dur; S.eventSub = 0;
+  eventBanner(def.name, def.good); toast(def.name + " başladı!", def.good ? "good" : "bad"); whisperText(def.warn);
+  if (def.good) Sound.crackle(); else { Sound.growl(); S.shake = Math.max(S.shake || 0, 0.35); }
+  if (id === "swarm") { spawnPack(); spawnJaguar(); spawnJaguar(); }   // yırtıcılar (yerel — her istemcide kendi sürüsü)
+  if (id === "meteor") S.flash = Math.max(S.flash || 0, 0.5);
+  if (!remote && net.online) { try { net.broadcast({ t: "wevent", id, dur: def.dur }); } catch (e) {} }
+}
+function eventTick(id, dt) {
+  if (id === "meteor") {
+    S.eventSub -= dt;
+    if (S.eventSub <= 0) {
+      S.eventSub = rnd(1.9, 3.1);
+      const ang = rnd(0, 6.283), d = rnd(6, 20);
+      const mx = clamp(camera.position.x + Math.cos(ang) * d, -CFG.WORLD + 3, CFG.WORLD - 3), mz = clamp(camera.position.z + Math.sin(ang) * d, -CFG.WORLD + 3, CFG.WORLD - 3);
+      const bundle = [{ kind: "metal", label: "⚙️ Metal", qty: rndi(2, 4) }]; if (Math.random() < 0.55) bundle.push({ kind: "gem", label: "💎 Mücevher", qty: 1 });
+      makePickup(mx, mz, { label: "☄️ Göktaşı", bundle }, { y: 30, vy: -2 });
+      S.flash = Math.max(S.flash || 0, 0.32); S.shake = Math.max(S.shake || 0, 0.3); Sound.thunder();
+      if (Math.hypot(mx - camera.position.x, mz - camera.position.z) < 3.2) { hurt(8); S.hurt = 0.4; S.deathReason = "göktaşı"; }   // çok yakına düşerse yakar
+    }
+  } else if (id === "fog") {
+    S.sanity = clamp(S.sanity - 0.9 * dt, 0, 100);
+    const nf = baseFire && Math.hypot(camera.position.x - baseFire.x, camera.position.z - baseFire.z) < CAMP_R();
+    if (!nf) { S.health = clamp(S.health - 0.7 * dt, 0, 100); if (S.health < 35) S.deathReason = "zehirli sis"; }
+  } else if (id === "blessing") {
+    S.sanity = clamp(S.sanity + 3.2 * dt, 0, 100); S.health = clamp(S.health + 1.4 * dt, 0, 100); S.warmth = clamp(S.warmth + 1.0 * dt, 0, 100);
+  } else if (id === "swarm") {
+    S.eventSub -= dt; if (S.eventSub <= 0) { S.eventSub = rnd(6, 10); if (animals.filter((a) => a.hostile).length < 8) spawnJaguar(); }   // ara ara takviye
+  }
+}
+function endEvent() {
+  if (!S || !S.event) return;
+  S.event = null; S.eventT = 0; eventBanner(null); S.eventCd = rnd(95, 165); toast("🌤️ Olay geçti — sakinlik.", "good");
+  if (net.online && net.host) { try { net.broadcast({ t: "weventEnd" }); } catch (e) {} }
+}
+function updateEvents(dt) {
+  if (S.event) {
+    S.eventT -= dt;
+    if (!(S.downed || S.spectating || S.inMine)) eventTick(S.event, dt);
+    if (S.eventT <= 0) endEvent();
+    return;
+  }
+  if ((net.online && !net.host) || S.downed || S.spectating || S.inMine || S.rescuing) return;   // co-op'ta olayları yalnız host başlatır
+  if (S.eventCd == null) S.eventCd = rnd(80, 140);
+  S.eventCd -= dt;
+  if (S.eventCd <= 0) startEvent(pickEvent());
+}
 
 /* ----------------------- MENZİLLİ SİLAHLAR (Faz 2) ----------------------- */
 const RANGED = {
@@ -2006,7 +2138,7 @@ function doShoot() {
     if (watcher) { const dx = watcher.x - px, dz = watcher.z - pz, d = Math.hypot(dx, dz); if (d <= spec.range) { const dot = (dx / d) * _fwd.x + (dz / d) * _fwd.z; if (dot >= spec.cone && (dot - d * 0.003) > bestScore) { wHit = true; best = null; } } }
     if (wHit) { hits++; vanishWatcher(false); S.sanity = clamp(S.sanity + 6, 0, 100); toast("👁️ İzleyen'i kovaladın!", "good"); continue; }
     if (best) {
-      hits++; best.hp -= admin.oneHit ? 99999 : spec.dmg;   // 💥 admin tek vuruş
+      hits++; best.hp -= admin.oneHit ? 99999 : spec.dmg * (1 + 0.2 * perk("sharp"));   // 💥 admin tek vuruş · 🎯 Nişancı yeteneği
       if (spec.silent) { if (!best.hostile) { best.state = "flee"; best.dir = Math.atan2(best.z - pz, best.x - px); } }
       else if (best.type === "boar" || best.type === "jaguar" || best.hostile) { best.hostile = true; best.state = "chase"; }
       if (best.hp <= 0) { killAnimal(best); kills++; }
@@ -2268,6 +2400,7 @@ const RECIPES = [
   { tier: 3, name: "🧨 Dinamit", desc: "X ile patlat: çevredeki kristalleri kazar (💎) + yakındaki düşmanları vurur", cost: { metal: 5, gem: 1 }, make: (s) => s.inv.dynamite++ },
   { tier: 3, name: "💥 Fişek ×4", desc: "Pompalı tüfek için fişek dök", cost: { metal: 4 }, make: (s) => s.inv.shells += 4 },
   { tier: 3, name: "🎯 Tüfek Mermisi ×5", desc: "Tüfek için mermi dök (metal + mücevher)", cost: { metal: 3, gem: 1 }, make: (s) => s.inv.rifleAmmo += 5 },
+  { tier: 3, name: "📦 Yardım Çağır (Sinyal)", desc: "Gökten yakınına malzeme kasası çağırır (co-op'ta herkes görür)", cost: { metal: 6, cloth: 2 }, make: () => spawnAirdrop() },
   { tier: 3, name: "🧪 Zehirli Mızrak", desc: "Vurduğun düşmanı zehirler (zamanla erir)", cost: { metal: 4, gem: 1, cloth: 1 }, once: () => S.meleeOwned.poisonSpear, make: () => giveMelee("poisonSpear") },
   { tier: 3, up: 4, name: "⬆️ Tezgah Tier 4", desc: "4. seviye tarifleri açar", cost: { metal: 15, wood: 20 }, once: () => S.benchTier >= 4, make: (s) => s.benchTier = 4 },
   // ---- Tier 4 ----
@@ -2592,6 +2725,7 @@ function drawCamScare(w, h, dt) {
 function hurt(dmg) {
   if (admin.god) return S.health;   // 🛡️ God Mode: hasar yok
   dmg *= (S.diff || 1);             // 🎚️ zorluk: gelen hasar çarpanı (Kolay 0.6 / Zor 1.5)
+  dmg *= (1 - 0.10 * perk("tough"));   // 💪 Sağlamlık yeteneği: gelen hasarı azalt
   if (S.armor > 0 && S.armorDef > 0) {
     const absorbed = dmg * S.armorDef;
     S.armor = Math.max(0, S.armor - (absorbed * 1.4 + 1));
@@ -2695,7 +2829,7 @@ function saveProgress() {
       day: S.day, time: S.time, inv: S.inv, tools: S.tools, notes: S.notes,
       health: S.health, hunger: S.hunger, warmth: S.warmth, sanity: S.sanity, thirst: S.thirst,
       weapons: S.weapons, meleeOwned: S.meleeOwned, melee: S.melee, equip: S.equip, flashlight: S.flashlight, battery: S.battery, armor: S.armor, armorDef: S.armorDef, cls: S.cls, peltTrades: S.peltTrades, backpack: S.backpack,
-      diff: S.diff, depot: S.depot, x: sx, z: sz, ts: Date.now(),
+      diff: S.diff, depot: S.depot, xp: S.xp, level: S.level, skillPts: S.skillPts, perks: S.perks, x: sx, z: sz, ts: Date.now(),
     }));
   } catch (e) {}
 }
@@ -2715,6 +2849,7 @@ function applySave() {
   if (sv.cls) S.cls = sv.cls; if (sv.peltTrades != null) S.peltTrades = sv.peltTrades; if (sv.backpack != null) S.backpack = sv.backpack;
   if (sv.diff != null) S.diff = sv.diff;   // 🎚️ zorluk geri yüklenir
   if (sv.depot) S.depot = sv.depot;   // 📦 depo içeriği geri yüklenir
+  if (sv.xp != null) S.xp = sv.xp; if (sv.level != null) S.level = sv.level; if (sv.skillPts != null) S.skillPts = sv.skillPts; if (sv.perks) S.perks = sv.perks;   // 🌟 seviye + yetenekler geri yüklenir
   if (sv.notes) S.notes = sv.notes;
   S.health = sv.health != null ? sv.health : 100; S.hunger = sv.hunger != null ? sv.hunger : 100;
   S.warmth = sv.warmth != null ? sv.warmth : 100; S.sanity = sv.sanity != null ? sv.sanity : 100;
@@ -2729,10 +2864,13 @@ function update(dt) {
   S.saveT = (S.saveT || 0) - dt; if (S.saveT <= 0) { S.saveT = 25; saveProgress(); }   // 💾 otomatik kayıt (~25s) → güncelleme/çıkışta ilerleme kaybolmaz
   if (S.fishing > 0) { S.fishing -= dt; if (S.fishing <= 0) { S.fishing = 0; if (nearWater() && Math.random() < 0.72) { const n = rndi(1, 2); S.inv.raw += n; toast("🐟 +" + n + " balık yakaladın (çiğ) — ateşte pişir", "good"); Sound.chop(); } else toast("🎣 Balık kaçtı...", "bad"); } }   // 🎣 balık tutma sonucu
   if (admin.infStam) S.stamina = 100;              // ♾️ Sonsuz Enerji
+  // 📦 periyodik gökten malzeme kasası (co-op'ta yalnız host düşürür + herkese yayınlar)
+  if (!net.online || net.host) { if (S.airT == null) S.airT = rnd(70, 120); S.airT -= dt; if (S.airT <= 0) { S.airT = rnd(170, 260); spawnAirdrop(); } }
+  updateEvents(dt);   // 🌍 dinamik dünya olayları (göktaşı/sürü/sis/kutsama)
   // zaman / gün
   if (!admin.freezeTime) S.time += dt / CFG.DAY_LENGTH;   // ⏸️ Zamanı Dondur
   if (S.time >= 1) {
-    S.time -= 1; S.day++; S.firstNightDone = false; S.scripted = false;
+    S.time -= 1; S.day++; S.firstNightDone = false; S.scripted = false; gainXP(18);   // 🌟 hayatta kaldığın her gün XP
     if (S.day > CFG.WIN_DAY) { startRescue(); return; }
     S.bloodMoon = S.day >= 6 && Math.random() < (0.12 + S.day / 100 * 0.4);   // ilerledikçe daha sık KANLI AY
     toast("☀️ GÜN " + S.day + " başladı" + (S.bloodMoon ? " — bu gece KANLI AY 🔴" : ""), S.bloodMoon ? "bad" : "good");
@@ -2831,7 +2969,7 @@ function update(dt) {
 
   // aksiyon kenar tetikleri
   if (placeMode) updateGhost();
-  updateCarry(dt);   // yerdeki eşyalar sallanır + taşınan eşya elinde durur
+  updatePickups(dt);   // yerdeki eşyalar düşme fiziği + sallanır
   if (S.tools.chainsaw && actionDown && !placeMode && S.swingCd <= 0) inp.action = true;   // motorlu testere: basılı tutunca sürekli kes
   if (inp.action) { inp.action = false; if (placeMode) confirmPlace(); else doAction(); }
   if (inp.fire) { inp.fire = false; doFire(); }
@@ -2921,9 +3059,9 @@ function update(dt) {
   if (nearFire && fireDist < 5 && S.inv.raw > 0) { S.cookT += dt; if (S.cookT >= 3.5) { S.cookT = 0; S.inv.raw--; S.inv.cooked++; toast("🍗 Et pişti", "good"); } } else S.cookT = 0;
 
   // hayatta kalma
-  { const df = S.diff || 1;   // 🎚️ zorluk: açlık/susuzluk tüketimi
-    S.hunger = clamp(S.hunger - 0.42 * df * dt, 0, 100);
-    S.thirst = clamp(S.thirst - (sprinting ? 0.75 : 0.5) * df * dt, 0, 100); }   // koşunca daha çok susarsın
+  { const df = S.diff || 1, dm = 1 - 0.12 * perk("calm");   // 🎚️ zorluk · 🧠 Soğukkanlı yeteneği tüketimi azaltır
+    S.hunger = clamp(S.hunger - 0.42 * df * dm * dt, 0, 100);
+    S.thirst = clamp(S.thirst - (sprinting ? 0.75 : 0.5) * df * dm * dt, 0, 100); }   // koşunca daha çok susarsın
   if (nearFire) S.warmth = clamp(S.warmth + 9 * dt, 0, 100);
   else if (night) S.warmth = clamp(S.warmth - 1.25 * dt, 0, 100);
   else S.warmth = clamp(S.warmth - 0.18 * dt, 0, 100);
@@ -2933,7 +3071,7 @@ function update(dt) {
     S.sanity = clamp(S.sanity - 1.5 * dt, 0, 100);
     if (Math.random() < 0.004) { whisperText(choice(["mezarlar boş değil...", "burada yatanlar uyumaz", "gitme", "seni bekliyorduk", "toprağın altı soğuk"])); Sound.whisper(); }
   }
-  else if (night) S.sanity = clamp(S.sanity - 0.85 * dt, 0, 100);
+  else if (night) S.sanity = clamp(S.sanity - 0.85 * (1 - 0.12 * perk("calm")) * dt, 0, 100);   // 🧠 Soğukkanlı: gece akıl erimesi azalır
   else S.sanity = clamp(S.sanity + 0.3 * dt, 0, 100);
   // BİYOM İKLİMİ: kar üşütür, volkan kavurur (sıcak hasarı + susuzluk), peri huzur verir
   { const bz = BIOMES[curBiome];
@@ -2948,7 +3086,7 @@ function update(dt) {
   if (S.warmth <= 0) { dmg += 1.5; S.deathReason = "soğuk"; }
   if (S.sanity <= 0) { dmg += 2.5; S.deathReason = "delirme"; }
   if (dmg > 0) S.health = clamp(S.health - dmg * dt, 0, 100);
-  else if (S.hunger > 40 && S.warmth > 40 && S.sanity > 25 && S.thirst > 40 && S.sick <= 0) S.health = clamp(S.health + 0.8 * dt, 0, 100);
+  else if (S.hunger > 40 && S.warmth > 40 && S.sanity > 25 && S.thirst > 40 && S.sick <= 0) S.health = clamp(S.health + 0.8 * (1 + 0.5 * perk("vital")) * dt, 0, 100);   // ❤️ Dayanıklı: doğal iyileşme hızlanır
   if (S.health <= 0) { playerDied(S.deathReason || "bilinmeyen"); if (S.over || S.downed) return; }
 
   // korku — İzleyen (jumpscare YALNIZCA yaratık seni yakalayınca gelir — rastgele jumpscare kaldırıldı)
@@ -3035,8 +3173,8 @@ function update(dt) {
   if (S.flash > 0) skyCol.lerp(new THREE.Color(0xcdd6e6), S.flash * 0.7);     // şimşek beyazı
   if (curBiome !== "forest") skyCol.lerp(new THREE.Color(BIOMES[curBiome].fog), 0.4 * dayK + 0.2);   // biyom atmosfer tonu (gündüz daha belirgin)
   if (inCave) { skyCol.lerp(new THREE.Color(0x040404), 0.94); hemi.intensity = 0.03; amb.intensity = 0.04; sun.intensity = 0; moon.intensity = 0; headlamp.intensity = 0.12; }   // MAĞARA: zifiri karanlık — el feneri/meşale şart
-  scene.background = skyCol; scene.fog.color = skyCol;
-  scene.fog.density = inCave ? 0.09 : lerp(0.013, 0.12, dk) * (S.weather === "rain" ? 1.5 : 1);   // mağarada/gece yoğun sis; yağmur daha da kapatır
+  scene.background = skyCol; scene.fog.color = S.event === "fog" ? new THREE.Color(0x4a5f2c) : skyCol;   // 🌫️ zehirli sis → hastalıklı yeşil
+  scene.fog.density = (inCave ? 0.09 : lerp(0.013, 0.12, dk) * (S.weather === "rain" ? 1.5 : 1)) * (S.event === "fog" ? 3.0 : 1);   // mağarada/gece yoğun sis; yağmur/zehirli sis daha da kapatır
   updateSky(dk, dayK, skyCol, sunAng);          // gradyan gökyüzü + yıldız + ay + güneş parıltısı
   windU.value = performance.now() / 1000;        // bitki rüzgârı
   if (waterTex) { waterTex.offset.x = windU.value * 0.02; waterTex.offset.y = Math.sin(windU.value * 0.3) * 0.04; }   // su parıltısı
@@ -3280,6 +3418,7 @@ function drawMinimap() {
 }
 function updateHUD(night) {
   $("dayNum").textContent = S.day;
+  { const lv = $("lvl"); if (lv) { lv.textContent = "🌟" + (S.level || 1) + ((S.skillPts || 0) > 0 ? " 🎁" + S.skillPts : ""); lv.title = "XP " + Math.floor(S.xp || 0) + "/" + xpForLevel(S.level || 1) + " — K ile Yetenekler"; lv.classList.toggle("haspt", (S.skillPts || 0) > 0); } }
   const [ic, tx] = phaseInfo(S.time); $("phaseIcon").textContent = ic; $("phaseText").textContent = tx;
   { const bl = $("biomeLabel"); if (bl) bl.textContent = BIOMES[curBiome].name; }
   { const bb = $("bossBar"); if (bb) { const boss = bossAlive ? animals.find((a) => a.boss && Math.hypot(a.x - camera.position.x, a.z - camera.position.z) < 80) : null; if (boss) { bb.classList.remove("hidden"); const bn = $("bossName"); if (bn) bn.textContent = boss.type === "queen" ? "🕷️👑 MADEN KRALİÇESİ" : "👑 CULTIST KING"; const bf = $("bossFill"); if (bf) bf.style.width = clamp(boss.hp / (boss.maxhp || 95) * 100, 0, 100) + "%"; } else bb.classList.add("hidden"); } }
@@ -3303,11 +3442,7 @@ function updateHUD(night) {
   { const bd = $("btn-dyna"); if (bd) bd.style.display = (isTouch && S.inv.dynamite > 0) ? "" : "none"; }   // 🧨 buton yalnızca dinamit varken
   const t = findTarget();
   const akey = isTouch ? "VUR" : "[Sol tık / E]";
-  if (carried) {   // elin dolu → taşıma göstergesi
-    const nearCamp = (baseFire && Math.hypot(camera.position.x - baseFire.x, camera.position.z - baseFire.z) < CAMP_R()) || nearBench();
-    promptEl.textContent = (nearCamp ? "📦 " + carried.item.label + " → KAMPA BIRAK " : "🎒 " + carried.item.label + " taşıyorsun — ateşe/tezgaha götür ") + akey;
-    promptEl.classList.remove("hidden");
-  } else if (t) {
+  if (t) {
     const axeTxt = S.tools.chainsaw ? "🪚 Kes (basılı tut) " : (["🪓 Odun kes ", "🪓 Odun kes (iyi) ", "🪓 Odun kes (güçlü) ", "🪓 Admin Balta (tek vuruş) "][S.tools.axe || 0] || "🪓 Odun kes ");
     const txt = t.kind === "mineenter" ? "⛏️ Madene in " : t.kind === "mineexit" ? "🪜 Yüzeye çık " : t.kind === "depot" ? "📦 Depo (yatır/çek) " : t.kind === "pickup" ? "✋ " + t.obj.item.label + " AL " : t.kind === "bench" ? "🛠️ Tezgah " : t.kind === "scav" ? "🤝 Takas (5⚙️) " : t.kind === "pelt" ? "🧵 Kürk takası (5 post) " : t.kind === "tree" ? axeTxt : t.kind === "scrap" ? "⚙️ Metal topla " : t.kind === "crystal" ? (S.tools.pickaxe ? "💎 Kristal kaz " : "💎 Kristal (⛏️ gerek) ") : t.kind === "chest" ? "📦 Sandığı aç " : t.kind === "wall" ? (S.tools.hammer ? "🔨 Duvarı tamir et " : "🔨 Çekiç gerek ") : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ");
     promptEl.textContent = txt + akey; promptEl.classList.remove("hidden");
@@ -3482,7 +3617,7 @@ $("cr-close").addEventListener("click", () => closeCraft());
 const pauseBtn = $("pauseBtn");
 pauseBtn.addEventListener("click", () => togglePause());
 pauseBtn.addEventListener("touchstart", (e) => { isTouch = true; togglePause(); e.preventDefault(); }, { passive: false });
-addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); if (placeMode) exitPlace(); else if (adminOpen) toggleAdmin(); else if (guideOpen) closeGuide(); else if (changelogOpen) closeChangelog(); else if (settingsOpen) closeSettings(); else if (notesOpen) closeNotes(); else if (depotOpen) closeDepot(); else if (dropOpen) closeDrop(); else if (craftOpen) closeCraft(); else togglePause(); } });
+addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); if (placeMode) exitPlace(); else if (adminOpen) toggleAdmin(); else if (guideOpen) closeGuide(); else if (changelogOpen) closeChangelog(); else if (settingsOpen) closeSettings(); else if (notesOpen) closeNotes(); else if (depotOpen) closeDepot(); else if (dropOpen) closeDrop(); else if (perkOpen) closePerks(); else if (craftOpen) closeCraft(); else togglePause(); } });
 document.addEventListener("visibilitychange", () => { if (document.hidden && S && S.running) { S.paused = true; pauseBtn.textContent = "▶"; } });
 addEventListener("touchstart", () => { isTouch = true; }, { once: true, passive: true });
 const vBtn = $("btn-voice");
@@ -3509,7 +3644,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 68;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 72;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -3754,6 +3889,9 @@ net.onData = (id, d) => {
   else if (d.t === "grantAdmin") { if (!net.host) { try { LS.setItem("orm_adminOK", "1"); } catch (e) {} toast("🛡️ Sana ADMİN yetkisi verildi! Panel: \\ ya da P (mobilde 🛡️)", "good"); Sound.crackle(); if (adminOpen) buildAdminPanel(); } }   // owner (host) seçtiği oyuncuya admin verdi
   else if (d.t === "drop") { if (d.item && !pickups.some((p) => p.id === d.id)) makePickup(d.x, d.z, d.item, { id: d.id, y: 1.25, vx: d.vx, vy: d.vy, vz: d.vz }); if (net.host) net.relay(id, d); }   // arkadaş eşya bıraktı → yerde göster
   else if (d.t === "grab") { const p = pickups.find((q) => q.id === d.id); if (p) grabPickup(p, true); if (net.host) net.relay(id, d); }   // arkadaş yerden aldı → herkeste kaldır
+  else if (d.t === "air") { if (d.item && !pickups.some((p) => p.id === d.id)) spawnAirdrop({ id: d.id, x: d.x, z: d.z, item: d.item }); if (net.host) net.relay(id, d); }   // 📦 malzeme kasası düştü/çağrıldı → herkeste göster (aynı noktaya iner); host diğer istemcilere ilet
+  else if (d.t === "wevent") { if (S && !S.event) startEvent(d.id, true); if (net.host) net.relay(id, d); }   // 🌍 host bir dünya olayı başlattı → herkeste başlat (etkiler yerel)
+  else if (d.t === "weventEnd") { endEvent(); if (net.host) net.relay(id, d); }   // 🌍 olay bitti
 };
 function adminGrant(id) { try { net.sendTo(id, { t: "grantAdmin" }); adminMsg("🛡️ " + (remoteName[id] || id) + " → admin verildi ✓"); } catch (e) {} }
 
@@ -3879,8 +4017,24 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "3.7";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "4.1";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "4.1", d: "9 Tem", items: [
+    "🌍 DİNAMİK DÜNYA OLAYLARI (büyük)! Oyun ilerledikçe rastgele olaylar dünyayı değiştirir; ekranda büyük afişle duyurulur: ☄️ Göktaşı Yağmuru (gökten değerli maden düşer — ama yakınına düşerse yakar!), 🐺 Yırtıcı Sürüsü (bir sürü avcı seni avlar), 🌫️ Zehirli Sis (görüş kapanır + can/akıl erir; ateşe/kampa sığın), 🦋 Orman Kutsaması (can/akıl toparlanır — iyi olay).",
+    "🌐 Co-op senkron: olayları host başlatır ve herkese yayınlar; aynı anda herkes yaşar. Solo'da da çalışır.",
+  ] },
+  { v: "4.0", d: "9 Tem", items: [
+    "🌟 HAYATTA KALMA SEVİYESİ + YETENEK AĞACI (büyük güncelleme)! Av/savaş, ağaç kesme, kristal kazma, sandık açma ve hayatta kaldığın her gün XP kazandırır. Seviye atladıkça yetenek puanı alırsın.",
+    "🎁 K tuşu (mobilde 🌟 buton) ile Yetenekler menüsü: 💪 Sağlamlık (gelen hasar −), ⚔️ Savaşçı (yakın dövüş +), 🎯 Nişancı (menzilli +), 🪓 Usta Oduncu (daha hızlı topla), 🧠 Soğukkanlı (açlık/susuzluk/akıl yavaş erir), ❤️ Dayanıklı (can daha hızlı yenilenir).",
+    "💾 Seviyen, XP'in ve yeteneklerin DEVAM ET ile korunur. Sol üstte 🌟 seviye göstergesi; puanın varsa 🎁 ile parlar.",
+  ] },
+  { v: "3.9", d: "9 Tem", items: [
+    "📦 YARDIM ÇAĞIR (Sinyal) tarifi eklendi (tezgah Tier 3, 6⚙️ + 2🧶): istediğin an gökten yakınına bir malzeme kasası çağırırsın. Co-op'ta herkes aynı kasayı görür — kim önce varırsa alır. Metalini ihtiyaç anında malzemeye çevir!",
+  ] },
+  { v: "3.8", d: "9 Tem", items: [
+    "📦 GÖKTEN MALZEME KASASI (airdrop): oyun boyunca periyodik olarak gökten yeşil ışık huzmeli bir kasa düşer. Işığı takip et, bak + E → içinden rastgele kaynak paketi (odun/metal/yemek/mermi/bandaj...) çıkar. Co-op'ta host düşürür, herkes aynı yerde görür — kim önce varırsa alır.",
+    "🧹 Temizlik: eski 'sürükle-taşı' mekaniğinden kalan ölü kod kaldırıldı (E ile direkt alma sonrası artık gereksizdi) — daha temiz, daha hızlı.",
+  ] },
   { v: "3.7", d: "8 Tem", items: [
     "✋ Yerdeki eşyaya bak + E (mobilde VUR) → DOĞRUDAN envantere gelir (artık sürüklemiyorsun).",
     "⬇️ BACKSPACE (mobilde ⬇️ buton) → eşya bırak menüsü: kaynakları yere at (×5 veya tümü) → arkadaşın E ile alabilir. Co-op'ta herkeste görünür (senkron).",

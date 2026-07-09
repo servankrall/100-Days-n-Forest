@@ -282,3 +282,6 @@ canvas#fx { position: absolute; inset: 0; width: 100%; height: 100%; pointer-eve
 .depot-row .dp-n { flex: 1; min-width: 110px; font-size: 13px; opacity: .82; }
 .dp-btn { padding: 6px 9px; border-radius: 8px; background: rgba(60,80,50,.6); color: #dfeecf; border: 1px solid rgba(150,255,150,.32); font-size: 12px; cursor: pointer; pointer-events: auto; }
 .dp-btn:active { background: rgba(80,110,70,.85); }
+
+/* ===== ⬇️ eşya bırak mobil butonu ===== */
+#btn-drop { position: absolute; left: 10px; top: 268px; z-index: 14; width: 44px; height: 44px; border-radius: 10px; background: rgba(30,40,54,.72); color: #cfe0ff; border: 1px solid rgba(150,190,255,.4); font-size: 20px; pointer-events: auto; touch-action: none; }

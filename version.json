@@ -1,6 +1,6 @@
 {
-  "build": 67,
-  "version": "3.6",
+  "build": 68,
+  "version": "3.7",
   "url": "https://github.com/servankrall/100-Days-n-Forest/releases/latest",
-  "notes": "🔫 Mermi üretimi eklendi (tezgah): metalden tabanca mermisi, fişek ve tüfek mermisi dök. Silahların artık kurumaz — metalini mermiye çevir."
+  "notes": "✋ Yerdeki eşyaya bak + E → doğrudan envantere. ⬇️ Backspace ile eşya bırak (arkadaşın alsın, co-op senkron). 🪂 Bırakılan eşyalar fizikle düşer. Ayrıca: 🔫 tezgahta mermi üretimi."
 }

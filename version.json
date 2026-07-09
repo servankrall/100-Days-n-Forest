@@ -1,6 +1,6 @@
 {
-  "build": 68,
-  "version": "3.7",
+  "build": 69,
+  "version": "3.8",
   "url": "https://github.com/servankrall/100-Days-n-Forest/releases/latest",
-  "notes": "✋ Yerdeki eşyaya bak + E → doğrudan envantere. ⬇️ Backspace ile eşya bırak (arkadaşın alsın, co-op senkron). 🪂 Bırakılan eşyalar fizikle düşer. Ayrıca: 🔫 tezgahta mermi üretimi."
+  "notes": "📦 Gökten malzeme kasası (airdrop): yeşil ışık huzmesini takip et, E ile aç → rastgele kaynak paketi. Co-op senkron (host düşürür). Ayrıca eski taşıma kodu temizlendi."
 }

@@ -1199,6 +1199,7 @@ function newState() {
     downed: false, bleed: 0, reviveT: 0, spectating: false,   // co-op: yere düşme / kan kaybı / diriltme / izleyici modu
     sleeping: 0,                            // çadırda uyuma animasyonu
     weather: "clear", weatherT: rnd(25, 55), lightT: null, flash: 0, rainSndT: 0,  // hava durumu / şimşek
+    airT: rnd(70, 120),                     // 📦 ilk malzeme kasası bu kadar sn sonra gökten düşer
     notes: [],                              // bulunan günlük notları
   };
 }
@@ -1233,7 +1234,6 @@ function clearDynamic() {
   if (watcher) { scene.remove(watcher.group); watcher = null; }
   for (const p of pickups) if (p.group) scene.remove(p.group); pickups.length = 0;   // yerdeki eşyalar
   for (const d of depots) if (d.group) scene.remove(d.group); depots.length = 0;   // 📦 depo sandıkları
-  if (carried && carried.sprite) scene.remove(carried.sprite); carried = null;         // taşınan eşya
   // sandıkları kapat (yeniden oyun)
   for (const c of chests) { c.opened = false; if (c.lid) c.lid.rotation.x = 0; }
   for (const c of crystals) { c.hp = 3; c.mined = false; if (c.group) c.group.visible = true; }
@@ -1707,9 +1707,8 @@ function findTarget() {
   if (S.inMine && mineExit) consider(mineExit.x, mineExit.z, 4.4, "mineexit", null);                 // 🪜 yüzeye çık
   return best;
 }
-/* ===== SANDIK GANİMETİ: TEK eşya fiziksel düşer → SÜRÜKLE/TAŞI kampa getir (ışınlanmaz) ===== */
-const pickups = [];   // {x,z,group,sprite,item,bob} — yerdeki taşınabilir eşyalar
-let carried = null;   // şu an taşınan eşya {item,sprite}
+/* ===== YERDEKİ EŞYALAR: sandık ganimeti / bırakılan eşya / gökten kasa — fizikle düşer, bakıp E ile AL ===== */
+const pickups = [];   // {id,x,z,y,vx,vy,vz,settled,group,sprite,item,bob} — yerdeki taşınabilir eşyalar
 const CHEST_LOOT = [
   { kind: "wood", label: "🪵 Odun", w: 9 }, { kind: "metal", label: "⚙️ Metal", w: 9 },
   { kind: "bandage", label: "🩹 Bandaj", w: 7 }, { kind: "cooked", label: "🍗 Pişmiş Et", w: 7 },
@@ -1737,14 +1736,20 @@ let pickupSeq = 0;
 function makePickup(x, z, item, opts) {
   opts = opts || {};
   const y0 = opts.y != null ? opts.y : 0;
+  const crate = !!opts.crate;
   const g = new THREE.Group(); g.position.set(x, y0, z);
-  const box = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.5), new THREE.MeshStandardMaterial({ color: 0x7a5a2e, roughness: 0.8, emissive: 0x3a2a10, emissiveIntensity: 0.5 }));
-  box.position.y = 0.22; g.add(box);
-  const sp = makePickupSprite(itemEmoji(item)); sp.position.y = 0.85; g.add(sp);
-  g.add(plight(0xffd98a, 0.7, 5, 1.6, 0, 0.6, 0));
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.5), new THREE.MeshStandardMaterial({ color: crate ? 0x2f7d46 : 0x7a5a2e, roughness: 0.8, emissive: crate ? 0x0f3a1e : 0x3a2a10, emissiveIntensity: 0.6 }));
+  box.position.y = 0.22; if (crate) box.scale.set(1.7, 1.5, 1.7); g.add(box);
+  const sp = makePickupSprite(itemEmoji(item)); sp.position.y = crate ? 1.15 : 0.85; g.add(sp);
+  g.add(plight(crate ? 0x9affc0 : 0xffd98a, crate ? 1.1 : 0.7, crate ? 9 : 5, crate ? 2.0 : 1.6, 0, 0.6, 0));
+  let beam = null;
+  if (crate) {   // uzaktan görünen ışık huzmesi (gökten düşen kasa)
+    beam = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 60, 8), new THREE.MeshBasicMaterial({ color: 0x8affc0, transparent: true, opacity: 0.22, depthWrite: false }));
+    beam.position.y = 30; g.add(beam);
+  }
   if (scene) scene.add(g);
   const moving = !!(opts.vy || opts.vx || opts.vz || y0 > 0.01);
-  const p = { id: opts.id || ((net.id || "L") + ":" + (++pickupSeq)), x, z, y: y0, vx: opts.vx || 0, vy: opts.vy || 0, vz: opts.vz || 0, settled: !moving, group: g, sprite: sp, item, bob: Math.random() * 6.28 };
+  const p = { id: opts.id || ((net.id || "L") + ":" + (++pickupSeq)), x, z, y: y0, vx: opts.vx || 0, vy: opts.vy || 0, vz: opts.vz || 0, settled: !moving, group: g, sprite: sp, beam, crate, item, bob: Math.random() * 6.28 };
   pickups.push(p); return p;
 }
 // yerdeki eşyayı AL → doğrudan envantere (co-op'ta herkeste kaybolur)
@@ -1771,7 +1776,33 @@ function dropStack(kind, label, all) {
   toast("⬇️ " + (n > 1 ? "×" + n + " " : "") + label + " yere attın (arkadaşın alabilir)", "good");
   renderDrop();
 }
+/* 📦 GÖKTEN MALZEME KASASI (airdrop): periyodik düşer, ışık huzmesiyle görünür, E ile açınca kaynak paketi verir */
+const AIRDROP_POOL = [
+  { kind: "wood", label: "🪵 Odun", min: 6, max: 12 }, { kind: "metal", label: "⚙️ Metal", min: 4, max: 9 },
+  { kind: "cooked", label: "🍗 Pişmiş Et", min: 2, max: 5 }, { kind: "canned", label: "🥫 Konserve", min: 1, max: 3 },
+  { kind: "water", label: "💧 Su", min: 1, max: 3 }, { kind: "bandage", label: "🩹 Bandaj", min: 1, max: 3 },
+  { kind: "medkit", label: "🧰 Sağlık", min: 1, max: 1 }, { kind: "pistolAmmo", label: "🔫 Mermi", min: 6, max: 14 },
+  { kind: "shells", label: "💥 Fişek", min: 2, max: 6 }, { kind: "arrows", label: "🏹 Ok", min: 3, max: 8 },
+  { kind: "gem", label: "💎 Mücevher", min: 1, max: 2 }, { kind: "cloth", label: "🧶 Kumaş", min: 2, max: 5 },
+  { kind: "rope", label: "🪢 İp", min: 2, max: 4 },
+];
+function rollAirdrop() {
+  const pool = AIRDROP_POOL.slice(), bundle = [], n = rndi(3, 4);
+  for (let i = 0; i < n && pool.length; i++) { const it = pool.splice(rndi(0, pool.length - 1), 1)[0]; bundle.push({ kind: it.kind, label: it.label, qty: rndi(it.min, it.max) }); }
+  return { label: "📦 Kasa", bundle };
+}
+function spawnAirdrop(opts) {
+  opts = opts || {};
+  if (opts.x != null) { makePickup(opts.x, opts.z, opts.item, { id: opts.id, y: 40, crate: true }); Sound.thump(); toast("📦 Malzeme kasası düşüyor! (yeşil ışığı takip et)", "good"); return; }   // co-op: host'tan gelen kasayı yerel göster
+  const ang = rnd(0, 6.283), dist = rnd(16, 34);   // vx=vz=0 → tüm istemcilerde aynı noktaya iner
+  const x = clamp(camera.position.x + Math.cos(ang) * dist, -CFG.WORLD + 3, CFG.WORLD - 3);
+  const z = clamp(camera.position.z + Math.sin(ang) * dist, -CFG.WORLD + 3, CFG.WORLD - 3);
+  const item = rollAirdrop(), p = makePickup(x, z, item, { y: 40, crate: true });
+  Sound.thump(); toast("📦 Malzeme kasası düşüyor! (yeşil ışık huzmesini takip et)", "good");
+  if (net.online) { try { net.broadcast({ t: "air", id: p.id, x, z, item }); } catch (e) {} }
+}
 function applyItem(item) {   // envantere/duruma uygula
+  if (item.bundle) { const names = []; for (const b of item.bundle) { S.inv[b.kind] = (S.inv[b.kind] || 0) + b.qty; names.push("×" + b.qty + " " + (b.label || b.kind)); } return (item.label || "📦 Kasa") + ": " + names.join(", "); }
   if (item.kind) { const q = item.qty || 1; S.inv[item.kind] = (S.inv[item.kind] || 0) + q; return (q > 1 ? "×" + q + " " : "") + item.label; }
   if (item.special === "axe1") { S.tools.axe = Math.max(S.tools.axe || 0, 1); return "🪓 İyi Balta"; }
   if (item.special === "pickaxe") { S.tools.pickaxe = true; return "⛏️ Kazma"; }
@@ -1783,23 +1814,17 @@ function applyItem(item) {   // envantere/duruma uygula
   if (item.special === "iceaxe") { giveMelee("iceaxe"); return "🧊 Buz Baltası"; }
   return item.label;
 }
-function dropCarried() {
-  if (!carried) return;
-  const nearCamp = (baseFire && Math.hypot(camera.position.x - baseFire.x, camera.position.z - baseFire.z) < CAMP_R()) || nearBench();
-  if (nearCamp) { const nm = applyItem(carried.item); if (carried.sprite && scene) scene.remove(carried.sprite); carried = null; Sound.chop(); toast("📦 Kampa getirdin: " + nm + " — envantere eklendi ✓", "good"); }
-  else { const [x, z] = placeInFront(1.3); if (carried.sprite && scene) scene.remove(carried.sprite); makePickup(x, z, carried.item); carried = null; toast("⬇️ Eşyayı yere bıraktın (geri alabilirsin)", "good"); }
-}
-function updateCarry(dt) {
+function updatePickups(dt) {
   for (const p of pickups) {
-    if (!p.settled) {   // 🪂 düşme fiziği: yay + zıplama
+    if (!p.settled) {   // 🪂 düşme fiziği: yerçekimi + zıplama
       p.vy -= 15 * dt; p.x += p.vx * dt; p.z += p.vz * dt; p.y += p.vy * dt;
       p.x = clamp(p.x, -CFG.WORLD, CFG.WORLD); p.z = clamp(p.z, -CFG.WORLD, CFG.WORLD);
-      if (p.y <= 0) { p.y = 0; if (p.vy < -1.4) { p.vy = -p.vy * 0.4; p.vx *= 0.55; p.vz *= 0.55; } else { p.vy = 0; p.vx = 0; p.vz = 0; p.settled = true; } }
+      if (p.y <= 0) { p.y = 0; if (p.vy < -1.4) { p.vy = -p.vy * 0.4; p.vx *= 0.55; p.vz *= 0.55; } else { p.vy = 0; p.vx = 0; p.vz = 0; p.settled = true; if (p.crate) { Sound.thump(); toast("📦 Kasa yere düştü — bak + E ile aç", "good"); } } }
       if (p.group) p.group.position.set(p.x, p.y, p.z);
     }
-    p.bob += dt; if (p.sprite) p.sprite.position.y = 0.85 + (p.settled ? Math.sin(p.bob * 2) * 0.08 : 0);
+    p.bob += dt; if (p.sprite) p.sprite.position.y = (p.crate ? 1.15 : 0.85) + (p.settled ? Math.sin(p.bob * 2) * 0.08 : 0);
+    if (p.crate && p.beam) p.beam.material.opacity = 0.18 + Math.sin(p.bob * 3) * 0.08;   // ışık huzmesi nabız
   }
-  if (carried && carried.sprite) { camera.getWorldDirection(_fwd); carried.sprite.position.set(camera.position.x + _fwd.x * 1.1, camera.position.y - 0.35 + Math.sin(performance.now() / 250) * 0.03, camera.position.z + _fwd.z * 1.1); }
 }
 function startFishing() { if (S.fishing > 0) return; S.fishing = rnd(2.4, 5.0); S.swingCd = 0.6; Sound.chop(); toast("🎣 Oltayı attın... bekle (gölden ayrılma)", "good"); }   // 🎣 balık tutmaya başla
 /* ----------------------- 📦 DEPO SANDIĞI ----------------------- */
@@ -1850,7 +1875,6 @@ function renderDrop() {
 { const bd = $("btn-drop"); if (bd) { bd.addEventListener("click", openDrop); bd.addEventListener("touchstart", (e) => { isTouch = true; openDrop(); e.preventDefault(); }, { passive: false }); } }
 
 function doAction() {
-  if (carried) { dropCarried(); return; }                     // elin doluysa VUR = bırak (kampta→envanter, değilse→yere)
   if (S.swingCd > 0) return;
   const t = findTarget();
   if (!t) { if (S.tools.rod && S.fishing <= 0 && nearWater()) startFishing(); return; }   // hedef yoksa: göl kenarında olta at
@@ -2729,6 +2753,8 @@ function update(dt) {
   S.saveT = (S.saveT || 0) - dt; if (S.saveT <= 0) { S.saveT = 25; saveProgress(); }   // 💾 otomatik kayıt (~25s) → güncelleme/çıkışta ilerleme kaybolmaz
   if (S.fishing > 0) { S.fishing -= dt; if (S.fishing <= 0) { S.fishing = 0; if (nearWater() && Math.random() < 0.72) { const n = rndi(1, 2); S.inv.raw += n; toast("🐟 +" + n + " balık yakaladın (çiğ) — ateşte pişir", "good"); Sound.chop(); } else toast("🎣 Balık kaçtı...", "bad"); } }   // 🎣 balık tutma sonucu
   if (admin.infStam) S.stamina = 100;              // ♾️ Sonsuz Enerji
+  // 📦 periyodik gökten malzeme kasası (co-op'ta yalnız host düşürür + herkese yayınlar)
+  if (!net.online || net.host) { if (S.airT == null) S.airT = rnd(70, 120); S.airT -= dt; if (S.airT <= 0) { S.airT = rnd(170, 260); spawnAirdrop(); } }
   // zaman / gün
   if (!admin.freezeTime) S.time += dt / CFG.DAY_LENGTH;   // ⏸️ Zamanı Dondur
   if (S.time >= 1) {
@@ -2831,7 +2857,7 @@ function update(dt) {
 
   // aksiyon kenar tetikleri
   if (placeMode) updateGhost();
-  updateCarry(dt);   // yerdeki eşyalar sallanır + taşınan eşya elinde durur
+  updatePickups(dt);   // yerdeki eşyalar düşme fiziği + sallanır
   if (S.tools.chainsaw && actionDown && !placeMode && S.swingCd <= 0) inp.action = true;   // motorlu testere: basılı tutunca sürekli kes
   if (inp.action) { inp.action = false; if (placeMode) confirmPlace(); else doAction(); }
   if (inp.fire) { inp.fire = false; doFire(); }
@@ -3303,11 +3329,7 @@ function updateHUD(night) {
   { const bd = $("btn-dyna"); if (bd) bd.style.display = (isTouch && S.inv.dynamite > 0) ? "" : "none"; }   // 🧨 buton yalnızca dinamit varken
   const t = findTarget();
   const akey = isTouch ? "VUR" : "[Sol tık / E]";
-  if (carried) {   // elin dolu → taşıma göstergesi
-    const nearCamp = (baseFire && Math.hypot(camera.position.x - baseFire.x, camera.position.z - baseFire.z) < CAMP_R()) || nearBench();
-    promptEl.textContent = (nearCamp ? "📦 " + carried.item.label + " → KAMPA BIRAK " : "🎒 " + carried.item.label + " taşıyorsun — ateşe/tezgaha götür ") + akey;
-    promptEl.classList.remove("hidden");
-  } else if (t) {
+  if (t) {
     const axeTxt = S.tools.chainsaw ? "🪚 Kes (basılı tut) " : (["🪓 Odun kes ", "🪓 Odun kes (iyi) ", "🪓 Odun kes (güçlü) ", "🪓 Admin Balta (tek vuruş) "][S.tools.axe || 0] || "🪓 Odun kes ");
     const txt = t.kind === "mineenter" ? "⛏️ Madene in " : t.kind === "mineexit" ? "🪜 Yüzeye çık " : t.kind === "depot" ? "📦 Depo (yatır/çek) " : t.kind === "pickup" ? "✋ " + t.obj.item.label + " AL " : t.kind === "bench" ? "🛠️ Tezgah " : t.kind === "scav" ? "🤝 Takas (5⚙️) " : t.kind === "pelt" ? "🧵 Kürk takası (5 post) " : t.kind === "tree" ? axeTxt : t.kind === "scrap" ? "⚙️ Metal topla " : t.kind === "crystal" ? (S.tools.pickaxe ? "💎 Kristal kaz " : "💎 Kristal (⛏️ gerek) ") : t.kind === "chest" ? "📦 Sandığı aç " : t.kind === "wall" ? (S.tools.hammer ? "🔨 Duvarı tamir et " : "🔨 Çekiç gerek ") : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ");
     promptEl.textContent = txt + akey; promptEl.classList.remove("hidden");
@@ -3509,7 +3531,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 68;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 69;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -3754,6 +3776,7 @@ net.onData = (id, d) => {
   else if (d.t === "grantAdmin") { if (!net.host) { try { LS.setItem("orm_adminOK", "1"); } catch (e) {} toast("🛡️ Sana ADMİN yetkisi verildi! Panel: \\ ya da P (mobilde 🛡️)", "good"); Sound.crackle(); if (adminOpen) buildAdminPanel(); } }   // owner (host) seçtiği oyuncuya admin verdi
   else if (d.t === "drop") { if (d.item && !pickups.some((p) => p.id === d.id)) makePickup(d.x, d.z, d.item, { id: d.id, y: 1.25, vx: d.vx, vy: d.vy, vz: d.vz }); if (net.host) net.relay(id, d); }   // arkadaş eşya bıraktı → yerde göster
   else if (d.t === "grab") { const p = pickups.find((q) => q.id === d.id); if (p) grabPickup(p, true); if (net.host) net.relay(id, d); }   // arkadaş yerden aldı → herkeste kaldır
+  else if (d.t === "air") { if (d.item && !pickups.some((p) => p.id === d.id)) spawnAirdrop({ id: d.id, x: d.x, z: d.z, item: d.item }); }   // 📦 host malzeme kasası düşürdü → herkeste göster (aynı noktaya iner)
 };
 function adminGrant(id) { try { net.sendTo(id, { t: "grantAdmin" }); adminMsg("🛡️ " + (remoteName[id] || id) + " → admin verildi ✓"); } catch (e) {} }
 
@@ -3879,8 +3902,12 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "3.7";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "3.8";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "3.8", d: "9 Tem", items: [
+    "📦 GÖKTEN MALZEME KASASI (airdrop): oyun boyunca periyodik olarak gökten yeşil ışık huzmeli bir kasa düşer. Işığı takip et, bak + E → içinden rastgele kaynak paketi (odun/metal/yemek/mermi/bandaj...) çıkar. Co-op'ta host düşürür, herkes aynı yerde görür — kim önce varırsa alır.",
+    "🧹 Temizlik: eski 'sürükle-taşı' mekaniğinden kalan ölü kod kaldırıldı (E ile direkt alma sonrası artık gereksizdi) — daha temiz, daha hızlı.",
+  ] },
   { v: "3.7", d: "8 Tem", items: [
     "✋ Yerdeki eşyaya bak + E (mobilde VUR) → DOĞRUDAN envantere gelir (artık sürüklemiyorsun).",
     "⬇️ BACKSPACE (mobilde ⬇️ buton) → eşya bırak menüsü: kaynakları yere at (×5 veya tümü) → arkadaşın E ile alabilir. Co-op'ta herkeste görünür (senkron).",

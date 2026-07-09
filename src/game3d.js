@@ -1501,18 +1501,27 @@ function updateCompanion(dt) {
     else if (c.atkCd <= 0) {
       c.atkCd = 0.65; tgt.hp -= 6; Sound.growl();
       if (tgt.hp <= 0) killAnimal(tgt);
-      else { tgt.hostile = true; if (tgt.state != null) tgt.state = "chase"; c.hp -= (BEAST[tgt.type] || tgt.boss) ? 5 : 2.5; if (c.hp <= 0) { c.hp = 0; c.downT = 16; toast("🐕 Yoldaşın yaralandı — birazdan toparlanır", "bad"); } }
+      else { tgt.hostile = true; if (tgt.state != null) tgt.state = "chase"; c.hp -= (BEAST[tgt.type] || tgt.boss) ? 5 : 2.5; S.dogHp = c.hp; if (c.hp <= 0) { c.hp = 0; c.downT = 16; toast("🐕 Yoldaşın yaralandı — birazdan toparlanır", "bad"); } }
     }
-    if (c.barkCd <= 0) { c.barkCd = 4; }
-  } else {   // oyuncuyu takip et
-    c.state = "follow";
-    if (near > 2.6) { c.dir = Math.atan2(pz - c.z, px - c.x); const sp = near > 9 ? 7.8 : 4.4; c.x += Math.cos(c.dir) * sp * dt; c.z += Math.sin(c.dir) * sp * dt; }
+    if (c.barkCd <= 0) { c.barkCd = 9; toast("🐕 Yoldaşın hırlıyor — tehlike yakın!", "bad"); Sound.growl(); }   // 🐕 tehlike uyarısı (hedef aldığında)
+  } else {   // oyuncuyu takip et + fırsat buldukça senin için avlan
+    c.huntCd = (c.huntCd || 0) - dt;
+    let prey = null, pd = 10;
+    if (c.huntCd <= 0) for (const a of animals) { if (a.hostile || a.boss || BEAST[a.type] || (a.type !== "capybara" && a.type !== "deer" && a.type !== "tapir" && a.type !== "boar")) continue; const d = Math.hypot(a.x - c.x, a.z - c.z); if (d < pd && Math.hypot(a.x - px, a.z - pz) < 22) { pd = d; prey = a; } }
+    if (prey) {   // 🐕 av peşinde: yakala → oyuncuya et/post düşer
+      c.state = "hunt"; c.dir = Math.atan2(prey.z - c.z, prey.x - c.x);
+      if (pd > 1.3) { c.x += Math.cos(c.dir) * 6.0 * dt; c.z += Math.sin(c.dir) * 6.0 * dt; }
+      else if (c.atkCd <= 0) { c.atkCd = 0.6; prey.hp -= 6; if (prey.hp <= 0) { toast("🐕 Yoldaşın senin için avlandı!", "good"); killAnimal(prey); c.huntCd = rnd(28, 45); } }
+    } else {
+      c.state = "follow";
+      if (near > 2.6) { c.dir = Math.atan2(pz - c.z, px - c.x); const sp = near > 9 ? 7.8 : 4.4; c.x += Math.cos(c.dir) * sp * dt; c.z += Math.sin(c.dir) * sp * dt; }
+    }
     if (near > 46) { c.x = px - Math.cos(c.dir) * 2; c.z = pz - Math.sin(c.dir) * 2; }   // çok geride kaldı → yanına ışınla (takılma önleme)
     if (c.hp < c.maxhp) { c.hp = Math.min(c.maxhp, c.hp + 0.7 * dt); S.dogHp = c.hp; }   // sakinken yavaş iyileş
   }
   c.atkCd -= dt; c.barkCd -= dt;
   c.x = clamp(c.x, -CFG.WORLD, CFG.WORLD); c.z = clamp(c.z, -CFG.WORLD, CFG.WORLD);
-  const moving = c.state === "attack" ? td > 1.5 : near > 2.6;
+  const moving = c.state === "attack" ? td > 1.5 : c.state === "hunt" ? pd > 1.3 : near > 2.6;
   const bob = moving ? Math.abs(Math.sin(performance.now() / 90)) * 0.08 : 0;
   c.group.position.set(c.x, 0.02 + bob, c.z); c.group.rotation.y = -c.dir;
 }
@@ -3719,7 +3728,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 73;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 74;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -4092,8 +4101,13 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "4.2";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "4.3";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "4.3", d: "9 Tem", items: [
+    "🐕 Yoldaşın artık GERÇEKTEN avlanıyor: boştayken yakındaki avı (geyik/kapibara/tapir/domuz) kendisi kovalayıp yakalar → et/post SANA düşer (arada bir, ~30-45 sn).",
+    "🐕 Tehlike uyarısı: yoldaşın bir düşmanı hedef aldığında hırlar ve seni uyarır — gece sırtını ona dönebilirsin.",
+    "🩹 Düzeltme: yoldaşın dövüşte aldığı hasar kayda anında yansıyor (DEVAM ET'te canı doğru).",
+  ] },
   { v: "4.2", d: "9 Tem", items: [
     "🐕 SADIK YOLDAŞ (KÖPEK) eklendi! Tezgahta Tier 2'de edin (3🍗 + 2🧵 + 1🪢): seni takip eder, yaklaşan düşmanlara saldırır ve senin için avlanır. Silah HUD'unda canı görünür (🐕).",
     "🍗 Bak + E: yaralıysa pişmiş etle besle (+can), sağlıklıysa sev 🐾. Canı biterse ölmez — yere yatar, biraz dinlenince toparlanır (başında beklersen daha hızlı).",

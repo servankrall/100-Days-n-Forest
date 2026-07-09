@@ -1201,6 +1201,7 @@ function newState() {
     weather: "clear", weatherT: rnd(25, 55), lightT: null, flash: 0, rainSndT: 0,  // hava durumu / şimşek
     airT: rnd(70, 120),                     // 📦 ilk malzeme kasası bu kadar sn sonra gökten düşer
     xp: 0, level: 1, skillPts: 0, perks: {},   // 🌟 hayatta kalma seviyesi + XP + yetenek ağacı
+    event: null, eventT: 0, eventCd: rnd(55, 110), eventSub: 0,   // 🌍 dinamik dünya olayı (aktif id / kalan süre / sonrakine bekleme / alt-zamanlayıcı)
     notes: [],                              // bulunan günlük notları
   };
 }
@@ -2036,6 +2037,64 @@ function renderPerks() {
 { const pc = $("perks-close"); if (pc) pc.addEventListener("click", closePerks); }
 { const bp = $("btn-perks"); if (bp) { bp.addEventListener("click", openPerks); bp.addEventListener("touchstart", (e) => { isTouch = true; openPerks(); e.preventDefault(); }, { passive: false }); } }
 
+/* ===== 🌍 ORMAN OLAYLARI: dinamik dünya olayları (host/solo başlatır, co-op'a yayınlar; etkiler herkeste yerel işler) ===== */
+const WEVENTS = {
+  meteor:   { name: "☄️ Göktaşı Yağmuru", dur: 22, warn: "Gökyüzü alev aldı... değerli madenler düşüyor!", good: false },
+  swarm:    { name: "🐺 Yırtıcı Sürüsü",  dur: 26, warn: "Bir şeyler seni avlıyor — savaş ya da kaç!", good: false },
+  fog:      { name: "🌫️ Zehirli Sis",     dur: 30, warn: "Zehirli sis çöküyor — ateşe/kampa sığın!", good: false },
+  blessing: { name: "🦋 Orman Kutsaması",  dur: 24, warn: "Orman bu gece sana merhametli — can/akıl toparlan", good: true },
+};
+function pickEvent() { const r = Math.random(); return r < 0.34 ? "meteor" : r < 0.63 ? "swarm" : r < 0.85 ? "fog" : "blessing"; }
+function eventBanner(txt, good) { const b = $("eventBanner"); if (!b) return; if (txt) { b.textContent = txt; b.classList.remove("hidden"); b.classList.toggle("good", !!good); } else b.classList.add("hidden"); }
+function startEvent(id, remote) {
+  const def = WEVENTS[id]; if (!def || !S) return;
+  S.event = id; S.eventT = def.dur; S.eventSub = 0;
+  eventBanner(def.name, def.good); toast(def.name + " başladı!", def.good ? "good" : "bad"); whisperText(def.warn);
+  if (def.good) Sound.crackle(); else { Sound.growl(); S.shake = Math.max(S.shake || 0, 0.35); }
+  if (id === "swarm") { spawnPack(); spawnJaguar(); spawnJaguar(); }   // yırtıcılar (yerel — her istemcide kendi sürüsü)
+  if (id === "meteor") S.flash = Math.max(S.flash || 0, 0.5);
+  if (!remote && net.online) { try { net.broadcast({ t: "wevent", id, dur: def.dur }); } catch (e) {} }
+}
+function eventTick(id, dt) {
+  if (id === "meteor") {
+    S.eventSub -= dt;
+    if (S.eventSub <= 0) {
+      S.eventSub = rnd(1.9, 3.1);
+      const ang = rnd(0, 6.283), d = rnd(6, 20);
+      const mx = clamp(camera.position.x + Math.cos(ang) * d, -CFG.WORLD + 3, CFG.WORLD - 3), mz = clamp(camera.position.z + Math.sin(ang) * d, -CFG.WORLD + 3, CFG.WORLD - 3);
+      const bundle = [{ kind: "metal", label: "⚙️ Metal", qty: rndi(2, 4) }]; if (Math.random() < 0.55) bundle.push({ kind: "gem", label: "💎 Mücevher", qty: 1 });
+      makePickup(mx, mz, { label: "☄️ Göktaşı", bundle }, { y: 30, vy: -2 });
+      S.flash = Math.max(S.flash || 0, 0.32); S.shake = Math.max(S.shake || 0, 0.3); Sound.thunder();
+      if (Math.hypot(mx - camera.position.x, mz - camera.position.z) < 3.2) { hurt(8); S.hurt = 0.4; S.deathReason = "göktaşı"; }   // çok yakına düşerse yakar
+    }
+  } else if (id === "fog") {
+    S.sanity = clamp(S.sanity - 0.9 * dt, 0, 100);
+    const nf = baseFire && Math.hypot(camera.position.x - baseFire.x, camera.position.z - baseFire.z) < CAMP_R();
+    if (!nf) { S.health = clamp(S.health - 0.7 * dt, 0, 100); if (S.health < 35) S.deathReason = "zehirli sis"; }
+  } else if (id === "blessing") {
+    S.sanity = clamp(S.sanity + 3.2 * dt, 0, 100); S.health = clamp(S.health + 1.4 * dt, 0, 100); S.warmth = clamp(S.warmth + 1.0 * dt, 0, 100);
+  } else if (id === "swarm") {
+    S.eventSub -= dt; if (S.eventSub <= 0) { S.eventSub = rnd(6, 10); if (animals.filter((a) => a.hostile).length < 8) spawnJaguar(); }   // ara ara takviye
+  }
+}
+function endEvent() {
+  if (!S || !S.event) return;
+  S.event = null; S.eventT = 0; eventBanner(null); S.eventCd = rnd(95, 165); toast("🌤️ Olay geçti — sakinlik.", "good");
+  if (net.online && net.host) { try { net.broadcast({ t: "weventEnd" }); } catch (e) {} }
+}
+function updateEvents(dt) {
+  if (S.event) {
+    S.eventT -= dt;
+    if (!(S.downed || S.spectating || S.inMine)) eventTick(S.event, dt);
+    if (S.eventT <= 0) endEvent();
+    return;
+  }
+  if ((net.online && !net.host) || S.downed || S.spectating || S.inMine || S.rescuing) return;   // co-op'ta olayları yalnız host başlatır
+  if (S.eventCd == null) S.eventCd = rnd(80, 140);
+  S.eventCd -= dt;
+  if (S.eventCd <= 0) startEvent(pickEvent());
+}
+
 /* ----------------------- MENZİLLİ SİLAHLAR (Faz 2) ----------------------- */
 const RANGED = {
   pistol:   { label: "🔫 Tabanca", ammo: "pistolAmmo", dmg: 6,  range: 45,  cd: 0.34, pellets: 1, cone: 0.985, silent: false },
@@ -2807,6 +2866,7 @@ function update(dt) {
   if (admin.infStam) S.stamina = 100;              // ♾️ Sonsuz Enerji
   // 📦 periyodik gökten malzeme kasası (co-op'ta yalnız host düşürür + herkese yayınlar)
   if (!net.online || net.host) { if (S.airT == null) S.airT = rnd(70, 120); S.airT -= dt; if (S.airT <= 0) { S.airT = rnd(170, 260); spawnAirdrop(); } }
+  updateEvents(dt);   // 🌍 dinamik dünya olayları (göktaşı/sürü/sis/kutsama)
   // zaman / gün
   if (!admin.freezeTime) S.time += dt / CFG.DAY_LENGTH;   // ⏸️ Zamanı Dondur
   if (S.time >= 1) {
@@ -3113,8 +3173,8 @@ function update(dt) {
   if (S.flash > 0) skyCol.lerp(new THREE.Color(0xcdd6e6), S.flash * 0.7);     // şimşek beyazı
   if (curBiome !== "forest") skyCol.lerp(new THREE.Color(BIOMES[curBiome].fog), 0.4 * dayK + 0.2);   // biyom atmosfer tonu (gündüz daha belirgin)
   if (inCave) { skyCol.lerp(new THREE.Color(0x040404), 0.94); hemi.intensity = 0.03; amb.intensity = 0.04; sun.intensity = 0; moon.intensity = 0; headlamp.intensity = 0.12; }   // MAĞARA: zifiri karanlık — el feneri/meşale şart
-  scene.background = skyCol; scene.fog.color = skyCol;
-  scene.fog.density = inCave ? 0.09 : lerp(0.013, 0.12, dk) * (S.weather === "rain" ? 1.5 : 1);   // mağarada/gece yoğun sis; yağmur daha da kapatır
+  scene.background = skyCol; scene.fog.color = S.event === "fog" ? new THREE.Color(0x4a5f2c) : skyCol;   // 🌫️ zehirli sis → hastalıklı yeşil
+  scene.fog.density = (inCave ? 0.09 : lerp(0.013, 0.12, dk) * (S.weather === "rain" ? 1.5 : 1)) * (S.event === "fog" ? 3.0 : 1);   // mağarada/gece yoğun sis; yağmur/zehirli sis daha da kapatır
   updateSky(dk, dayK, skyCol, sunAng);          // gradyan gökyüzü + yıldız + ay + güneş parıltısı
   windU.value = performance.now() / 1000;        // bitki rüzgârı
   if (waterTex) { waterTex.offset.x = windU.value * 0.02; waterTex.offset.y = Math.sin(windU.value * 0.3) * 0.04; }   // su parıltısı
@@ -3584,7 +3644,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 71;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 72;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -3830,6 +3890,8 @@ net.onData = (id, d) => {
   else if (d.t === "drop") { if (d.item && !pickups.some((p) => p.id === d.id)) makePickup(d.x, d.z, d.item, { id: d.id, y: 1.25, vx: d.vx, vy: d.vy, vz: d.vz }); if (net.host) net.relay(id, d); }   // arkadaş eşya bıraktı → yerde göster
   else if (d.t === "grab") { const p = pickups.find((q) => q.id === d.id); if (p) grabPickup(p, true); if (net.host) net.relay(id, d); }   // arkadaş yerden aldı → herkeste kaldır
   else if (d.t === "air") { if (d.item && !pickups.some((p) => p.id === d.id)) spawnAirdrop({ id: d.id, x: d.x, z: d.z, item: d.item }); if (net.host) net.relay(id, d); }   // 📦 malzeme kasası düştü/çağrıldı → herkeste göster (aynı noktaya iner); host diğer istemcilere ilet
+  else if (d.t === "wevent") { if (S && !S.event) startEvent(d.id, true); if (net.host) net.relay(id, d); }   // 🌍 host bir dünya olayı başlattı → herkeste başlat (etkiler yerel)
+  else if (d.t === "weventEnd") { endEvent(); if (net.host) net.relay(id, d); }   // 🌍 olay bitti
 };
 function adminGrant(id) { try { net.sendTo(id, { t: "grantAdmin" }); adminMsg("🛡️ " + (remoteName[id] || id) + " → admin verildi ✓"); } catch (e) {} }
 
@@ -3955,8 +4017,12 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "4.0";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "4.1";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "4.1", d: "9 Tem", items: [
+    "🌍 DİNAMİK DÜNYA OLAYLARI (büyük)! Oyun ilerledikçe rastgele olaylar dünyayı değiştirir; ekranda büyük afişle duyurulur: ☄️ Göktaşı Yağmuru (gökten değerli maden düşer — ama yakınına düşerse yakar!), 🐺 Yırtıcı Sürüsü (bir sürü avcı seni avlar), 🌫️ Zehirli Sis (görüş kapanır + can/akıl erir; ateşe/kampa sığın), 🦋 Orman Kutsaması (can/akıl toparlanır — iyi olay).",
+    "🌐 Co-op senkron: olayları host başlatır ve herkese yayınlar; aynı anda herkes yaşar. Solo'da da çalışır.",
+  ] },
   { v: "4.0", d: "9 Tem", items: [
     "🌟 HAYATTA KALMA SEVİYESİ + YETENEK AĞACI (büyük güncelleme)! Av/savaş, ağaç kesme, kristal kazma, sandık açma ve hayatta kaldığın her gün XP kazandırır. Seviye atladıkça yetenek puanı alırsın.",
     "🎁 K tuşu (mobilde 🌟 buton) ile Yetenekler menüsü: 💪 Sağlamlık (gelen hasar −), ⚔️ Savaşçı (yakın dövüş +), 🎯 Nişancı (menzilli +), 🪓 Usta Oduncu (daha hızlı topla), 🧠 Soğukkanlı (açlık/susuzluk/akıl yavaş erir), ❤️ Dayanıklı (can daha hızlı yenilenir).",

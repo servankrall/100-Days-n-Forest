@@ -1615,6 +1615,7 @@ addEventListener("keydown", (e) => {
   if (first && k === "m") { if (S && S.hasMap) { S.bigMap = !S.bigMap; toast(S.bigMap ? "🗺️ Geniş harita AÇIK" : "🗺️ Harita kapandı", "good"); } else if (S && S.running) toast("Önce 🗺️ Harita üret (tezgah)", "bad"); }
   if (first && (k === "y" || k === "enter")) openChat();   // 💬 co-op global sohbet
   if (first && k === "x") useDynamite();                    // 🧨 dinamit patlat
+  if (k === "backspace") { e.preventDefault(); if (first) openDrop(); }   // ⬇️ eşya bırak menüsü (co-op paylaşım)
 });
 addEventListener("keyup", (e) => { if (typingInField(e)) return; const k = e.key.toLowerCase(); keys[k] = false; if (k === "v") stopTalk(); if (k === "r") shootDown = false; });
 
@@ -1732,25 +1733,46 @@ function makePickupSprite(emoji) {
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), transparent: true }));
   sp.scale.set(0.9, 0.9, 0.9); return sp;
 }
-function makePickup(x, z, item) {
-  const g = new THREE.Group(); g.position.set(x, 0, z);
+let pickupSeq = 0;
+function makePickup(x, z, item, opts) {
+  opts = opts || {};
+  const y0 = opts.y != null ? opts.y : 0;
+  const g = new THREE.Group(); g.position.set(x, y0, z);
   const box = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.5), new THREE.MeshStandardMaterial({ color: 0x7a5a2e, roughness: 0.8, emissive: 0x3a2a10, emissiveIntensity: 0.5 }));
   box.position.y = 0.22; g.add(box);
   const sp = makePickupSprite(itemEmoji(item)); sp.position.y = 0.85; g.add(sp);
   g.add(plight(0xffd98a, 0.7, 5, 1.6, 0, 0.6, 0));
   if (scene) scene.add(g);
-  const p = { x, z, group: g, sprite: sp, item, bob: Math.random() * 6.28 }; pickups.push(p); return p;
+  const moving = !!(opts.vy || opts.vx || opts.vz || y0 > 0.01);
+  const p = { id: opts.id || ((net.id || "L") + ":" + (++pickupSeq)), x, z, y: y0, vx: opts.vx || 0, vy: opts.vy || 0, vz: opts.vz || 0, settled: !moving, group: g, sprite: sp, item, bob: Math.random() * 6.28 };
+  pickups.push(p); return p;
 }
-function tryCarry(p) {
-  if (carried) { toast("✋ Elin dolu — önce taşıdığını bırak (VUR)", "bad"); return; }
-  const i = pickups.indexOf(p); if (i >= 0) pickups.splice(i, 1);
+// yerdeki eşyayı AL → doğrudan envantere (co-op'ta herkeste kaybolur)
+function grabPickup(p, remote) {
+  const i = pickups.indexOf(p); if (i < 0) return; pickups.splice(i, 1);
   if (p.group && scene) scene.remove(p.group);
-  const sp = makePickupSprite(itemEmoji(p.item)); sp.scale.set(0.6, 0.6, 0.6); sp.frustumCulled = false; if (scene) scene.add(sp);
-  carried = { item: p.item, sprite: sp }; Sound.step();
-  toast("✋ " + p.item.label + " taşıyorsun — ATEŞE/tezgaha götür, VUR ile bırak", "good");
+  if (!remote) { const nm = applyItem(p.item); Sound.step(); toast("✅ Alındı: " + nm, "good"); if (net.online) { try { net.broadcast({ t: "grab", id: p.id }); } catch (e) {} } }
 }
-function applyItem(item) {   // kampta bırakınca envantere/duruma uygula
-  if (item.kind) { S.inv[item.kind] = (S.inv[item.kind] || 0) + 1; return item.label; }
+// eşyayı önüne fizikle fırlat (yay + zıplama) → yerde kalır, arkadaşın alabilir
+function spawnDrop(item) {
+  camera.getWorldDirection(_fwd); _fwd.y = 0; _fwd.normalize();
+  const px = clamp(camera.position.x + _fwd.x * 1.1, -CFG.WORLD, CFG.WORLD), pz = clamp(camera.position.z + _fwd.z * 1.1, -CFG.WORLD, CFG.WORLD);
+  const vx = _fwd.x * 3.4, vz = _fwd.z * 3.4, vy = 4.6;
+  const p = makePickup(px, pz, item, { y: 1.25, vx, vy, vz });
+  Sound.chop();
+  if (net.online) { try { net.broadcast({ t: "drop", id: p.id, item, x: px, z: pz, vx, vy, vz }); } catch (e) {} }
+  return p;
+}
+function dropStack(kind, label, all) {
+  if (!S || !S.running) return;
+  const have = S.inv[kind] || 0; if (have <= 0) return;
+  const n = all ? have : Math.min(have, 5); S.inv[kind] -= n;
+  spawnDrop({ kind, label, qty: n });
+  toast("⬇️ " + (n > 1 ? "×" + n + " " : "") + label + " yere attın (arkadaşın alabilir)", "good");
+  renderDrop();
+}
+function applyItem(item) {   // envantere/duruma uygula
+  if (item.kind) { const q = item.qty || 1; S.inv[item.kind] = (S.inv[item.kind] || 0) + q; return (q > 1 ? "×" + q + " " : "") + item.label; }
   if (item.special === "axe1") { S.tools.axe = Math.max(S.tools.axe || 0, 1); return "🪓 İyi Balta"; }
   if (item.special === "pickaxe") { S.tools.pickaxe = true; return "⛏️ Kazma"; }
   if (item.special === "hammer") { S.tools.hammer = true; return "🔨 Çekiç"; }
@@ -1768,7 +1790,15 @@ function dropCarried() {
   else { const [x, z] = placeInFront(1.3); if (carried.sprite && scene) scene.remove(carried.sprite); makePickup(x, z, carried.item); carried = null; toast("⬇️ Eşyayı yere bıraktın (geri alabilirsin)", "good"); }
 }
 function updateCarry(dt) {
-  for (const p of pickups) { p.bob += dt; if (p.sprite) p.sprite.position.y = 0.85 + Math.sin(p.bob * 2) * 0.08; }
+  for (const p of pickups) {
+    if (!p.settled) {   // 🪂 düşme fiziği: yay + zıplama
+      p.vy -= 15 * dt; p.x += p.vx * dt; p.z += p.vz * dt; p.y += p.vy * dt;
+      p.x = clamp(p.x, -CFG.WORLD, CFG.WORLD); p.z = clamp(p.z, -CFG.WORLD, CFG.WORLD);
+      if (p.y <= 0) { p.y = 0; if (p.vy < -1.4) { p.vy = -p.vy * 0.4; p.vx *= 0.55; p.vz *= 0.55; } else { p.vy = 0; p.vx = 0; p.vz = 0; p.settled = true; } }
+      if (p.group) p.group.position.set(p.x, p.y, p.z);
+    }
+    p.bob += dt; if (p.sprite) p.sprite.position.y = 0.85 + (p.settled ? Math.sin(p.bob * 2) * 0.08 : 0);
+  }
   if (carried && carried.sprite) { camera.getWorldDirection(_fwd); carried.sprite.position.set(camera.position.x + _fwd.x * 1.1, camera.position.y - 0.35 + Math.sin(performance.now() / 250) * 0.03, camera.position.z + _fwd.z * 1.1); }
 }
 function startFishing() { if (S.fishing > 0) return; S.fishing = rnd(2.4, 5.0); S.swingCd = 0.6; Sound.chop(); toast("🎣 Oltayı attın... bekle (gölden ayrılma)", "good"); }   // 🎣 balık tutmaya başla
@@ -1796,13 +1826,35 @@ function renderDepot() {
   }
 }
 { const dc = $("depot-close"); if (dc) dc.addEventListener("click", closeDepot); }
+/* ----------------------- ⬇️ EŞYA BIRAK (co-op paylaşım) ----------------------- */
+let dropOpen = false;
+const DROP_ITEMS = [["wood", "🪵 Odun"], ["metal", "⚙️ Metal"], ["gem", "💎 Mücevher"], ["bandage", "🩹 Bandaj"], ["medkit", "🧰 Sağlık"], ["cooked", "🍗 Pişmiş Et"], ["raw", "🥩 Çiğ Et"], ["canned", "🥫 Konserve"], ["water", "💧 Su"], ["pistolAmmo", "🔫 Mermi"], ["shells", "💥 Fişek"], ["rifleAmmo", "🎯 Tüfek Mrm"], ["arrows", "🏹 Ok"], ["pelt", "🧵 Post"], ["cloth", "🧶 Kumaş"], ["rope", "🪢 İp"]];
+function openDrop() { if (!S || !S.running || S.downed) return; dropOpen = true; renderDrop(); $("drop").classList.remove("hidden"); if (document.exitPointerLock) document.exitPointerLock(); }
+function closeDrop() { dropOpen = false; $("drop").classList.add("hidden"); if (!isTouch && S && S.running && threeCanvas.requestPointerLock) { try { threeCanvas.requestPointerLock(); } catch (e) {} } }
+function renderDrop() {
+  const box = $("dropList"); if (!box) return; box.innerHTML = "";
+  let any = false;
+  for (const [key, label] of DROP_ITEMS) {
+    const have = S.inv[key] || 0; if (have <= 0) continue; any = true;
+    const row = document.createElement("div"); row.className = "depot-row";
+    const lbl = document.createElement("span"); lbl.className = "dp-lbl"; lbl.textContent = label;
+    const n = document.createElement("span"); n.className = "dp-n"; n.textContent = "çanta " + have;
+    row.append(lbl, n);
+    const mk = (t, fn) => { const b = document.createElement("button"); b.className = "dp-btn"; b.textContent = t; b.addEventListener("click", fn); return b; };
+    row.append(mk("⬇️ ×5", () => dropStack(key, label, false)), mk("⬇️ tümü", () => dropStack(key, label, true)));
+    box.appendChild(row);
+  }
+  if (!any) { const e = document.createElement("div"); e.className = "dp-n"; e.style.padding = "10px"; e.textContent = "Bırakacak paylaşılabilir eşyan yok."; box.appendChild(e); }
+}
+{ const dc = $("drop-close"); if (dc) dc.addEventListener("click", closeDrop); }
+{ const bd = $("btn-drop"); if (bd) { bd.addEventListener("click", openDrop); bd.addEventListener("touchstart", (e) => { isTouch = true; openDrop(); e.preventDefault(); }, { passive: false }); } }
 
 function doAction() {
   if (carried) { dropCarried(); return; }                     // elin doluysa VUR = bırak (kampta→envanter, değilse→yere)
   if (S.swingCd > 0) return;
   const t = findTarget();
   if (!t) { if (S.tools.rod && S.fishing <= 0 && nearWater()) startFishing(); return; }   // hedef yoksa: göl kenarında olta at
-  if (t.kind === "pickup") { tryCarry(t.obj); return; }       // yerdeki eşyayı AL (taşımaya başla)
+  if (t.kind === "pickup") { grabPickup(t.obj); return; }      // yerdeki eşyayı AL → doğrudan envantere
   if (t.kind === "mineenter") { enterMine(); return; }        // ⛏️ madene in (ekran kararır → ışınlanır)
   if (t.kind === "mineexit") { exitMine(); return; }          // 🪜 yüzeye çık
   if (t.kind === "depot") { openDepot(); return; }            // 📦 depo sandığı aç
@@ -2200,6 +2252,7 @@ const RECIPES = [
   { tier: 2, name: "🏹 Yay", desc: "Sessiz menzilli silah; Q ile kuşan, R / sağ tık ile ateş", cost: { wood: 8, rope: 2 }, once: () => S.weapons.bow, make: (s) => { s.weapons.bow = true; if (!s.equip) s.equip = "bow"; } },
   { tier: 2, name: "🔦 El Feneri", desc: "Geceleri/mağarada önünü aydınlatır (L); pil ile çalışır", cost: { metal: 5, gem: 1 }, once: () => S.flashlight, make: (s) => { s.flashlight = true; s.battery = 100; } },
   { tier: 2, name: "🎯 Ok ×10", desc: "Yay/arbalet için ok", cost: { rope: 1, wood: 2, metal: 1 }, make: (s) => s.inv.arrows += 10 },
+  { tier: 2, name: "🔫 Tabanca Mermisi ×8", desc: "Tabanca için mermi dök (metalden)", cost: { metal: 3 }, make: (s) => s.inv.pistolAmmo += 8 },
   // ---- Tier 2 ----
   { tier: 2, name: "🧭 Pusula", desc: "Baktığın yönü HUD'da gösterir", cost: { metal: 3 }, once: () => S.hasCompass, make: (s) => s.hasCompass = true },
   { tier: 2, name: "🪤 Ayı Tuzağı", desc: "Üretilir, KUR; üstünden geçen düşmanı yaralar", cost: { metal: 3, wood: 1 }, make: () => addPlaceable("trap") },
@@ -2213,6 +2266,8 @@ const RECIPES = [
   { tier: 3, name: "🪓 Güçlü Balta", desc: "Normal ağacı tek vuruşta devirir", cost: { metal: 14, gem: 1 }, once: () => S.tools.axe >= 2, make: (s) => s.tools.axe = 2 },
   { tier: 3, name: "🛡️ Metal Zırh", desc: "Yaratık hasarını −%35 azaltır (yıprandıkça kırılır)", cost: { metal: 12, cloth: 2 }, make: () => giveArmor(0.35, "Metal Zırh") },
   { tier: 3, name: "🧨 Dinamit", desc: "X ile patlat: çevredeki kristalleri kazar (💎) + yakındaki düşmanları vurur", cost: { metal: 5, gem: 1 }, make: (s) => s.inv.dynamite++ },
+  { tier: 3, name: "💥 Fişek ×4", desc: "Pompalı tüfek için fişek dök", cost: { metal: 4 }, make: (s) => s.inv.shells += 4 },
+  { tier: 3, name: "🎯 Tüfek Mermisi ×5", desc: "Tüfek için mermi dök (metal + mücevher)", cost: { metal: 3, gem: 1 }, make: (s) => s.inv.rifleAmmo += 5 },
   { tier: 3, name: "🧪 Zehirli Mızrak", desc: "Vurduğun düşmanı zehirler (zamanla erir)", cost: { metal: 4, gem: 1, cloth: 1 }, once: () => S.meleeOwned.poisonSpear, make: () => giveMelee("poisonSpear") },
   { tier: 3, up: 4, name: "⬆️ Tezgah Tier 4", desc: "4. seviye tarifleri açar", cost: { metal: 15, wood: 20 }, once: () => S.benchTier >= 4, make: (s) => s.benchTier = 4 },
   // ---- Tier 4 ----
@@ -3427,7 +3482,7 @@ $("cr-close").addEventListener("click", () => closeCraft());
 const pauseBtn = $("pauseBtn");
 pauseBtn.addEventListener("click", () => togglePause());
 pauseBtn.addEventListener("touchstart", (e) => { isTouch = true; togglePause(); e.preventDefault(); }, { passive: false });
-addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); if (placeMode) exitPlace(); else if (adminOpen) toggleAdmin(); else if (guideOpen) closeGuide(); else if (changelogOpen) closeChangelog(); else if (settingsOpen) closeSettings(); else if (notesOpen) closeNotes(); else if (depotOpen) closeDepot(); else if (craftOpen) closeCraft(); else togglePause(); } });
+addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); if (placeMode) exitPlace(); else if (adminOpen) toggleAdmin(); else if (guideOpen) closeGuide(); else if (changelogOpen) closeChangelog(); else if (settingsOpen) closeSettings(); else if (notesOpen) closeNotes(); else if (depotOpen) closeDepot(); else if (dropOpen) closeDrop(); else if (craftOpen) closeCraft(); else togglePause(); } });
 document.addEventListener("visibilitychange", () => { if (document.hidden && S && S.running) { S.paused = true; pauseBtn.textContent = "▶"; } });
 addEventListener("touchstart", () => { isTouch = true; }, { once: true, passive: true });
 const vBtn = $("btn-voice");
@@ -3454,7 +3509,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 66;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 68;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -3697,6 +3752,8 @@ net.onData = (id, d) => {
   else if (d.t === "fire") { applyFireLevel(d.fed); if (net.host) net.relay(id, d); }
   else if (d.t === "wsnap") applyWorldSnapshot(d);
   else if (d.t === "grantAdmin") { if (!net.host) { try { LS.setItem("orm_adminOK", "1"); } catch (e) {} toast("🛡️ Sana ADMİN yetkisi verildi! Panel: \\ ya da P (mobilde 🛡️)", "good"); Sound.crackle(); if (adminOpen) buildAdminPanel(); } }   // owner (host) seçtiği oyuncuya admin verdi
+  else if (d.t === "drop") { if (d.item && !pickups.some((p) => p.id === d.id)) makePickup(d.x, d.z, d.item, { id: d.id, y: 1.25, vx: d.vx, vy: d.vy, vz: d.vz }); if (net.host) net.relay(id, d); }   // arkadaş eşya bıraktı → yerde göster
+  else if (d.t === "grab") { const p = pickups.find((q) => q.id === d.id); if (p) grabPickup(p, true); if (net.host) net.relay(id, d); }   // arkadaş yerden aldı → herkeste kaldır
 };
 function adminGrant(id) { try { net.sendTo(id, { t: "grantAdmin" }); adminMsg("🛡️ " + (remoteName[id] || id) + " → admin verildi ✓"); } catch (e) {} }
 
@@ -3822,8 +3879,16 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "3.5";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "3.7";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "3.7", d: "8 Tem", items: [
+    "✋ Yerdeki eşyaya bak + E (mobilde VUR) → DOĞRUDAN envantere gelir (artık sürüklemiyorsun).",
+    "⬇️ BACKSPACE (mobilde ⬇️ buton) → eşya bırak menüsü: kaynakları yere at (×5 veya tümü) → arkadaşın E ile alabilir. Co-op'ta herkeste görünür (senkron).",
+    "🪂 Bırakılan eşyalar artık DÜZGÜN FİZİKLE düşüyor: öne fırlar, yere zıplar, oturur.",
+  ] },
+  { v: "3.6", d: "8 Tem", items: [
+    "🔫 MERMİ ÜRETİMİ eklendi (tezgah): metalden 🔫 tabanca mermisi (Tier 2, 3⚙️→8), 💥 fişek (Tier 3, 4⚙️→4) ve 🎯 tüfek mermisi (Tier 3, 3⚙️+1💎→5). Silahların kurusun diye endişelenme — metalini mermiye çevir!",
+  ] },
   { v: "3.5", d: "8 Tem", items: [
     "📦 DEPO SANDIĞI eklendi: kampta hazır bir tane var (ayrıca tezgahta üretip başka yere de kurabilirsin: 16🪵 + 2⚙️). Ağır kaynakları (odun/metal/mücevher/post...) içine bırak → çantan hafifler, aşırı yükten yavaşlamazsın. Yatır/çek paneli. İçindekiler DEVAM ET ile korunur.",
   ] },

@@ -1200,6 +1200,7 @@ function newState() {
     sleeping: 0,                            // çadırda uyuma animasyonu
     weather: "clear", weatherT: rnd(25, 55), lightT: null, flash: 0, rainSndT: 0,  // hava durumu / şimşek
     airT: rnd(70, 120),                     // 📦 ilk malzeme kasası bu kadar sn sonra gökten düşer
+    xp: 0, level: 1, skillPts: 0, perks: {},   // 🌟 hayatta kalma seviyesi + XP + yetenek ağacı
     notes: [],                              // bulunan günlük notları
   };
 }
@@ -1616,6 +1617,7 @@ addEventListener("keydown", (e) => {
   if (first && (k === "y" || k === "enter")) openChat();   // 💬 co-op global sohbet
   if (first && k === "x") useDynamite();                    // 🧨 dinamit patlat
   if (k === "backspace") { e.preventDefault(); if (first) openDrop(); }   // ⬇️ eşya bırak menüsü (co-op paylaşım)
+  if (first && k === "k") { if (perkOpen) closePerks(); else openPerks(); }   // 🌟 Yetenek ağacı aç/kapat
 });
 addEventListener("keyup", (e) => { if (typingInField(e)) return; const k = e.key.toLowerCase(); keys[k] = false; if (k === "v") stopTalk(); if (k === "r") shootDown = false; });
 
@@ -1911,10 +1913,11 @@ function doAction() {
     Sound.chop(); const tr = t.obj;
     let dmg = S.tools.chainsaw ? 4 : [1, 2, 4, 999][S.tools.axe || 0];   // eski/iyi/güçlü/ADMIN balta (tier 3 = tek vuruş)
     if (!S.tools.chainsaw && S.melee === "iceaxe") dmg = Math.max(dmg, 2);   // buz baltası iyi balta gibi keser
-    if (S.cls === "lumberjack") dmg += 1;   // Oduncu perk: daha hızlı kesim
+    if (S.cls === "lumberjack") dmg += 1;   // Oduncu sınıfı: daha hızlı kesim
+    dmg += perk("lumber");                  // 🪓 Usta Oduncu yeteneği: ağaç başına ek hasar
     if (S.tools.chainsaw) S.swingCd = 0.12;                            // motorlu testere: basılı tut → sürekli kesim
     tr.hp -= dmg; S.inv.wood++;
-    if (tr.hp <= 0) { tr.alive = false; tr.regrow = 95; const bonus = S.tools.chainsaw ? 3 : 2; S.inv.wood += bonus; writeTree(trees.indexOf(tr)); treesNeedUpdate(); toast("🪵 Ağaç devrildi (+" + (bonus + 1) + ")", "good"); }
+    if (tr.hp <= 0) { tr.alive = false; tr.regrow = 95; const bonus = S.tools.chainsaw ? 3 : 2; S.inv.wood += bonus; writeTree(trees.indexOf(tr)); treesNeedUpdate(); gainXP(2); toast("🪵 Ağaç devrildi (+" + (bonus + 1) + ")", "good"); }
     return;
   }
   if (t.kind === "scrap") {                                   // metal hurda topla (kazma daha hızlı)
@@ -1926,13 +1929,13 @@ function doAction() {
   if (t.kind === "crystal") {                                 // kristal kaz → 💎 (kazma şart)
     const c = t.obj;
     if (!S.tools.pickaxe) { toast("💎 Kristal için ⛏️ Kazma gerekli", "bad"); return; }
-    Sound.chop(); c.hp--;
-    if (c.hp <= 0) { c.mined = true; c.group.visible = false; const gn = rndi(1, 2); S.inv.gem += gn; toast("💎 +" + gn + " mücevher!", "good"); }
+    Sound.chop(); c.hp -= 1 + perk("lumber");
+    if (c.hp <= 0) { c.mined = true; c.group.visible = false; const gn = rndi(1, 2); S.inv.gem += gn; gainXP(4); toast("💎 +" + gn + " mücevher!", "good"); }
     else toast("💎 Kristal kırılıyor...", "good");
     return;
   }
   if (t.kind === "chest") {                                   // sandık aç → TEK eşya fiziksel düşer (ışınlanmaz, taşınır)
-    const c = t.obj; c.opened = true; c.openedDay = S.day; if (c.lid) c.lid.rotation.x = -1.2; Sound.crackle();
+    const c = t.obj; c.opened = true; c.openedDay = S.day; if (c.lid) c.lid.rotation.x = -1.2; Sound.crackle(); gainXP(6);
     let item = rollChestItem();
     const cb = biomeAt(c.x, c.z);   // biyoma özel: askeri kasa → silah, volkanik → gem, kar → post
     if (c.ammo) item = choice([{ special: "pistol", label: "🔫 Tabanca" }, { kind: "rifleAmmo", label: "🎯 Tüfek Mermisi" }, { kind: "shells", label: "💥 Fişek" }]);
@@ -1948,7 +1951,7 @@ function doAction() {
   if (t.kind === "animal") {
     Sound.chop(); const a = t.obj;
     const mw = S.melee && MELEE[S.melee];
-    a.hp -= admin.oneHit ? 99999 : (mw ? mw.dmg : 3);   // 💥 admin tek vuruş
+    a.hp -= admin.oneHit ? 99999 : (mw ? mw.dmg : 3) * (1 + 0.2 * perk("warrior"));   // 💥 admin tek vuruş · ⚔️ Savaşçı yeteneği
     if (mw) { S.swingCd = mw.cd * (S.cls === "assassin" ? 0.65 : 1);   // Suikastçı perk: hızlı vuruş
       if (mw.poison) a.poison = Math.max(a.poison || 0, 4.0);
       if (mw.fire) a.burn = Math.max(a.burn || 0, 3.2);
@@ -1961,6 +1964,7 @@ function doAction() {
   }
 }
 function killAnimal(a, cooked) {
+  gainXP(a.boss ? 50 : (a.hostile || a.type === "jaguar" ? 7 : 3));   // 🌟 avdan/savaştan XP
   if (a.boss) {   // BOSS yenildi → büyük ödül
     bossAlive = false;
     if (a.type === "queen") {   // 🕷️👑 MADEN KRALİÇESİ ödülü
@@ -1986,6 +1990,51 @@ function killAnimal(a, cooked) {
   if (a.type !== "jaguar") setTimeout(() => { if (S.running && animals.length < 18) spawnPrey(); }, 9000);
 }
 const nameTR = (t) => ({ capybara: "kapibara", deer: "geyik", tapir: "tapir", boar: "yaban domuzu", jaguar: "jaguar" }[t] || t);
+
+/* ===== 🌟 HAYATTA KALMA SEVİYESİ + YETENEK AĞACI (XP → seviye → yetenek puanı) ===== */
+const PERKS = [
+  { id: "tough",   name: "💪 Sağlamlık",   max: 4, ef: (l) => "Gelen hasar −" + (10 * l) + "%" },
+  { id: "warrior", name: "⚔️ Savaşçı",     max: 4, ef: (l) => "Yakın dövüş hasarı +" + (20 * l) + "%" },
+  { id: "sharp",   name: "🎯 Nişancı",     max: 4, ef: (l) => "Menzilli silah hasarı +" + (20 * l) + "%" },
+  { id: "lumber",  name: "🪓 Usta Oduncu", max: 3, ef: (l) => "Ağaç/kristal başına +" + l + " (daha hızlı toplarsın)" },
+  { id: "calm",    name: "🧠 Soğukkanlı",  max: 4, ef: (l) => "Açlık/susuzluk/akıl tükenişi −" + (12 * l) + "%" },
+  { id: "vital",   name: "❤️ Dayanıklı",   max: 4, ef: (l) => "Doğal can yenilenmesi +" + (50 * l) + "%" },
+];
+function perk(id) { return (S && S.perks && S.perks[id]) || 0; }
+function xpForLevel(lvl) { return 40 + (lvl - 1) * 28; }   // her seviye biraz daha çok XP ister
+let perkOpen = false;
+function gainXP(n) {
+  if (!S || !S.running || S.over || S.downed || S.spectating) return;
+  S.xp = (S.xp || 0) + n;
+  let need = xpForLevel(S.level || 1), leveled = false;
+  while (S.xp >= need) { S.xp -= need; S.level = (S.level || 1) + 1; S.skillPts = (S.skillPts || 0) + 1; leveled = true; S.health = clamp(S.health + 25, 0, 100); S.sanity = clamp(S.sanity + 20, 0, 100); need = xpForLevel(S.level); }
+  if (leveled) { Sound.thump(); toast("🌟 SEVİYE " + S.level + "! +1 yetenek puanı — K ile Yetenekler'i aç", "good"); if (perkOpen) renderPerks(); }
+}
+function upgradePerk(id) {
+  if (!S || (S.skillPts || 0) <= 0) return;
+  const def = PERKS.find((p) => p.id === id); if (!def) return;
+  const cur = perk(id); if (cur >= def.max) return;
+  S.perks[id] = cur + 1; S.skillPts--; Sound.step();
+  toast("✅ " + def.name + " → Sv." + S.perks[id], "good"); renderPerks();
+}
+function openPerks() { if (!S || !S.running || S.downed) return; perkOpen = true; renderPerks(); $("perks").classList.remove("hidden"); if (document.exitPointerLock) document.exitPointerLock(); }
+function closePerks() { perkOpen = false; $("perks").classList.add("hidden"); if (!isTouch && S && S.running && threeCanvas.requestPointerLock) { try { threeCanvas.requestPointerLock(); } catch (e) {} } }
+function renderPerks() {
+  const head = $("perkHead"); if (head) head.textContent = "🌟 Seviye " + (S.level || 1) + " · XP " + Math.floor(S.xp || 0) + "/" + xpForLevel(S.level || 1) + " · 🎁 " + (S.skillPts || 0) + " puan";
+  const box = $("perkList"); if (!box) return; box.innerHTML = "";
+  for (const p of PERKS) {
+    const l = perk(p.id), maxed = l >= p.max;
+    const row = document.createElement("div"); row.className = "depot-row";
+    const lbl = document.createElement("span"); lbl.className = "dp-lbl"; lbl.innerHTML = p.name + " <b>Sv." + l + "/" + p.max + "</b><br><small style='opacity:.7'>" + p.ef(maxed ? l : l + 1) + "</small>";
+    row.appendChild(lbl);
+    if (maxed) { const n = document.createElement("span"); n.className = "dp-n"; n.textContent = "MAKS"; row.appendChild(n); }
+    else if ((S.skillPts || 0) > 0) { const b = document.createElement("button"); b.className = "dp-btn"; b.textContent = "YÜKSELT"; b.addEventListener("click", () => upgradePerk(p.id)); row.appendChild(b); }
+    else { const n = document.createElement("span"); n.className = "dp-n"; n.textContent = "puan yok"; row.appendChild(n); }
+    box.appendChild(row);
+  }
+}
+{ const pc = $("perks-close"); if (pc) pc.addEventListener("click", closePerks); }
+{ const bp = $("btn-perks"); if (bp) { bp.addEventListener("click", openPerks); bp.addEventListener("touchstart", (e) => { isTouch = true; openPerks(); e.preventDefault(); }, { passive: false }); } }
 
 /* ----------------------- MENZİLLİ SİLAHLAR (Faz 2) ----------------------- */
 const RANGED = {
@@ -2030,7 +2079,7 @@ function doShoot() {
     if (watcher) { const dx = watcher.x - px, dz = watcher.z - pz, d = Math.hypot(dx, dz); if (d <= spec.range) { const dot = (dx / d) * _fwd.x + (dz / d) * _fwd.z; if (dot >= spec.cone && (dot - d * 0.003) > bestScore) { wHit = true; best = null; } } }
     if (wHit) { hits++; vanishWatcher(false); S.sanity = clamp(S.sanity + 6, 0, 100); toast("👁️ İzleyen'i kovaladın!", "good"); continue; }
     if (best) {
-      hits++; best.hp -= admin.oneHit ? 99999 : spec.dmg;   // 💥 admin tek vuruş
+      hits++; best.hp -= admin.oneHit ? 99999 : spec.dmg * (1 + 0.2 * perk("sharp"));   // 💥 admin tek vuruş · 🎯 Nişancı yeteneği
       if (spec.silent) { if (!best.hostile) { best.state = "flee"; best.dir = Math.atan2(best.z - pz, best.x - px); } }
       else if (best.type === "boar" || best.type === "jaguar" || best.hostile) { best.hostile = true; best.state = "chase"; }
       if (best.hp <= 0) { killAnimal(best); kills++; }
@@ -2617,6 +2666,7 @@ function drawCamScare(w, h, dt) {
 function hurt(dmg) {
   if (admin.god) return S.health;   // 🛡️ God Mode: hasar yok
   dmg *= (S.diff || 1);             // 🎚️ zorluk: gelen hasar çarpanı (Kolay 0.6 / Zor 1.5)
+  dmg *= (1 - 0.10 * perk("tough"));   // 💪 Sağlamlık yeteneği: gelen hasarı azalt
   if (S.armor > 0 && S.armorDef > 0) {
     const absorbed = dmg * S.armorDef;
     S.armor = Math.max(0, S.armor - (absorbed * 1.4 + 1));
@@ -2720,7 +2770,7 @@ function saveProgress() {
       day: S.day, time: S.time, inv: S.inv, tools: S.tools, notes: S.notes,
       health: S.health, hunger: S.hunger, warmth: S.warmth, sanity: S.sanity, thirst: S.thirst,
       weapons: S.weapons, meleeOwned: S.meleeOwned, melee: S.melee, equip: S.equip, flashlight: S.flashlight, battery: S.battery, armor: S.armor, armorDef: S.armorDef, cls: S.cls, peltTrades: S.peltTrades, backpack: S.backpack,
-      diff: S.diff, depot: S.depot, x: sx, z: sz, ts: Date.now(),
+      diff: S.diff, depot: S.depot, xp: S.xp, level: S.level, skillPts: S.skillPts, perks: S.perks, x: sx, z: sz, ts: Date.now(),
     }));
   } catch (e) {}
 }
@@ -2740,6 +2790,7 @@ function applySave() {
   if (sv.cls) S.cls = sv.cls; if (sv.peltTrades != null) S.peltTrades = sv.peltTrades; if (sv.backpack != null) S.backpack = sv.backpack;
   if (sv.diff != null) S.diff = sv.diff;   // 🎚️ zorluk geri yüklenir
   if (sv.depot) S.depot = sv.depot;   // 📦 depo içeriği geri yüklenir
+  if (sv.xp != null) S.xp = sv.xp; if (sv.level != null) S.level = sv.level; if (sv.skillPts != null) S.skillPts = sv.skillPts; if (sv.perks) S.perks = sv.perks;   // 🌟 seviye + yetenekler geri yüklenir
   if (sv.notes) S.notes = sv.notes;
   S.health = sv.health != null ? sv.health : 100; S.hunger = sv.hunger != null ? sv.hunger : 100;
   S.warmth = sv.warmth != null ? sv.warmth : 100; S.sanity = sv.sanity != null ? sv.sanity : 100;
@@ -2759,7 +2810,7 @@ function update(dt) {
   // zaman / gün
   if (!admin.freezeTime) S.time += dt / CFG.DAY_LENGTH;   // ⏸️ Zamanı Dondur
   if (S.time >= 1) {
-    S.time -= 1; S.day++; S.firstNightDone = false; S.scripted = false;
+    S.time -= 1; S.day++; S.firstNightDone = false; S.scripted = false; gainXP(18);   // 🌟 hayatta kaldığın her gün XP
     if (S.day > CFG.WIN_DAY) { startRescue(); return; }
     S.bloodMoon = S.day >= 6 && Math.random() < (0.12 + S.day / 100 * 0.4);   // ilerledikçe daha sık KANLI AY
     toast("☀️ GÜN " + S.day + " başladı" + (S.bloodMoon ? " — bu gece KANLI AY 🔴" : ""), S.bloodMoon ? "bad" : "good");
@@ -2948,9 +2999,9 @@ function update(dt) {
   if (nearFire && fireDist < 5 && S.inv.raw > 0) { S.cookT += dt; if (S.cookT >= 3.5) { S.cookT = 0; S.inv.raw--; S.inv.cooked++; toast("🍗 Et pişti", "good"); } } else S.cookT = 0;
 
   // hayatta kalma
-  { const df = S.diff || 1;   // 🎚️ zorluk: açlık/susuzluk tüketimi
-    S.hunger = clamp(S.hunger - 0.42 * df * dt, 0, 100);
-    S.thirst = clamp(S.thirst - (sprinting ? 0.75 : 0.5) * df * dt, 0, 100); }   // koşunca daha çok susarsın
+  { const df = S.diff || 1, dm = 1 - 0.12 * perk("calm");   // 🎚️ zorluk · 🧠 Soğukkanlı yeteneği tüketimi azaltır
+    S.hunger = clamp(S.hunger - 0.42 * df * dm * dt, 0, 100);
+    S.thirst = clamp(S.thirst - (sprinting ? 0.75 : 0.5) * df * dm * dt, 0, 100); }   // koşunca daha çok susarsın
   if (nearFire) S.warmth = clamp(S.warmth + 9 * dt, 0, 100);
   else if (night) S.warmth = clamp(S.warmth - 1.25 * dt, 0, 100);
   else S.warmth = clamp(S.warmth - 0.18 * dt, 0, 100);
@@ -2960,7 +3011,7 @@ function update(dt) {
     S.sanity = clamp(S.sanity - 1.5 * dt, 0, 100);
     if (Math.random() < 0.004) { whisperText(choice(["mezarlar boş değil...", "burada yatanlar uyumaz", "gitme", "seni bekliyorduk", "toprağın altı soğuk"])); Sound.whisper(); }
   }
-  else if (night) S.sanity = clamp(S.sanity - 0.85 * dt, 0, 100);
+  else if (night) S.sanity = clamp(S.sanity - 0.85 * (1 - 0.12 * perk("calm")) * dt, 0, 100);   // 🧠 Soğukkanlı: gece akıl erimesi azalır
   else S.sanity = clamp(S.sanity + 0.3 * dt, 0, 100);
   // BİYOM İKLİMİ: kar üşütür, volkan kavurur (sıcak hasarı + susuzluk), peri huzur verir
   { const bz = BIOMES[curBiome];
@@ -2975,7 +3026,7 @@ function update(dt) {
   if (S.warmth <= 0) { dmg += 1.5; S.deathReason = "soğuk"; }
   if (S.sanity <= 0) { dmg += 2.5; S.deathReason = "delirme"; }
   if (dmg > 0) S.health = clamp(S.health - dmg * dt, 0, 100);
-  else if (S.hunger > 40 && S.warmth > 40 && S.sanity > 25 && S.thirst > 40 && S.sick <= 0) S.health = clamp(S.health + 0.8 * dt, 0, 100);
+  else if (S.hunger > 40 && S.warmth > 40 && S.sanity > 25 && S.thirst > 40 && S.sick <= 0) S.health = clamp(S.health + 0.8 * (1 + 0.5 * perk("vital")) * dt, 0, 100);   // ❤️ Dayanıklı: doğal iyileşme hızlanır
   if (S.health <= 0) { playerDied(S.deathReason || "bilinmeyen"); if (S.over || S.downed) return; }
 
   // korku — İzleyen (jumpscare YALNIZCA yaratık seni yakalayınca gelir — rastgele jumpscare kaldırıldı)
@@ -3307,6 +3358,7 @@ function drawMinimap() {
 }
 function updateHUD(night) {
   $("dayNum").textContent = S.day;
+  { const lv = $("lvl"); if (lv) { lv.textContent = "🌟" + (S.level || 1) + ((S.skillPts || 0) > 0 ? " 🎁" + S.skillPts : ""); lv.title = "XP " + Math.floor(S.xp || 0) + "/" + xpForLevel(S.level || 1) + " — K ile Yetenekler"; lv.classList.toggle("haspt", (S.skillPts || 0) > 0); } }
   const [ic, tx] = phaseInfo(S.time); $("phaseIcon").textContent = ic; $("phaseText").textContent = tx;
   { const bl = $("biomeLabel"); if (bl) bl.textContent = BIOMES[curBiome].name; }
   { const bb = $("bossBar"); if (bb) { const boss = bossAlive ? animals.find((a) => a.boss && Math.hypot(a.x - camera.position.x, a.z - camera.position.z) < 80) : null; if (boss) { bb.classList.remove("hidden"); const bn = $("bossName"); if (bn) bn.textContent = boss.type === "queen" ? "🕷️👑 MADEN KRALİÇESİ" : "👑 CULTIST KING"; const bf = $("bossFill"); if (bf) bf.style.width = clamp(boss.hp / (boss.maxhp || 95) * 100, 0, 100) + "%"; } else bb.classList.add("hidden"); } }
@@ -3505,7 +3557,7 @@ $("cr-close").addEventListener("click", () => closeCraft());
 const pauseBtn = $("pauseBtn");
 pauseBtn.addEventListener("click", () => togglePause());
 pauseBtn.addEventListener("touchstart", (e) => { isTouch = true; togglePause(); e.preventDefault(); }, { passive: false });
-addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); if (placeMode) exitPlace(); else if (adminOpen) toggleAdmin(); else if (guideOpen) closeGuide(); else if (changelogOpen) closeChangelog(); else if (settingsOpen) closeSettings(); else if (notesOpen) closeNotes(); else if (depotOpen) closeDepot(); else if (dropOpen) closeDrop(); else if (craftOpen) closeCraft(); else togglePause(); } });
+addEventListener("keydown", (e) => { if (e.key === "Escape" && S && S.running) { e.preventDefault(); if (placeMode) exitPlace(); else if (adminOpen) toggleAdmin(); else if (guideOpen) closeGuide(); else if (changelogOpen) closeChangelog(); else if (settingsOpen) closeSettings(); else if (notesOpen) closeNotes(); else if (depotOpen) closeDepot(); else if (dropOpen) closeDrop(); else if (perkOpen) closePerks(); else if (craftOpen) closeCraft(); else togglePause(); } });
 document.addEventListener("visibilitychange", () => { if (document.hidden && S && S.running) { S.paused = true; pauseBtn.textContent = "▶"; } });
 addEventListener("touchstart", () => { isTouch = true; }, { once: true, passive: true });
 const vBtn = $("btn-voice");
@@ -3532,7 +3584,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 70;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 71;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -3903,8 +3955,13 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "3.9";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "4.0";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "4.0", d: "9 Tem", items: [
+    "🌟 HAYATTA KALMA SEVİYESİ + YETENEK AĞACI (büyük güncelleme)! Av/savaş, ağaç kesme, kristal kazma, sandık açma ve hayatta kaldığın her gün XP kazandırır. Seviye atladıkça yetenek puanı alırsın.",
+    "🎁 K tuşu (mobilde 🌟 buton) ile Yetenekler menüsü: 💪 Sağlamlık (gelen hasar −), ⚔️ Savaşçı (yakın dövüş +), 🎯 Nişancı (menzilli +), 🪓 Usta Oduncu (daha hızlı topla), 🧠 Soğukkanlı (açlık/susuzluk/akıl yavaş erir), ❤️ Dayanıklı (can daha hızlı yenilenir).",
+    "💾 Seviyen, XP'in ve yeteneklerin DEVAM ET ile korunur. Sol üstte 🌟 seviye göstergesi; puanın varsa 🎁 ile parlar.",
+  ] },
   { v: "3.9", d: "9 Tem", items: [
     "📦 YARDIM ÇAĞIR (Sinyal) tarifi eklendi (tezgah Tier 3, 6⚙️ + 2🧶): istediğin an gökten yakınına bir malzeme kasası çağırırsın. Co-op'ta herkes aynı kasayı görür — kim önce varırsa alır. Metalini ihtiyaç anında malzemeye çevir!",
   ] },

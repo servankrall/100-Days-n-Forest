@@ -2292,6 +2292,7 @@ const RECIPES = [
   { tier: 3, name: "🧨 Dinamit", desc: "X ile patlat: çevredeki kristalleri kazar (💎) + yakındaki düşmanları vurur", cost: { metal: 5, gem: 1 }, make: (s) => s.inv.dynamite++ },
   { tier: 3, name: "💥 Fişek ×4", desc: "Pompalı tüfek için fişek dök", cost: { metal: 4 }, make: (s) => s.inv.shells += 4 },
   { tier: 3, name: "🎯 Tüfek Mermisi ×5", desc: "Tüfek için mermi dök (metal + mücevher)", cost: { metal: 3, gem: 1 }, make: (s) => s.inv.rifleAmmo += 5 },
+  { tier: 3, name: "📦 Yardım Çağır (Sinyal)", desc: "Gökten yakınına malzeme kasası çağırır (co-op'ta herkes görür)", cost: { metal: 6, cloth: 2 }, make: () => spawnAirdrop() },
   { tier: 3, name: "🧪 Zehirli Mızrak", desc: "Vurduğun düşmanı zehirler (zamanla erir)", cost: { metal: 4, gem: 1, cloth: 1 }, once: () => S.meleeOwned.poisonSpear, make: () => giveMelee("poisonSpear") },
   { tier: 3, up: 4, name: "⬆️ Tezgah Tier 4", desc: "4. seviye tarifleri açar", cost: { metal: 15, wood: 20 }, once: () => S.benchTier >= 4, make: (s) => s.benchTier = 4 },
   // ---- Tier 4 ----
@@ -3531,7 +3532,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 69;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 70;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -3776,7 +3777,7 @@ net.onData = (id, d) => {
   else if (d.t === "grantAdmin") { if (!net.host) { try { LS.setItem("orm_adminOK", "1"); } catch (e) {} toast("🛡️ Sana ADMİN yetkisi verildi! Panel: \\ ya da P (mobilde 🛡️)", "good"); Sound.crackle(); if (adminOpen) buildAdminPanel(); } }   // owner (host) seçtiği oyuncuya admin verdi
   else if (d.t === "drop") { if (d.item && !pickups.some((p) => p.id === d.id)) makePickup(d.x, d.z, d.item, { id: d.id, y: 1.25, vx: d.vx, vy: d.vy, vz: d.vz }); if (net.host) net.relay(id, d); }   // arkadaş eşya bıraktı → yerde göster
   else if (d.t === "grab") { const p = pickups.find((q) => q.id === d.id); if (p) grabPickup(p, true); if (net.host) net.relay(id, d); }   // arkadaş yerden aldı → herkeste kaldır
-  else if (d.t === "air") { if (d.item && !pickups.some((p) => p.id === d.id)) spawnAirdrop({ id: d.id, x: d.x, z: d.z, item: d.item }); }   // 📦 host malzeme kasası düşürdü → herkeste göster (aynı noktaya iner)
+  else if (d.t === "air") { if (d.item && !pickups.some((p) => p.id === d.id)) spawnAirdrop({ id: d.id, x: d.x, z: d.z, item: d.item }); if (net.host) net.relay(id, d); }   // 📦 malzeme kasası düştü/çağrıldı → herkeste göster (aynı noktaya iner); host diğer istemcilere ilet
 };
 function adminGrant(id) { try { net.sendTo(id, { t: "grantAdmin" }); adminMsg("🛡️ " + (remoteName[id] || id) + " → admin verildi ✓"); } catch (e) {} }
 
@@ -3902,8 +3903,11 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "3.8";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "3.9";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "3.9", d: "9 Tem", items: [
+    "📦 YARDIM ÇAĞIR (Sinyal) tarifi eklendi (tezgah Tier 3, 6⚙️ + 2🧶): istediğin an gökten yakınına bir malzeme kasası çağırırsın. Co-op'ta herkes aynı kasayı görür — kim önce varırsa alır. Metalini ihtiyaç anında malzemeye çevir!",
+  ] },
   { v: "3.8", d: "9 Tem", items: [
     "📦 GÖKTEN MALZEME KASASI (airdrop): oyun boyunca periyodik olarak gökten yeşil ışık huzmeli bir kasa düşer. Işığı takip et, bak + E → içinden rastgele kaynak paketi (odun/metal/yemek/mermi/bandaj...) çıkar. Co-op'ta host düşürür, herkes aynı yerde görür — kim önce varırsa alır.",
     "🧹 Temizlik: eski 'sürükle-taşı' mekaniğinden kalan ölü kod kaldırıldı (E ile direkt alma sonrası artık gereksizdi) — daha temiz, daha hızlı.",

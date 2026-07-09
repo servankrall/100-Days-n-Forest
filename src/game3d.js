@@ -2200,6 +2200,7 @@ const RECIPES = [
   { tier: 2, name: "🏹 Yay", desc: "Sessiz menzilli silah; Q ile kuşan, R / sağ tık ile ateş", cost: { wood: 8, rope: 2 }, once: () => S.weapons.bow, make: (s) => { s.weapons.bow = true; if (!s.equip) s.equip = "bow"; } },
   { tier: 2, name: "🔦 El Feneri", desc: "Geceleri/mağarada önünü aydınlatır (L); pil ile çalışır", cost: { metal: 5, gem: 1 }, once: () => S.flashlight, make: (s) => { s.flashlight = true; s.battery = 100; } },
   { tier: 2, name: "🎯 Ok ×10", desc: "Yay/arbalet için ok", cost: { rope: 1, wood: 2, metal: 1 }, make: (s) => s.inv.arrows += 10 },
+  { tier: 2, name: "🔫 Tabanca Mermisi ×8", desc: "Tabanca için mermi dök (metalden)", cost: { metal: 3 }, make: (s) => s.inv.pistolAmmo += 8 },
   // ---- Tier 2 ----
   { tier: 2, name: "🧭 Pusula", desc: "Baktığın yönü HUD'da gösterir", cost: { metal: 3 }, once: () => S.hasCompass, make: (s) => s.hasCompass = true },
   { tier: 2, name: "🪤 Ayı Tuzağı", desc: "Üretilir, KUR; üstünden geçen düşmanı yaralar", cost: { metal: 3, wood: 1 }, make: () => addPlaceable("trap") },
@@ -2213,6 +2214,8 @@ const RECIPES = [
   { tier: 3, name: "🪓 Güçlü Balta", desc: "Normal ağacı tek vuruşta devirir", cost: { metal: 14, gem: 1 }, once: () => S.tools.axe >= 2, make: (s) => s.tools.axe = 2 },
   { tier: 3, name: "🛡️ Metal Zırh", desc: "Yaratık hasarını −%35 azaltır (yıprandıkça kırılır)", cost: { metal: 12, cloth: 2 }, make: () => giveArmor(0.35, "Metal Zırh") },
   { tier: 3, name: "🧨 Dinamit", desc: "X ile patlat: çevredeki kristalleri kazar (💎) + yakındaki düşmanları vurur", cost: { metal: 5, gem: 1 }, make: (s) => s.inv.dynamite++ },
+  { tier: 3, name: "💥 Fişek ×4", desc: "Pompalı tüfek için fişek dök", cost: { metal: 4 }, make: (s) => s.inv.shells += 4 },
+  { tier: 3, name: "🎯 Tüfek Mermisi ×5", desc: "Tüfek için mermi dök (metal + mücevher)", cost: { metal: 3, gem: 1 }, make: (s) => s.inv.rifleAmmo += 5 },
   { tier: 3, name: "🧪 Zehirli Mızrak", desc: "Vurduğun düşmanı zehirler (zamanla erir)", cost: { metal: 4, gem: 1, cloth: 1 }, once: () => S.meleeOwned.poisonSpear, make: () => giveMelee("poisonSpear") },
   { tier: 3, up: 4, name: "⬆️ Tezgah Tier 4", desc: "4. seviye tarifleri açar", cost: { metal: 15, wood: 20 }, once: () => S.benchTier >= 4, make: (s) => s.benchTier = 4 },
   // ---- Tier 4 ----
@@ -3454,7 +3457,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 66;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 67;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -3822,8 +3825,11 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "3.5";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "3.6";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "3.6", d: "8 Tem", items: [
+    "🔫 MERMİ ÜRETİMİ eklendi (tezgah): metalden 🔫 tabanca mermisi (Tier 2, 3⚙️→8), 💥 fişek (Tier 3, 4⚙️→4) ve 🎯 tüfek mermisi (Tier 3, 3⚙️+1💎→5). Silahların kurusun diye endişelenme — metalini mermiye çevir!",
+  ] },
   { v: "3.5", d: "8 Tem", items: [
     "📦 DEPO SANDIĞI eklendi: kampta hazır bir tane var (ayrıca tezgahta üretip başka yere de kurabilirsin: 16🪵 + 2⚙️). Ağır kaynakları (odun/metal/mücevher/post...) içine bırak → çantan hafifler, aşırı yükten yavaşlamazsın. Yatır/çek paneli. İçindekiler DEVAM ET ile korunur.",
   ] },

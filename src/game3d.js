@@ -1202,6 +1202,7 @@ function newState() {
     airT: rnd(70, 120),                     // 📦 ilk malzeme kasası bu kadar sn sonra gökten düşer
     xp: 0, level: 1, skillPts: 0, perks: {},   // 🌟 hayatta kalma seviyesi + XP + yetenek ağacı
     event: null, eventT: 0, eventCd: rnd(55, 110), eventSub: 0,   // 🌍 dinamik dünya olayı (aktif id / kalan süre / sonrakine bekleme / alt-zamanlayıcı)
+    hasDog: false, dogHp: 40,   // 🐕 sadık yoldaş köpek (kayıtta korunur; update yeniden doğurur)
     notes: [],                              // bulunan günlük notları
   };
 }
@@ -1219,6 +1220,7 @@ const farms = [];     // {x,z,group,t,sprouts} — otomatik yiyecek üreten tarl
 const flags = [];     // {x,z,group} — mini harita işaretleri
 let baseFire = null;  // merkezi kalıcı kamp ateşi
 let watcher = null;   // {group,head,x,z,seen,life,alpha}
+let companion = null;   // 🐕 sadık yoldaş köpek {group,x,z,hp,maxhp,dir,state,atkCd,downT,barkCd}
 let wCd = 8, wEnc = 0;
 
 function clearDynamic() {
@@ -1234,6 +1236,7 @@ function clearDynamic() {
   for (const fl of flags) scene.remove(fl.group); flags.length = 0;
   baseFire = null;
   if (watcher) { scene.remove(watcher.group); watcher = null; }
+  if (companion) { scene.remove(companion.group); companion = null; }   // 🐕 yoldaş (S.hasDog hâlâ true'ysa update yeniden doğurur)
   for (const p of pickups) if (p.group) scene.remove(p.group); pickups.length = 0;   // yerdeki eşyalar
   for (const d of depots) if (d.group) scene.remove(d.group); depots.length = 0;   // 📦 depo sandıkları
   // sandıkları kapat (yeniden oyun)
@@ -1446,6 +1449,72 @@ function spawnPack() {                                         // sürü: 4-6 h�
   const bx = camera.position.x + Math.cos(baseAng) * bd, bz = camera.position.z + Math.sin(baseAng) * bd;
   for (let i = 0; i < n; i++) animals.push({ group: makeAnimal("pup"), x: bx + rnd(-3, 3), z: bz + rnd(-3, 3), type: "pup", hp: 3, state: "chase", dir: 0, atkCd: 0, bite: 0, hostile: true });
   Sound.growl(); whisperText("sürü geliyor!");
+}
+/* ===== 🐕 SADIK YOLDAŞ (köpek): seni takip eder, düşmanlarla dövüşür, avlanır, yaralanınca toparlanır ===== */
+function makeDog() {
+  const g = new THREE.Group();
+  const fur = new THREE.MeshStandardMaterial({ color: 0x8a5a2b, roughness: 1 }), dark = new THREE.MeshStandardMaterial({ color: 0x593819, roughness: 1 });
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.22, 0.5, 4, 8), fur); body.rotation.z = Math.PI / 2; body.position.set(0, 0.42, 0); g.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 10), fur); head.position.set(0.42, 0.5, 0); head.scale.set(1, 0.95, 0.95); g.add(head);
+  const snout = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.14), dark); snout.position.set(0.58, 0.46, 0); g.add(snout);
+  for (const sz of [-1, 1]) { const ear = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.16, 6), dark); ear.position.set(0.36, 0.66, sz * 0.11); g.add(ear); }
+  const eyeM = new THREE.MeshStandardMaterial({ color: 0x140a04 });
+  for (const sz of [-1, 1]) { const e = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 8), eyeM); e.position.set(0.53, 0.54, sz * 0.08); g.add(e); }
+  for (let i = 0; i < 4; i++) { const lx = i < 2 ? 0.26 : -0.24, lz = (i % 2 ? 1 : -1) * 0.14; const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.045, 0.42, 6), dark); leg.position.set(lx, 0.2, lz); g.add(leg); }
+  const tail = new THREE.Mesh(new THREE.CapsuleGeometry(0.05, 0.28, 3, 6), fur); tail.position.set(-0.34, 0.55, 0); tail.rotation.z = -0.9; g.add(tail);
+  if (shadowsOn) g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  g.add(plight(0xffe0a0, 0.35, 4, 0.7, 0, 0.5, 0));   // hafif sıcak ışık (gece görünürlük)
+  scene.add(g); return g;
+}
+function spawnCompanion(hp) {
+  if (companion || !scene) return companion;
+  const ang = rnd(0, 6.28);
+  const x = clamp(camera.position.x + Math.cos(ang) * 2, -CFG.WORLD, CFG.WORLD), z = clamp(camera.position.z + Math.sin(ang) * 2, -CFG.WORLD, CFG.WORLD);
+  companion = { group: makeDog(), x, z, hp: hp || 40, maxhp: 40, dir: ang, state: "follow", atkCd: 0, downT: 0, barkCd: 0 };
+  companion.group.position.set(x, 0.02, z);
+  if (S) { S.hasDog = true; S.dogHp = companion.hp; }
+  toast("🐕 Sadık yoldaşın artık yanında — seni korur ve avlanır!", "good"); Sound.step();
+  return companion;
+}
+function petDog() {
+  if (!companion) return; const c = companion;
+  if (c.downT > 0) { c.downT = Math.min(c.downT, 1.5); toast("🐕 Yoldaşını canlandırıyorsun...", "good"); Sound.step(); return; }
+  if ((S.inv.cooked || 0) > 0 && c.hp < c.maxhp) { S.inv.cooked--; c.hp = Math.min(c.maxhp, c.hp + 20); S.dogHp = c.hp; toast("🍗 Yoldaşını besledin — iyileşti (+can)", "good"); Sound.chop(); }
+  else { toast("🐕 Yoldaşın kuyruğunu salladı 🐾", "good"); Sound.step(); }
+}
+function updateCompanion(dt) {
+  if (S.hasDog && !companion && S.running && !S.over) spawnCompanion(S.dogHp);   // çağrıldıysa / dünya yenilendiyse yeniden doğur
+  if (!companion) return;
+  const c = companion, px = camera.position.x, pz = camera.position.z;
+  if (c.downT > 0) {   // yaralı yatıyor → yavaş toparlanır
+    c.downT -= dt;
+    if (c.downT <= 0) { c.hp = c.maxhp * 0.5; S.dogHp = c.hp; toast("🐕 Yoldaşın kendine geldi!", "good"); }
+    c.group.position.set(c.x, 0.12, c.z); c.group.rotation.set(0, -c.dir, 1.4); return;
+  }
+  c.group.rotation.z = 0;
+  let tgt = null, td = 15;
+  for (const a of animals) { if (!(a.hostile || a.type === "jaguar" || BEAST[a.type] || a.boss)) continue; const d = Math.hypot(a.x - c.x, a.z - c.z); if (d < td) { td = d; tgt = a; } }
+  const near = Math.hypot(px - c.x, pz - c.z);
+  if (tgt && td < 14 && near < 24) {   // düşmana saldır (oyuncudan çok uzaklaşma)
+    c.state = "attack"; c.dir = Math.atan2(tgt.z - c.z, tgt.x - c.x);
+    if (td > 1.5) { c.x += Math.cos(c.dir) * 6.4 * dt; c.z += Math.sin(c.dir) * 6.4 * dt; }
+    else if (c.atkCd <= 0) {
+      c.atkCd = 0.65; tgt.hp -= 6; Sound.growl();
+      if (tgt.hp <= 0) killAnimal(tgt);
+      else { tgt.hostile = true; if (tgt.state != null) tgt.state = "chase"; c.hp -= (BEAST[tgt.type] || tgt.boss) ? 5 : 2.5; if (c.hp <= 0) { c.hp = 0; c.downT = 16; toast("🐕 Yoldaşın yaralandı — birazdan toparlanır", "bad"); } }
+    }
+    if (c.barkCd <= 0) { c.barkCd = 4; }
+  } else {   // oyuncuyu takip et
+    c.state = "follow";
+    if (near > 2.6) { c.dir = Math.atan2(pz - c.z, px - c.x); const sp = near > 9 ? 7.8 : 4.4; c.x += Math.cos(c.dir) * sp * dt; c.z += Math.sin(c.dir) * sp * dt; }
+    if (near > 46) { c.x = px - Math.cos(c.dir) * 2; c.z = pz - Math.sin(c.dir) * 2; }   // çok geride kaldı → yanına ışınla (takılma önleme)
+    if (c.hp < c.maxhp) { c.hp = Math.min(c.maxhp, c.hp + 0.7 * dt); S.dogHp = c.hp; }   // sakinken yavaş iyileş
+  }
+  c.atkCd -= dt; c.barkCd -= dt;
+  c.x = clamp(c.x, -CFG.WORLD, CFG.WORLD); c.z = clamp(c.z, -CFG.WORLD, CFG.WORLD);
+  const moving = c.state === "attack" ? td > 1.5 : near > 2.6;
+  const bob = moving ? Math.abs(Math.sin(performance.now() / 90)) * 0.08 : 0;
+  c.group.position.set(c.x, 0.02 + bob, c.z); c.group.rotation.y = -c.dir;
 }
 /* ----- BİYOM YARATIKLARI + CULTIST KING boss ----- */
 const BEAST = {
@@ -1705,6 +1774,7 @@ function findTarget() {
   for (const c of chests) if (!c.opened) consider(c.x, c.z, 3.6, "chest", c);
   for (const d of depots) consider(d.x, d.z, 3.4, "depot", d);   // 📦 depo sandığı
   for (const p of pickups) consider(p.x, p.z, 3.0, "pickup", p);   // yerdeki taşınabilir eşya (AL)
+  if (companion) consider(companion.x, companion.z, 2.8, "companion", companion);   // 🐕 yoldaşı sev / besle / canlandır
   for (const w of walls) if (w.hp != null && w.hp < w.maxhp - 1) consider(w.x, w.z, 3.0, "wall", w);   // hasarlı duvar → çekiçle tamir
   if (!S.inMine && mineEntrance) consider(mineEntrance.x, mineEntrance.z, 4.4, "mineenter", null);   // ⛏️ madene in
   if (S.inMine && mineExit) consider(mineExit.x, mineExit.z, 4.4, "mineexit", null);                 // 🪜 yüzeye çık
@@ -1882,6 +1952,7 @@ function doAction() {
   const t = findTarget();
   if (!t) { if (S.tools.rod && S.fishing <= 0 && nearWater()) startFishing(); return; }   // hedef yoksa: göl kenarında olta at
   if (t.kind === "pickup") { grabPickup(t.obj); return; }      // yerdeki eşyayı AL → doğrudan envantere
+  if (t.kind === "companion") { petDog(); return; }            // 🐕 yoldaşı sev / pişmiş etle besle / canlandır
   if (t.kind === "mineenter") { enterMine(); return; }        // ⛏️ madene in (ekran kararır → ışınlanır)
   if (t.kind === "mineexit") { exitMine(); return; }          // 🪜 yüzeye çık
   if (t.kind === "depot") { openDepot(); return; }            // 📦 depo sandığı aç
@@ -2380,6 +2451,7 @@ const RECIPES = [
   // ---- Tier 2 ----
   { tier: 2, name: "🪓 İyi Balta", desc: "Ağaçları 2 vuruşta keser (eski baltadan hızlı)", cost: { metal: 6, wood: 4 }, once: () => S.tools.axe >= 1, make: (s) => s.tools.axe = Math.max(s.tools.axe, 1) },
   { tier: 2, name: "🧰 Sağlık Çantası", desc: "+75 can (🩹 butonu önce bunu kullanır)", cost: { cloth: 3, metal: 2 }, make: (s) => s.inv.medkit++ },
+  { tier: 2, name: "🐕 Sadık Yoldaş (Köpek)", desc: "Seni takip eder, düşmanlarla dövüşür ve senin için avlanır; yaralanırsa toparlanır. Pişmiş etle beslersin (bak+E).", cost: { cooked: 3, pelt: 2, rope: 1 }, once: () => !!companion || (S && S.hasDog), make: () => spawnCompanion() },
   { tier: 2, name: "🔨 Çekiç", desc: "Hasarlı/çürüyen duvarları tamir eder (odunla)", cost: { metal: 4, wood: 4 }, once: () => S.tools.hammer, make: (s) => s.tools.hammer = true },
   { tier: 2, name: "🏹 Yay", desc: "Sessiz menzilli silah; Q ile kuşan, R / sağ tık ile ateş", cost: { wood: 8, rope: 2 }, once: () => S.weapons.bow, make: (s) => { s.weapons.bow = true; if (!s.equip) s.equip = "bow"; } },
   { tier: 2, name: "🔦 El Feneri", desc: "Geceleri/mağarada önünü aydınlatır (L); pil ile çalışır", cost: { metal: 5, gem: 1 }, once: () => S.flashlight, make: (s) => { s.flashlight = true; s.battery = 100; } },
@@ -2829,7 +2901,7 @@ function saveProgress() {
       day: S.day, time: S.time, inv: S.inv, tools: S.tools, notes: S.notes,
       health: S.health, hunger: S.hunger, warmth: S.warmth, sanity: S.sanity, thirst: S.thirst,
       weapons: S.weapons, meleeOwned: S.meleeOwned, melee: S.melee, equip: S.equip, flashlight: S.flashlight, battery: S.battery, armor: S.armor, armorDef: S.armorDef, cls: S.cls, peltTrades: S.peltTrades, backpack: S.backpack,
-      diff: S.diff, depot: S.depot, xp: S.xp, level: S.level, skillPts: S.skillPts, perks: S.perks, x: sx, z: sz, ts: Date.now(),
+      diff: S.diff, depot: S.depot, xp: S.xp, level: S.level, skillPts: S.skillPts, perks: S.perks, hasDog: S.hasDog, dogHp: S.dogHp, x: sx, z: sz, ts: Date.now(),
     }));
   } catch (e) {}
 }
@@ -2850,6 +2922,7 @@ function applySave() {
   if (sv.diff != null) S.diff = sv.diff;   // 🎚️ zorluk geri yüklenir
   if (sv.depot) S.depot = sv.depot;   // 📦 depo içeriği geri yüklenir
   if (sv.xp != null) S.xp = sv.xp; if (sv.level != null) S.level = sv.level; if (sv.skillPts != null) S.skillPts = sv.skillPts; if (sv.perks) S.perks = sv.perks;   // 🌟 seviye + yetenekler geri yüklenir
+  if (sv.hasDog) { S.hasDog = true; S.dogHp = sv.dogHp != null ? sv.dogHp : 40; }   // 🐕 yoldaş korunur (update yeniden doğurur)
   if (sv.notes) S.notes = sv.notes;
   S.health = sv.health != null ? sv.health : 100; S.hunger = sv.hunger != null ? sv.hunger : 100;
   S.warmth = sv.warmth != null ? sv.warmth : 100; S.sanity = sv.sanity != null ? sv.sanity : 100;
@@ -3145,6 +3218,7 @@ function update(dt) {
   }
 
   updateAnimals(dt);
+  updateCompanion(dt);   // 🐕 sadık yoldaş köpek
 
   // ağaca asılan kamera fotoğrafları yaşlanıp solar
   for (let i = photos.length - 1; i >= 0; i--) { const p = photos[i]; p.t -= dt; if (p.t < 4) p.mat.opacity = Math.max(0, p.t / 4); if (p.t <= 0) { scene.remove(p.mesh); photos.splice(i, 1); } }
@@ -3433,6 +3507,7 @@ function updateHUD(night) {
     if (S.armor > 0 && S.armorDef > 0) parts.push("🛡️" + Math.round(S.armor) + "%");
     if (S.flashlight) parts.push("🔦" + (S.flashOn ? Math.round(S.battery) + "%" : "·"));
     if (S.inv.dynamite > 0) parts.push("🧨" + S.inv.dynamite + " (X)");
+    if (companion) parts.push("🐕" + Math.round(companion.hp) + (companion.downT > 0 ? "⛑️" : ""));   // yoldaş canı
     if (carryWeight() > carryLimit()) parts.push("⚖️ aşırı yük!");
     if (parts.length) { wh.textContent = parts.join("  ·  "); wh.classList.remove("hidden"); } else wh.classList.add("hidden");
   }
@@ -3444,7 +3519,7 @@ function updateHUD(night) {
   const akey = isTouch ? "VUR" : "[Sol tık / E]";
   if (t) {
     const axeTxt = S.tools.chainsaw ? "🪚 Kes (basılı tut) " : (["🪓 Odun kes ", "🪓 Odun kes (iyi) ", "🪓 Odun kes (güçlü) ", "🪓 Admin Balta (tek vuruş) "][S.tools.axe || 0] || "🪓 Odun kes ");
-    const txt = t.kind === "mineenter" ? "⛏️ Madene in " : t.kind === "mineexit" ? "🪜 Yüzeye çık " : t.kind === "depot" ? "📦 Depo (yatır/çek) " : t.kind === "pickup" ? "✋ " + t.obj.item.label + " AL " : t.kind === "bench" ? "🛠️ Tezgah " : t.kind === "scav" ? "🤝 Takas (5⚙️) " : t.kind === "pelt" ? "🧵 Kürk takası (5 post) " : t.kind === "tree" ? axeTxt : t.kind === "scrap" ? "⚙️ Metal topla " : t.kind === "crystal" ? (S.tools.pickaxe ? "💎 Kristal kaz " : "💎 Kristal (⛏️ gerek) ") : t.kind === "chest" ? "📦 Sandığı aç " : t.kind === "wall" ? (S.tools.hammer ? "🔨 Duvarı tamir et " : "🔨 Çekiç gerek ") : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ");
+    const txt = t.kind === "mineenter" ? "⛏️ Madene in " : t.kind === "mineexit" ? "🪜 Yüzeye çık " : t.kind === "depot" ? "📦 Depo (yatır/çek) " : t.kind === "pickup" ? "✋ " + t.obj.item.label + " AL " : t.kind === "companion" ? (t.obj.downT > 0 ? "🐕 Yoldaşını canlandır " : (S.inv.cooked > 0 && t.obj.hp < t.obj.maxhp ? "🍗 Yoldaşını besle " : "🐾 Yoldaşını sev ")) : t.kind === "bench" ? "🛠️ Tezgah " : t.kind === "scav" ? "🤝 Takas (5⚙️) " : t.kind === "pelt" ? "🧵 Kürk takası (5 post) " : t.kind === "tree" ? axeTxt : t.kind === "scrap" ? "⚙️ Metal topla " : t.kind === "crystal" ? (S.tools.pickaxe ? "💎 Kristal kaz " : "💎 Kristal (⛏️ gerek) ") : t.kind === "chest" ? "📦 Sandığı aç " : t.kind === "wall" ? (S.tools.hammer ? "🔨 Duvarı tamir et " : "🔨 Çekiç gerek ") : "⚔️ " + (t.obj.hostile ? "Savaş " : "Avla ");
     promptEl.textContent = txt + akey; promptEl.classList.remove("hidden");
   } else if (S.fishing > 0) { promptEl.textContent = "🎣 Balık bekleniyor... (gölden ayrılma)"; promptEl.classList.remove("hidden"); }   // olta atıldı
   else if (nearWater() && S.tools.rod) { promptEl.textContent = "🎣 Balık tut " + (isTouch ? "(VUR)" : "(E)"); promptEl.classList.remove("hidden"); }   // göl kenarı + olta
@@ -3644,7 +3719,7 @@ function showMe() { if (!account) return; $("ac-me").classList.remove("hidden");
 loadAccount(); if (account) showMe(); applyAdminVisibility();   // admin butonları yalnızca hesap sahibine
 
 /* ----- GÜNCELLEME UYARISI: version.json'daki build bundan büyükse ana menüde "güncelle" göster ----- */
-const GAME_BUILD = 72;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
+const GAME_BUILD = 73;   // bu sürümün numarası — her yayında ARTIR (version.json ile aynı tut)
 let updateURL = "https://github.com/servankrall/100-Days-n-Forest/releases/latest";
 // Dış linki SİSTEM tarayıcısında aç (native webview'ler target=_blank'i engelliyor)
 function openExternal(url) {
@@ -4017,8 +4092,13 @@ function closeGuide() { guideOpen = false; $("guide").classList.add("hidden"); }
 { const pg = $("pz-guide"); if (pg) pg.addEventListener("click", () => { closePause(); openGuide(); }); }
 
 /* ----------------------- GÜNCELLEME NOTLARI (ana ekran update log) ----------------------- */
-const GAME_VERSION = "4.1";   // görünen sürüm (version.json ile aynı tut)
+const GAME_VERSION = "4.2";   // görünen sürüm (version.json ile aynı tut)
 const CHANGELOG = [
+  { v: "4.2", d: "9 Tem", items: [
+    "🐕 SADIK YOLDAŞ (KÖPEK) eklendi! Tezgahta Tier 2'de edin (3🍗 + 2🧵 + 1🪢): seni takip eder, yaklaşan düşmanlara saldırır ve senin için avlanır. Silah HUD'unda canı görünür (🐕).",
+    "🍗 Bak + E: yaralıysa pişmiş etle besle (+can), sağlıklıysa sev 🐾. Canı biterse ölmez — yere yatar, biraz dinlenince toparlanır (başında beklersen daha hızlı).",
+    "💾 Yoldaşın DEVAM ET ile korunur (canıyla birlikte). Çok geride kalırsa yanına ışınlanır, kaybolmaz.",
+  ] },
   { v: "4.1", d: "9 Tem", items: [
     "🌍 DİNAMİK DÜNYA OLAYLARI (büyük)! Oyun ilerledikçe rastgele olaylar dünyayı değiştirir; ekranda büyük afişle duyurulur: ☄️ Göktaşı Yağmuru (gökten değerli maden düşer — ama yakınına düşerse yakar!), 🐺 Yırtıcı Sürüsü (bir sürü avcı seni avlar), 🌫️ Zehirli Sis (görüş kapanır + can/akıl erir; ateşe/kampa sığın), 🦋 Orman Kutsaması (can/akıl toparlanır — iyi olay).",
     "🌐 Co-op senkron: olayları host başlatır ve herkese yayınlar; aynı anda herkes yaşar. Solo'da da çalışır.",
